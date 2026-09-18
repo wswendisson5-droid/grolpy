@@ -260,6 +260,29 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// MySQL health check isolated from application startup.
+// mysql2 is loaded lazily so a database/driver failure never takes the Groply process down.
+app.get("/api/database/health", async (_req, res) => {
+  try {
+    const mysqlModule: any = await import("mysql2/promise");
+    const mysql: any = mysqlModule.default || mysqlModule;
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST || "localhost",
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      connectTimeout: 8000,
+    });
+    const [rows]: any = await connection.query("SELECT DATABASE() AS db, NOW() AS now");
+    await connection.end();
+    res.json({ success: true, database: rows?.[0]?.db || process.env.DB_NAME, connected: true });
+  } catch (err: any) {
+    console.error("[DB] health:", err?.code || err?.message || err);
+    res.status(503).json({ success: false, connected: false, code: err?.code || "DB_ERROR", error: err?.message || "MySQL indisponível" });
+  }
+});
+
 // 2. Fetch all instances available on the Evolution server
 app.get("/api/evolution/instances", async (_req, res) => {
   try {
