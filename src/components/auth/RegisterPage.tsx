@@ -54,6 +54,11 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       const response = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:fullName,email,phone,password}) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Não foi possível criar a conta.');
+      const loginResponse = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+      const loginData = await loginResponse.json();
+      if(!loginResponse.ok || !loginData.token) throw new Error(loginData.error || 'Conta criada. Entre para continuar.');
+      localStorage.setItem('groply_token', loginData.token);
+      localStorage.setItem('groply_user', JSON.stringify(loginData.user));
       onRegisterSuccess();
     } catch (err:any) { setErrorMessage(err.message || 'Não foi possível criar a conta.'); }
     finally { setIsLoading(false); }
