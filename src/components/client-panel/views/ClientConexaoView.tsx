@@ -58,17 +58,8 @@ export const ClientConexaoView: React.FC = () => {
       const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'});
       const data=await res.json();
       if(!res.ok) throw new Error(data.error||'Falha ao criar conexão');
-      if(data.qrCode) {
-        await handleSetQrCode(data.qrCode);
-        setStatus('waiting_qr');
-        return;
-      }
-      const qrRes=await fetch('/api/evolution/qrcode',{headers:authHeaders()});
-      const qrData=await qrRes.json();
-      if(!qrRes.ok) throw new Error(qrData.error||'Falha ao gerar QR Code');
-      const q=qrData.qrCode || qrData.qrcode || qrData;
-      if(!q?.base64 && !q?.code) throw new Error('QR Code não retornado pela Evolution');
-      await handleSetQrCode(q);
+      if(!data.qrCode?.base64 && !data.qrCode?.code) throw new Error('QR Code não retornado pela Evolution');
+      await handleSetQrCode(data.qrCode);
       setStatus('waiting_qr');
     } catch(e){console.error(e);setStatus('error')}
   };
