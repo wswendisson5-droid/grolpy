@@ -38,9 +38,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   // Core Client Data State
-  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>(INITIAL_AGENDA_ITEMS);
-  const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>(INITIAL_DIVULGACOES);
-  const [groups, setGroups] = useState<ClientGroup[]>(INITIAL_CLIENT_GROUPS);
+  const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
+  const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>([]);
+  const [groups, setGroups] = useState<ClientGroup[]>([]);
   const [planUsage, setPlanUsage] = useState(INITIAL_PLAN_USAGE);
 
   // WhatsApp Profile State (Connected photo & real phone number)
@@ -51,11 +51,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     isConnected: boolean;
     isLoading: boolean;
   }>({
-    name: 'Wendisson',
-    number: '+55 (27) 99659-9231',
-    pictureUrl: 'https://pps.whatsapp.net/v/t61.24694-24/727266863_1741805150164968_1070853679651659019_n.jpg?ccb=11-4&oh=01_Q5Aa5gHNiSCD-HPMhoLiyww2yD6mL1f80Hfm7jVKFeJiwEj1uA&oe=6AB25744&_nc_sid=5e03e0&_nc_cat=106',
-    isConnected: true,
-    isLoading: false,
+    isConnected: false,
+    isLoading: true,
   });
 
   // Fetch real data from backend
@@ -169,14 +166,14 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const statusData = await clientService.getWhatsAppStatus();
       setWhatsappProfile({
-        name: statusData.profile?.name || 'Wendisson',
-        number: statusData.profile?.number || '+55 (27) 99659-9231',
+        name: statusData.isConnected ? statusData.profile?.name : undefined,
+        number: statusData.isConnected ? statusData.profile?.number : undefined,
         pictureUrl: statusData.profile?.pictureUrl,
         isConnected: statusData.isConnected,
         isLoading: false,
       });
     } catch {
-      setWhatsappProfile(prev => ({ ...prev, isLoading: false }));
+      setWhatsappProfile({ isConnected: false, isLoading: false });
     }
   };
 
