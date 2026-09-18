@@ -538,7 +538,7 @@ export default function App() {
         )}
 
         {/* OTHER SECONDARY TABS FALLBACK: CONTATOS, GRUPOS, ETC. */}
-        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && (
+        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && currentTab !== 'assinantes' && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#f7faf8]">
             <div className="w-14 h-14 rounded-2xl bg-[#eaf4ef] flex items-center justify-center text-[#12382c] mb-4">
               <HugeIcon icon={Target02Icon} size={28} />
