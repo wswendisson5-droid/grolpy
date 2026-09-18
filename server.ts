@@ -2017,6 +2017,17 @@ app.post("/api/client/plan", (req, res) => {
   });
 });
 
+app.get("/api/onboarding/payment-status", async (req,res)=>{
+ try{
+  const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Sessão inválida."});
+  const db:any=await import("./database.cjs"); const sub=await db.getSubscriptionForUser(user.id); if(!sub?.current_payment_id)return res.json({success:true,status:"pending",access:false});
+  const pay:any=await asaasEngine.getPayment(sub.current_payment_id); const st=String(pay?.status||"").toUpperCase(); const paid=["RECEIVED","CONFIRMED","RECEIVED_IN_CASH"].includes(st);
+  if(paid){await db.applyPaymentEvent(`poll:${sub.current_payment_id}:${st}`,"PAYMENT_CONFIRMED",{id:sub.current_payment_id});}
+  const refreshed=await db.getUserByToken(String(req.headers.authorization||"").replace(/^Bearer\s+/i,"").trim());
+  res.json({success:true,status:st||sub.status,access:refreshed?.status==="active"});
+ }catch(e:any){res.status(500).json({success:false,error:"Não foi possível confirmar o pagamento."});}
+});
+
 app.get("/api/account/status", async (req,res)=>{
   try{
     const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Sessão inválida."});
