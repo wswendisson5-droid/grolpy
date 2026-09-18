@@ -34,6 +34,9 @@ jobs:
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
+          # Forca o cPanel/Passenger a iniciar o backend em modo de producao.
+          printf 'NODE_ENV=production\nEVOLUTION_INSTANCE_NAME=nexus-crm-01\nASAAS_ENVIRONMENT=production\n' > deploy/.env
+
           # Backend compilado + copia do frontend para o fallback SPA do Express
           cp -r dist deploy/dist
 
