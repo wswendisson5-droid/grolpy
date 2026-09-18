@@ -54,7 +54,7 @@ export default function App() {
   useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('groply_token');if(!token){if(alive)setPanelMode('landing');return;}try{const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error();const d=await r.json();if(!alive)return;if(d?.user?.role==='admin')setPanelMode('admin');else if(d?.access)setPanelMode('client');else if(d?.subscription)setPanelMode('public-checkout');else setPanelMode('public-plans');}catch{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');if(alive)setPanelMode('landing')}})();return()=>{alive=false}},[]);
   const logout=()=>{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');setPanelMode('landing');};
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('conexao');
+  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes>('radar');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
