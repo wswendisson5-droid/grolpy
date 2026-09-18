@@ -160,6 +160,7 @@ interface ClientCheckoutViewProps {
   onGoToPlans: () => void;
   onGoToNovaDivulgacao: () => void;
   onOpenSupport?: () => void;
+  onboardingMode?: boolean;
 }
 
 export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
@@ -170,12 +171,18 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   onGoToPlans,
   onGoToNovaDivulgacao,
   onOpenSupport,
+  onboardingMode = false,
 }) => {
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>(initialPlanId);
   const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(initialMethod);
   const [step, setStep] = useState<CheckoutStep>('method-selection');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const storedUser = (()=>{try{return JSON.parse(localStorage.getItem('groply_user')||'{}')}catch{return {}}})();
+  const [customerName,setCustomerName]=useState(storedUser.name||'');
+  const [customerEmail,setCustomerEmail]=useState(storedUser.email||'');
+  const [customerPhone,setCustomerPhone]=useState(storedUser.phone||'');
+  const [customerCpf,setCustomerCpf]=useState('');
   const [copiedPix, setCopiedPix] = useState(false);
   const [copiedBoleto, setCopiedBoleto] = useState(false);
   const [showCvv, setShowCvv] = useState(false);
@@ -211,15 +218,22 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   const [cardCvv, setCardCvv] = useState('');
   const [installments, setInstallments] = useState('1');
 
-  // Customer info with user's fixed Pix parameters
-  const customer = {
-    name: 'Wendisson santos Santana',
-    email: 'daianewendisson@gmail.com',
-    cpfCnpj: '087.355.455-85',
-    phone: '27996599231',
+  const customer = onboardingMode ? {name:customerName,email:customerEmail,cpfCnpj:customerCpf,phone:customerPhone} : {
+    name: customerName || storedUser.name || '', email: customerEmail || storedUser.email || '', cpfCnpj: customerCpf, phone: customerPhone || storedUser.phone || ''
   };
 
   const selectedPlan = PLANS[selectedPlanId] || PLANS.pro;
+  const createOnboardingPix = async () => {
+    setErrorMessage(null); setIsLoading(true);
+    try {
+      if(!customerCpf.trim()) throw new Error('Informe seu CPF para gerar o Pix.');
+      const token=localStorage.getItem('groply_token')||'';
+      const res=await fetch('/api/onboarding/subscribe',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({planId:selectedPlanId,cpfCnpj:customerCpf})});
+      const data=await res.json(); if(!res.ok||!data.success)throw new Error(data.error||'Não foi possível gerar o Pix.');
+      const p:any={id:data.payment.id,status:data.payment.status||'PENDING',billingType:'PIX',value:selectedPlan.price,planId:selectedPlanId,planName:selectedPlan.name,customer,dueDate:'',pix:data.payment.pix,createdAt:new Date().toISOString()};
+      setPaymentData(p); setStep('pix');
+    } catch(e:any){setErrorMessage(e.message||'Não foi possível gerar o Pix.')} finally{setIsLoading(false)}
+  };
 
   // Pix timer countdown
   useEffect(() => {
