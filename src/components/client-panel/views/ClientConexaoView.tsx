@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 
@@ -7,6 +7,7 @@ export const ClientConexaoView: React.FC = () => {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const qrActiveRef = useRef(false);
 
   const handleSetQrCode = async (codeData: any) => {
     if (!codeData) return;
@@ -32,29 +33,31 @@ export const ClientConexaoView: React.FC = () => {
         const appState = data.state;
         
         if (appState === 'connected' || appState === 'open') {
+          qrActiveRef.current = false;
           setStatus('connected');
           setProfile(data.connectedProfile);
-        } else {
+        } else if (!qrActiveRef.current) {
           setQrCode(null);
           setProfile(null);
           setStatus('disconnected');
         }
-      } else if (res.status === 404) {
+      } else if (!qrActiveRef.current) {
          setQrCode(null); setProfile(null); setStatus('disconnected');
-      } else {
-         setStatus('disconnected');
       }
     } catch (e) {
       console.error(e);
       // Falha ao consultar a Evolution não deve transformar uma conta sem conexão em erro.
-      setQrCode(null);
-      setProfile(null);
-      setStatus('disconnected');
+      if (!qrActiveRef.current) {
+        setQrCode(null);
+        setProfile(null);
+        setStatus('disconnected');
+      }
     }
   };
 
   const createInstance = async () => {
     try {
+      qrActiveRef.current = true;
       setErrorMessage(''); setQrCode(null); setStatus('loading');
       const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'});
       const raw=await res.text();
@@ -69,6 +72,7 @@ export const ClientConexaoView: React.FC = () => {
       setStatus('waiting_qr');
     } catch(e:any){
       console.error(e);
+      qrActiveRef.current = false;
       setErrorMessage(e?.message || 'Não foi possível gerar o QR Code.');
       setStatus('error');
     }
@@ -98,7 +102,7 @@ export const ClientConexaoView: React.FC = () => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 8000);
+    const interval = setInterval(fetchStatus, 5000);
     return () => clearInterval(interval);
   }, []);
 
