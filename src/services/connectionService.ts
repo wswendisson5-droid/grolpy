@@ -3,7 +3,7 @@ import { ConnectionInfo, ConnectionStatus, QrCodeData } from '../types/connectio
 import { safeEncodeURIComponent } from '../utils/safeUri';
 
 class ConnectionService {
-  private currentSelectedInstance: string = 'nexus-crm-01';
+  private currentSelectedInstance: string = '';
 
   /**
    * Get the locally selected instance name
@@ -42,70 +42,7 @@ class ConnectionService {
         }
       }
 
-      return {
-        instanceName: data.instanceName || 'nexus-crm-01',
-        platform: data.platform || 'Evolution API',
-        status: data.state as ConnectionStatus,
-        webhookStatus: data.webhook?.status || 'waiting',
-        webhookUrl: data.webhook?.url,
-        lastUpdate: data.lastUpdated,
-        qrCode,
-        profile: data.connectedProfile,
-        messagesToday: 27,
-        lastActivity: 'Há 1 minuto',
-        apiStatus: 'online',
-        configured: data.configured,
-        instanceExists: data.instanceExists,
-        error: data.error,
-      };
-    } catch (err: any) {
-      return {
-        instanceName: instanceName || 'nexus-crm-01',
-        platform: 'Evolution API',
-        status: 'waiting_qr',
-        webhookStatus: 'waiting',
-        error: err.message,
-        apiStatus: 'online',
-      };
-    }
-  }
-
-  /**
-   * Request a fresh QR code from the backend Evolution proxy
-   */
-  async requestNewQrCode(instanceName?: string): Promise<{ success: boolean; qrCode?: QrCodeData; instanceName?: string; error?: string }> {
-    try {
-      const url = instanceName
-        ? `/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`
-        : '/api/evolution/qrcode';
-      const res = await fetch(url);
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (data.needsCreation) {
-          // Instance doesn't exist yet; automatically attempt creation
-          return this.createInstance(instanceName);
-        }
-
-        // If credentials are not yet configured on server, render a demo WhatsApp connection QR
-        const sampleCode = `2@DEMO-NEXUS-EVOLUTION-${Date.now()},1B8qWz0L,s8y4qj==`;
-        const base64 = await QRCode.toDataURL(sampleCode, {
-          margin: 2,
-          width: 320,
-          color: {
-            dark: '#12382c',
-            light: '#ffffff',
-          },
-        });
-        return {
-          success: true,
-          instanceName: instanceName || 'minhabagg-leads',
-          qrCode: {
-            code: sampleCode,
-            base64,
-            updatedAt: Date.now(),
-          },
-        };
+      throw new Error('QR Code indisponível na Evolution API.');
       }
 
       let qrCode = data.qrCode;
