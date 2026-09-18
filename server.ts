@@ -274,9 +274,32 @@ app.get("/api/database/health", async (_req, res) => {
       database: process.env.DB_NAME,
       connectTimeout: 8000,
     });
+    await connection.query(`CREATE TABLE IF NOT EXISTS migrations (
+      id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(190) NOT NULL UNIQUE,
+      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    const [migrations]: any = await connection.query("SELECT name FROM migrations WHERE name='001_users_sessions' LIMIT 1");
+    if (!migrations.length) {
+      await connection.query(`CREATE TABLE IF NOT EXISTS users (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(150) NOT NULL, email VARCHAR(190) NOT NULL UNIQUE,
+        phone VARCHAR(30) NULL, password_hash VARCHAR(255) NOT NULL,
+        plan VARCHAR(30) NOT NULL DEFAULT 'start', status VARCHAR(30) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await connection.query(`CREATE TABLE IF NOT EXISTS sessions (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL,
+        token_hash CHAR(64) NOT NULL UNIQUE, expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX(user_id), INDEX(expires_at),
+        CONSTRAINT fk_sessions_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await connection.execute("INSERT INTO migrations(name) VALUES (?)", ["001_users_sessions"]);
+    }
     const [rows]: any = await connection.query("SELECT DATABASE() AS db, NOW() AS now");
     await connection.end();
-    res.json({ success: true, database: rows?.[0]?.db || process.env.DB_NAME, connected: true });
+    res.json({ success: true, database: rows?.[0]?.db || process.env.DB_NAME, connected: true, migrations: true });
   } catch (err: any) {
     console.error("[DB] health:", err?.code || err?.message || err);
     res.status(503).json({ success: false, connected: false, code: err?.code || "DB_ERROR", error: err?.message || "MySQL indisponível" });
