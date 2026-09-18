@@ -40,6 +40,16 @@ NODEEOF
           # Forca o cPanel/Passenger a iniciar o backend em modo de producao.
           printf 'NODE_ENV=production\nEVOLUTION_INSTANCE_NAME=nexus-crm-01\nASAAS_ENVIRONMENT=production\n' > deploy/.env
 
+          # Garante que /api/* seja entregue ao Express/Passenger, e nao pelo Apache como 404.
+          cat > deploy/.htaccess <<'HTEOF'
+PassengerEnabled on
+PassengerAppType node
+PassengerStartupFile server.js
+PassengerAppRoot /home3/minhabagg/grolpy.minhabagg.com.br
+PassengerBaseURI /
+Options -MultiViews
+HTEOF
+
           # Backend compilado + copia do frontend para o fallback SPA do Express
           cp -r dist deploy/dist
 
