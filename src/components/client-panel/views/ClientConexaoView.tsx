@@ -45,7 +45,10 @@ export const ClientConexaoView: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
-      setStatus('error');
+      // Falha ao consultar a Evolution não deve transformar uma conta sem conexão em erro.
+      setQrCode(null);
+      setProfile(null);
+      setStatus('disconnected');
     }
   };
 
