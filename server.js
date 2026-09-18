@@ -1,5 +1,3 @@
 // Setup Node.js App (cPanel / Passenger) Entrypoint
-// This file serves as a simple bootstrap to load the compiled TypeScript backend.
-// It allows cPanel to start the app using "server.js" as the application startup file.
-
+// CommonJS bootstrap: package.json uses type=module, while the compiled backend is dist/server.cjs.
 import './dist/server.cjs';
