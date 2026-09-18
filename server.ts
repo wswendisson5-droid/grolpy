@@ -350,6 +350,15 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+app.post("/api/auth/self-test", async (_req,res)=>{
+  if(process.env.NODE_ENV==="production") return res.status(404).json({error:"Not found"});
+  try{
+    const db:any=await import("./database.cjs"); const tag=Date.now(); const email=`auth-test-${tag}@grolpy.local`; const password=`Test-${tag}-Aa1`;
+    await db.registerUser("Auth Test",email,"",password); const login=await db.loginUser(email,password);
+    res.json({success:Boolean(login?.token)});
+  }catch(e:any){res.status(500).json({success:false,error:e?.code||e?.message});}
+});
+
 // 2. Fetch all instances available on the Evolution server
 app.get("/api/evolution/instances", async (_req, res) => {
   try {
