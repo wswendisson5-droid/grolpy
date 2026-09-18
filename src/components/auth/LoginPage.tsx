@@ -18,7 +18,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -28,10 +28,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email,password}) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Não foi possível entrar.');
+      localStorage.setItem('groply_token', data.token);
+      localStorage.setItem('groply_user', JSON.stringify(data.user));
       onLoginSuccess();
-    }, 600);
+    } catch (err:any) { setErrorMessage(err.message || 'Não foi possível entrar.'); }
+    finally { setIsLoading(false); }
   };
 
   const handleGoogleLogin = () => {
