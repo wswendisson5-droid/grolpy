@@ -16,55 +16,15 @@ class ConnectionService {
    * Fetch current instance connection status and profile from the backend
    */
   async getStatus(instanceName?: string): Promise<ConnectionInfo> {
-    try {
-      const url = instanceName
-        ? `/api/evolution/status?instance=${safeEncodeURIComponent(instanceName)}`
-        : '/api/evolution/status';
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(`Erro na resposta do servidor (${res.status})`);
-      }
-      const data = await res.json();
+    const url=instanceName?`/api/evolution/status?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/status';
+    const res=await fetch(url); if(!res.ok) throw new Error(`Erro na resposta do servidor (${res.status})`);
+    const data=await res.json(); let qrCode=data.qrCode;
+    if(qrCode?.code&&!qrCode?.base64){try{qrCode.base64=await QRCode.toDataURL(qrCode.code,{margin:2,width:320,color:{dark:'#12382c',light:'#ffffff'}})}catch{}}
+    return {instanceName:data.instanceName||instanceName||'',platform:data.platform||'Evolution API',status:data.state||data.status||'disconnected',webhookStatus:data.webhook?.status||'waiting',qrCode,profile:data.connectedProfile,apiStatus:'online',messagesToday:0,lastActivity:data.lastUpdated||''} as ConnectionInfo;
+  }
 
-      let qrCode = data.qrCode;
-      if (qrCode?.code && !qrCode?.base64) {
-        try {
-          qrCode.base64 = await QRCode.toDataURL(qrCode.code, {
-            margin: 2,
-            width: 320,
-            color: {
-              dark: '#12382c',
-              light: '#ffffff',
-            },
-          });
-        } catch (e) {
-          console.error('Error generating QR from code:', e);
-        }
-      }
-
-      throw new Error('QR Code indisponível na Evolution API.');
-      }
-
-      let qrCode = data.qrCode;
-      if (qrCode?.code && !qrCode?.base64) {
-        try {
-          qrCode.base64 = await QRCode.toDataURL(qrCode.code, {
-            margin: 2,
-            width: 320,
-            color: {
-              dark: '#12382c',
-              light: '#ffffff',
-            },
-          });
-        } catch (e) {
-          console.error('Failed to convert code to QR image:', e);
-        }
-      }
-
-      return { success: true, qrCode, instanceName: data.instanceName };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
+  async requestNewQrCode(instanceName?: string): Promise<{success:boolean;qrCode?:QrCodeData;instanceName?:string;error?:string}> {
+    try{const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';const res=await fetch(url);const data=await res.json();if(!res.ok)return {success:false,error:data.error||'QR indisponível'};let qrCode=data.qrCode;if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);return {success:true,qrCode,instanceName:data.instanceName};}catch(err:any){return {success:false,error:err.message};}
   }
 
   /**
@@ -181,7 +141,7 @@ class ConnectionService {
       const data = await res.json();
       return data;
     } catch {
-      return { success: false, currentInstance: 'nexus-crm-01', instances: [] };
+      return { success: false, currentInstance: '', instances: [] };
     }
   }
 
