@@ -374,7 +374,7 @@ app.post("/api/admin/test-subscriber", async (req,res)=>{
 
 app.get("/api/admin/subscriptions", async (_req,res)=>{
  try{const db:any=await import("./database.cjs");res.json({success:true,subscriptions:await db.listAdminSubscriptions()});}
- catch(e:any){res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
+ catch(e:any){console.error("[ADMIN-SUBSCRIPTIONS]",e?.code||e?.message);res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
 });
 app.post("/api/admin/subscriptions/:userId/action", async (req,res)=>{
  try{const action=String(req.body?.action||"");if(!["approve","renew","suspend"].includes(action))return res.status(400).json({error:"Ação inválida"});
