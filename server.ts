@@ -1,6 +1,9 @@
 import express, { Request, Response } from "express";
 import path from "path";
 import fs from "fs";
+import http from "http";
+import https from "https";
+import net from "net";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { radarEngine } from "./server/radarEngine";
@@ -16,8 +19,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Evolution API credentials from environment
-const DEFAULT_EVOLUTION_URL = (process.env.EVOLUTION_API_URL || "https://143.95.217.174").replace(/\/+$/, "");
-const DEFAULT_EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || "ae6da6860c03e5e5385edd7689313ae941958d5f10b47923d962e141a106f103";
+const DEFAULT_EVOLUTION_URL = (process.env.EVOLUTION_API_URL || "").replace(/\/+$/, "");
+const DEFAULT_EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || "";
 const DEFAULT_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || "minhabagg-leads";
 
 // Server-side in-memory cache for Evolution state & webhook events
@@ -71,65 +74,71 @@ async function callEvolution(endpoint: string, options: RequestInit = {}, timeou
   const apiKey = memoryState.apiKey || DEFAULT_EVOLUTION_KEY;
 
   if (!apiUrl || !apiKey || apiUrl.includes("yourdomain.com")) {
-    return {
-      ok: false,
-      status: 400,
-      data: { error: "Credenciais da Evolution API precisam ser configuradas com uma URL válida." },
-    };
+    return { ok: false, status: 400, data: { error: "Credenciais da Evolution API não estão configuradas." } };
   }
 
-  // Ensure protocol
-  if (!apiUrl.startsWith("http://") && !apiUrl.startsWith("https://")) {
-    apiUrl = `https://${apiUrl}`;
-  }
+  if (!apiUrl.startsWith("http://") && !apiUrl.startsWith("https://")) apiUrl = `https://${apiUrl}`;
   apiUrl = apiUrl.replace(/\/+$/, "");
 
-  const url = `${apiUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+  const target = new URL(`${apiUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`);
   const headers: Record<string, string> = {
-    "apikey": apiKey,
+    apikey: apiKey,
     "Content-Type": "application/json",
-    ...(options.headers as Record<string, string> || {}),
+    ...((options.headers as Record<string, string>) || {}),
   };
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const body = typeof options.body === "string" ? options.body : undefined;
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      signal: controller.signal,
+    const result = await new Promise<{ ok: boolean; status: number; data: any }>((resolve, reject) => {
+      const transport = target.protocol === "https:" ? https : http;
+      const requestOptions: https.RequestOptions = {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || undefined,
+        path: `${target.pathname}${target.search}`,
+        method: options.method || "GET",
+        headers,
+        // Evolution is currently configured by raw IP behind Traefik, whose default
+        // certificate cannot validate against the IP. Limit the TLS exception to
+        // that raw-IP integration only; normal hostnames keep certificate validation.
+        ...(target.protocol === "https:" && net.isIP(target.hostname)
+          ? { rejectUnauthorized: false }
+          : {}),
+      };
+
+      const req = transport.request(requestOptions, (res) => {
+        let raw = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => { raw += chunk; });
+        res.on("end", () => {
+          let data: any = null;
+          try { data = raw ? JSON.parse(raw) : null; } catch { data = raw || null; }
+          const status = res.statusCode || 500;
+          resolve({ ok: status >= 200 && status < 300, status, data });
+        });
+      });
+
+      req.setTimeout(timeoutMs, () => req.destroy(new Error("EVOLUTION_TIMEOUT")));
+      req.on("error", reject);
+      if (body) req.write(body);
+      req.end();
     });
-    clearTimeout(timeout);
 
-    const data = await response.json().catch(() => null);
-
-    // If Evolution Prisma pool timed out or connection closed and we have retries left, wait 1.5s and retry
-    const errorMsg = JSON.stringify(data || "");
-    if (!response.ok && retryCount > 0 && (errorMsg.includes("connection pool") || errorMsg.includes("Connection Closed") || response.status === 500)) {
+    const errorMsg = JSON.stringify(result.data || "");
+    if (!result.ok && retryCount > 0 && (errorMsg.includes("connection pool") || errorMsg.includes("Connection Closed") || result.status === 500)) {
       await new Promise((r) => setTimeout(r, 1500));
       return callEvolution(endpoint, options, timeoutMs, retryCount - 1);
     }
-
-    return { ok: response.ok, status: response.status, data };
+    return result;
   } catch (err: any) {
-    clearTimeout(timeout);
     if (retryCount > 0) {
       await new Promise((r) => setTimeout(r, 1500));
       return callEvolution(endpoint, options, timeoutMs, retryCount - 1);
     }
-    if (err.name === "AbortError") {
-      return {
-        ok: false,
-        status: 408,
-        data: { error: "Tempo limite excedido ao conectar com a Evolution API." },
-      };
+    if (err?.message === "EVOLUTION_TIMEOUT") {
+      return { ok: false, status: 408, data: { error: "Tempo limite excedido ao conectar com a Evolution API." } };
     }
-    return {
-      ok: false,
-      status: 502,
-      data: { error: err.message || "Erro de rede ao contatar a Evolution API." },
-    };
+    return { ok: false, status: 502, data: { error: err?.message || "Erro de rede ao contatar a Evolution API." } };
   }
 }
 
