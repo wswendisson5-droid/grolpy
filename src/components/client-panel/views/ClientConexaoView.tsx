@@ -57,7 +57,12 @@ export const ClientConexaoView: React.FC = () => {
     try {
       setErrorMessage(''); setQrCode(null); setStatus('loading');
       const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'});
-      const data=await res.json();
+      const raw=await res.text();
+      let data:any={};
+      try { data=raw ? JSON.parse(raw) : {}; }
+      catch {
+        throw new Error(res.status===503 ? 'Servidor reiniciando. Tente novamente em alguns segundos.' : 'O servidor não retornou uma resposta válida para gerar o QR Code.');
+      }
       if(!res.ok) throw new Error(data.error||'Falha ao criar conexão');
       if(!data.qrCode?.base64 && !data.qrCode?.code) throw new Error('QR Code não retornado pela Evolution');
       await handleSetQrCode(data.qrCode);
