@@ -29,7 +29,7 @@ interface ClientHistoricoViewProps {
 
 export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewCampaign }) => {
   const [historyItems, setHistoryItems] = useState<ClientHistoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Selected item for the side drawer
@@ -48,8 +48,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
   const [copiedId, setCopiedId] = useState(false);
 
   const loadHistory = async () => {
-    // Only show full loading spinner on first load if we don't have items yet
-    if (historyItems.length === 0) setIsLoading(true);
+    setIsLoading(true);
     try {
       const data = await clientService.getHistory();
       if (Array.isArray(data)) {
@@ -442,7 +441,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
           {isLoading ? (
             <div className="bg-white p-12 rounded-3xl border border-[#e5ebe7] flex flex-col items-center justify-center gap-3 text-center shadow-xs">
               <div className="w-10 h-10 rounded-full border-3 border-[#109353] border-t-transparent animate-spin" />
-              <p className="text-xs font-bold text-[#62776c]">Carregando histórico em tempo real...</p>
+              <p className="text-xs font-bold text-[#62776c]">Carregando histórico...</p>
             </div>
           ) : groupedSections.length === 0 ? (
             /* Real Clean Empty State - Zero Fake Data */
@@ -455,7 +454,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
                   Nenhum histórico de envio registrado ainda
                 </h3>
                 <p className="text-xs sm:text-sm text-[#5f7467] leading-relaxed">
-                  Assim que suas divulgações forem disparadas nos grupos de WhatsApp, cada envio aparecerá detalhado aqui com horário, grupo e relatório em tempo real.
+                  Assim que suas divulgações forem disparadas nos grupos de WhatsApp, cada envio ficará salvo aqui com horário, grupo, mensagem e status do disparo.
                 </p>
               </div>
               {onNewCampaign && (
