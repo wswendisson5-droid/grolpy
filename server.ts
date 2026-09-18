@@ -1987,35 +1987,13 @@ function getUniqueGroupsInAutomations(campaigns: ClientCampaign[], excludeId?: s
 }
 
 // Plan endpoints
-app.get("/api/client/plan", (_req, res) => {
-  const limits = CLIENT_PLAN_LIMITS[clientPlanState.planId] || CLIENT_PLAN_LIMITS.pro;
-  const uniqueGroups = getUniqueGroupsInAutomations(clientCampaignsStore);
-  const activeCount = clientCampaignsStore.filter((c) => c.active && c.status !== 'concluida').length;
-  const totalSent = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
-
-  res.json({
-    success: true,
-    subscription: clientPlanState,
-    limits,
-    usage: {
-      uniqueGroupsCount: uniqueGroups.size,
-      activeCampaignsCount: activeCount,
-      monthlySendsCount: totalSent,
-    },
-  });
+app.get("/api/client/plan", async (req,res)=>{
+ const own:any=await ownedInstance(req,false); if(own.error)return res.status(401).json({error:"UNAUTHORIZED"});
+ const sub=await own.db.getSubscriptionForUser(own.user.id); const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max'; const limits=CLIENT_PLAN_LIMITS[planId];
+ const campaigns=await own.db.listCampaignsForUser(own.user.id); const history=await own.db.listHistoryForUser(own.user.id,31);
+ res.json({success:true,subscription:{planId,status:sub?.status||"pending",validUntil:sub?.next_due_date||null},limits,usage:{uniqueGroupsCount:getUniqueGroupsInAutomations(campaigns).size,activeCampaignsCount:campaigns.filter((c:any)=>c.active&&c.status!=="concluida").length,monthlySendsCount:history.filter((h:any)=>h.status==="delivered").length}});
 });
-
-app.post("/api/client/plan", (req, res) => {
-  const { planId } = req.body;
-  if (planId && CLIENT_PLAN_LIMITS[planId as 'start' | 'pro' | 'max']) {
-    clientPlanState.planId = planId as 'start' | 'pro' | 'max';
-  }
-  res.json({
-    success: true,
-    subscription: clientPlanState,
-    limits: CLIENT_PLAN_LIMITS[clientPlanState.planId],
-  });
-});
+app.post("/api/client/plan", async (req,res)=>res.status(405).json({error:"O plano é alterado somente pelo fluxo de assinatura."}));
 
 app.get("/api/onboarding/payment-status", async (req,res)=>{
  try{
@@ -2150,18 +2128,9 @@ app.post("/api/webhook/asaas", async (req, res) => {
 });
 
 // Get real campaigns
-app.get("/api/client/campaigns", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
-  clientCampaignsStore.forEach((c) => {
-    if (c.delaySeconds === 600) {
-      c.delaySeconds = 120;
-      c.intervalMinutes = 2;
-    }
-  });
-  res.json({
-    success: true,
-    campaigns: clientCampaignsStore,
-  });
+app.get("/api/client/campaigns", async (req,res)=>{
+ const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const campaigns=await own.db.listCampaignsForUser(own.user.id); res.json({success:true,campaigns});
 });
 
 // Create new campaign with real schedule support
@@ -2306,6 +2275,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
   };
 
   clientCampaignsStore.unshift(newCampaign);
+  await own.db.saveCampaignForUser(own.user.id,newCampaign);
   saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
   res.json({ success: true, campaign: newCampaign });
 });
@@ -2865,18 +2835,20 @@ setInterval(async () => {
 }, 3000);
 
 // Get real history
-app.get("/api/client/history", (_req, res) => {
-  res.json({
-    success: true,
-    total: clientHistoryStore.length,
-    history: clientHistoryStore,
-  });
+app.get("/api/client/history", async (req,res)=>{
+ const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const sub=await own.db.getSubscriptionForUser(own.user.id); const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max'; const days=CLIENT_PLAN_LIMITS[planId].historyDays;
+ const history=await own.db.listHistoryForUser(own.user.id,days); res.json({success:true,total:history.length,history});
 });
 
 // Client Dashboard Unified Stats - 100% REAL DATA, 0 MOCK
 app.get("/api/client/stats", async (req, res) => {
-  const reqInstance = (req.query.instance as string) || "minhabagg-leads";
-  const instance = await getActiveConnectedInstance(reqInstance);
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const instance = own.instance;
+  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
+  const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);
+  const sub=await own.db.getSubscriptionForUser(own.user.id);
+  const userPlanId=(sub?.plan_id||"start") as 'start'|'pro'|'max';
 
   const importedGroups = clientImportedGroupsStore.get(instance) || [];
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
@@ -2893,7 +2865,7 @@ app.get("/api/client/stats", async (req, res) => {
     .filter((c) => c.status === 'agendada' || c.status === 'ativa' || c.status === 'enviando')
     .reduce((acc, c) => acc + Math.max(0, (c.groupsCount || 1) - (c.totalSent || 0)), 0);
 
-  const currentPlanLimits = CLIENT_PLAN_LIMITS[clientPlanState.planId] || CLIENT_PLAN_LIMITS.pro;
+  const currentPlanLimits = CLIENT_PLAN_LIMITS[userPlanId];
   const uniqueGroups = getUniqueGroupsInAutomations(clientCampaignsStore);
 
   // Daily rounds used today (distinct scheduled campaign runs today)
