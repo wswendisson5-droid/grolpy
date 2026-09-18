@@ -11,11 +11,7 @@ import {
   Crown,
   Headphones,
   MoreVertical,
-  X,
-  Check,
-  Shield,
-  Building,
-  ArrowLeftRight,
+  X
 } from 'lucide-react';
 import { ClientTab, AppPanelMode } from './types';
 import { planService } from '../../services/planService';
@@ -245,50 +241,10 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                   </div>
 
                   <div className="p-1.5 border-b border-[#f0f4f1]">
-                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[#798b81] flex items-center gap-1.5">
-                      <ArrowLeftRight size={12} />
-                      <span>Trocar de Painel</span>
-                    </div>
-
                     <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        onSwitchPanel && onSwitchPanel('admin');
-                      }}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#1f3329] font-medium transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Shield size={15} className="text-[#109353]" />
-                        <span className="font-semibold">Painel Administrativo</span>
-                      </div>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        onSwitchPanel && onSwitchPanel('client');
-                      }}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left bg-[#e8f7ee] text-[#109353] font-bold transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Building size={15} className="text-[#109353]" />
-                        <span>Painel do Cliente</span>
-                      </div>
-                      <Check size={14} className="text-[#109353]" />
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        onSwitchPanel && onSwitchPanel('landing');
-                      }}
-                      className="w-full flex items-center justify-between px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#1f3329] font-medium transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-[#109353] font-bold text-sm">🌐</span>
-                        <span className="font-semibold">Ver Site / Início</span>
-                      </div>
-                    </button>
+                      onClick={() => { setIsUserMenuOpen(false); onSwitchPanel && onSwitchPanel('landing'); }}
+                      className="w-full flex items-center px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#1f3329] font-medium"
+                    >Ver site / início</button>
                   </div>
 
                   <div className="p-1">
