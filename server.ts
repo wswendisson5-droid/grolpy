@@ -2281,7 +2281,10 @@ app.post("/api/client/campaigns/create", async (req, res) => {
 });
 
 // Toggle campaign active state
-app.post("/api/client/campaigns/toggle", async (req, res) => {\n  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});\n  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);\n  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
+app.post("/api/client/campaigns/toggle", async (req, res) => {
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
+  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
   const { id } = req.body;
   const camp = clientCampaignsStore.find((c) => c.id === id);
   if (!camp) {
@@ -2550,7 +2553,10 @@ async function executeGroupDispatch(
 app.post("/api/client/campaigns/send-now", async (req, res) => {
   const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const { campaignId, customGroupJids, customMessage, imageUrl, instanceName, intervalSeconds } = req.body;
-  const instanceParam = own.instance;\n  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);\n  const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);\n  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
+  const instanceParam = own.instance;
+  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
+  const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);
+  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
   const instance = await getActiveConnectedInstance(instanceParam);
 
   let camp = clientCampaignsStore.find((c) => c.id === campaignId);
