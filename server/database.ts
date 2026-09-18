@@ -194,3 +194,12 @@ export async function adminSetSubscription(userId:number,action:string){
  else if(action==="renew"){await pool.execute("UPDATE users SET status='active' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='active',next_due_date=DATE_ADD(COALESCE(GREATEST(next_due_date,CURDATE()),CURDATE()),INTERVAL 1 MONTH) WHERE user_id=?",[userId]);}
  else throw new Error("INVALID_ACTION");
 }
+
+export async function createPendingTestSubscriber(data:any){
+ const email=String(data.email).trim().toLowerCase(); let [rows]:any=await pool.execute("SELECT id,name,email,status FROM users WHERE email=? LIMIT 1",[email]); let user=rows[0];
+ if(!user){user=await registerUser(String(data.name).trim(),email,String(data.phone||""),String(data.password));}
+ await pool.execute("UPDATE users SET status='pending_payment',plan=? WHERE id=?",[data.planId||"start",user.id]);
+ await pool.execute(`INSERT INTO subscriptions(user_id,plan_id,status,next_due_date) VALUES(?,?, 'pending', CURDATE())
+ ON DUPLICATE KEY UPDATE plan_id=VALUES(plan_id),status='pending',next_due_date=CURDATE()`,[user.id,data.planId||"start"]);
+ return {id:user.id,name:data.name,email,status:"pending_payment",planId:data.planId||"start"};
+}
