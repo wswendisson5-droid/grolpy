@@ -2017,6 +2017,14 @@ app.post("/api/client/plan", (req, res) => {
   });
 });
 
+app.get("/api/account/status", async (req,res)=>{
+  try{
+    const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Sessão inválida."});
+    const db:any=await import("./database.cjs"); const subscription=await db.getSubscriptionForUser(user.id); const instance=await db.getUserInstance(user.id);
+    res.json({success:true,user,subscription:subscription?{planId:subscription.plan_id,status:subscription.status,nextDueDate:subscription.next_due_date}:null,whatsapp:instance?{status:instance.status,connected:instance.status==="connected"}:null,access:user.status==="active"});
+  }catch(e:any){res.status(500).json({success:false,error:"Não foi possível consultar a conta."});}
+});
+
 // Public onboarding: authenticated account chooses a plan and receives the first real recurring Pix charge.
 app.post("/api/onboarding/subscribe", async (req,res)=>{
   try{
