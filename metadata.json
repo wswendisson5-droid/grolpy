@@ -1,0 +1,6 @@
+{
+  "name": "Grouply",
+  "description": "Grouply - Automação e inteligência para disparos e gerenciamento em grupos do WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

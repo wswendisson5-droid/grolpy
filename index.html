@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Grouply</title>
+    <meta name="description" content="Grouply - Automação e inteligência para disparos e gerenciamento em grupos do WhatsApp." />
+    <meta property="og:title" content="Grouply" />
+    <meta property="og:description" content="Grouply - Automação e inteligência para disparos e gerenciamento em grupos do WhatsApp." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        var _decodeURI = window.decodeURI;
+        var _decodeURIComponent = window.decodeURIComponent;
+        var _encodeURIComponent = window.encodeURIComponent;
+
+        window.decodeURI = function(uri) {
+          try {
+            return _decodeURI(uri);
+          } catch (e) {
+            if (e instanceof URIError) {
+              try {
+                return _decodeURI(String(uri).replace(/%(?![0-9a-fA-F]{2})/g, '%25'));
+              } catch (_) {
+                return String(uri);
+              }
+            }
+            throw e;
+          }
+        };
+
+        window.decodeURIComponent = function(val) {
+          try {
+            return _decodeURIComponent(val);
+          } catch (e) {
+            if (e instanceof URIError) {
+              try {
+                return _decodeURIComponent(String(val).replace(/%(?![0-9a-fA-F]{2})/g, '%25'));
+              } catch (_) {
+                return String(val);
+              }
+            }
+            throw e;
+          }
+        };
+
+        window.encodeURIComponent = function(val) {
+          try {
+            var str = String(val == null ? '' : val);
+            if (typeof str.toWellFormed === 'function') {
+              str = str.toWellFormed();
+            } else {
+              str = str.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+            }
+            return _encodeURIComponent(str);
+          } catch (e) {
+            if (e instanceof URIError) {
+              try {
+                var cleaned = String(val == null ? '' : val).replace(/[\uD800-\uDFFF]/g, '');
+                return _encodeURIComponent(cleaned);
+              } catch (_) {
+                return escape(String(val == null ? '' : val));
+              }
+            }
+            throw e;
+          }
+        };
+      })();
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-[#f8faf9] text-[#1a201c] font-sans antialiased selection:bg-[#1b4332] selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
