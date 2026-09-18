@@ -367,6 +367,16 @@ app.get("/api/auth/diagnostic", async (_req,res)=>{
  }catch(e:any){console.error("[AUTH-DIAGNOSTIC]",e?.code||e?.message);res.status(500).json({success:false,error:"AUTH_DATABASE_ERROR"});}
 });
 
+app.get("/api/admin/subscriptions", async (_req,res)=>{
+ try{const db:any=await import("./database.cjs");res.json({success:true,subscriptions:await db.listAdminSubscriptions()});}
+ catch(e:any){res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
+});
+app.post("/api/admin/subscriptions/:userId/action", async (req,res)=>{
+ try{const action=String(req.body?.action||"");if(!["approve","renew","suspend"].includes(action))return res.status(400).json({error:"Ação inválida"});
+ const db:any=await import("./database.cjs");await db.adminSetSubscription(Number(req.params.userId),action);res.json({success:true});}
+ catch(e:any){res.status(500).json({success:false,error:"Não foi possível atualizar a assinatura."});}
+});
+
 // 2. Fetch all instances available on the Evolution server
 app.get("/api/evolution/instances", async (_req, res) => {
   try {
