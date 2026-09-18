@@ -1,0 +1,36 @@
+name: Build Grolpy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Compilar Grolpy
+        run: npm run build
+
+      - name: Salvar build
+        uses: actions/upload-artifact@v4
+        with:
+          name: grolpy-build
+          path: |
+            dist/
+            server.js
+            package.json
+          if-no-files-found: error
