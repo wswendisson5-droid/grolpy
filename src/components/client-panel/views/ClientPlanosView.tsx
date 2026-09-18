@@ -25,12 +25,14 @@ interface ClientPlanosViewProps {
   onOpenSupport?: () => void;
   onPlanChanged?: (newPlanId: PlanId) => void;
   onOpenCheckout?: (planId: PlanId) => void;
+  publicMode?: boolean;
 }
 
 export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
   onOpenSupport,
   onPlanChanged,
   onOpenCheckout,
+  publicMode = false,
 }) => {
   const [currentPlanId, setCurrentPlanId] = useState<PlanId>(planService.getSubscription().planId);
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
@@ -176,7 +178,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
           </div>
 
           <div className="pt-6">
-            {currentPlanId === 'start' ? (
+            {!publicMode && currentPlanId === 'start' ? (
               <button
                 disabled
                 className="w-full py-2.5 bg-[#e8f7ee] text-[#109353] font-extrabold text-xs sm:text-sm rounded-2xl border border-[#bce8cc] text-center"
@@ -200,7 +202,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
           className="bg-[#062c20] text-white rounded-3xl p-5 sm:p-6 flex flex-col justify-between shadow-lg relative border border-[#0d4432] ring-2 ring-[#00c968]/30"
         >
           {/* Badge "Plano atual" */}
-          {currentPlanId === 'pro' && (
+          {!publicMode && currentPlanId === 'pro' && (
             <div className="absolute top-4 right-4 px-2.5 py-0.5 rounded-full bg-[#34d399] text-[#062c20] text-[11px] font-extrabold">
               Plano atual
             </div>
@@ -273,7 +275,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
           </div>
 
           <div className="pt-6">
-            {currentPlanId === 'pro' ? (
+            {!publicMode && currentPlanId === 'pro' ? (
               <button
                 disabled
                 className="w-full py-2.5 bg-[#00c968] text-[#04261b] font-black text-xs sm:text-sm rounded-2xl shadow-xs text-center cursor-default"
@@ -363,7 +365,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
           </div>
 
           <div className="pt-6">
-            {currentPlanId === 'max' ? (
+            {!publicMode && currentPlanId === 'max' ? (
               <button
                 disabled
                 className="w-full py-2.5 bg-[#e8f7ee] text-[#109353] font-extrabold text-xs sm:text-sm rounded-2xl border border-[#bce8cc] text-center"
