@@ -359,6 +359,14 @@ app.post("/api/auth/self-test", async (_req,res)=>{
   }catch(e:any){res.status(500).json({success:false,error:e?.code||e?.message});}
 });
 
+app.get("/api/auth/diagnostic", async (_req,res)=>{
+ try{
+  const db:any=await import("./database.cjs");
+  const result=await db.authDiagnostic();
+  res.json({success:true,...result});
+ }catch(e:any){console.error("[AUTH-DIAGNOSTIC]",e?.code||e?.message);res.status(500).json({success:false,error:"AUTH_DATABASE_ERROR"});}
+});
+
 // 2. Fetch all instances available on the Evolution server
 app.get("/api/evolution/instances", async (_req, res) => {
   try {
