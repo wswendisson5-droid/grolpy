@@ -33,6 +33,8 @@ export const ClientConexaoView: React.FC = () => {
         if (appState === 'connected' || appState === 'open') {
           setStatus('connected');
           setProfile(data.connectedProfile);
+        } else if (data.instanceExists === false) {
+          await createInstance();
         } else {
           setStatus('waiting_qr');
           if (data.qrCode) {
