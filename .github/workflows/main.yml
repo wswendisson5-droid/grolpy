@@ -35,13 +35,16 @@ jobs:
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
-          # Garante que /api/* seja entregue ao Express/Passenger, e nao pelo Apache como 404.
+          # Configuracao suportada pelo CloudLinux Node.js Selector + LiteSpeed.
+          # Nao inclui segredos e nao toca no .env persistente do servidor.
           printf '%s\n' \
-            'PassengerEnabled on' \
-            'PassengerAppType node' \
-            'PassengerStartupFile server.js' \
             'PassengerAppRoot /home3/minhabagg/grolpy.minhabagg.com.br' \
             'PassengerBaseURI /' \
+            'PassengerAppType node' \
+            'PassengerStartupFile server.js' \
+            'PassengerAppEnv production' \
+            'PassengerNodejs /home3/minhabagg/nodevenv/grolpy.minhabagg.com.br/22/bin/node' \
+            'SetEnv LSNODE_CONSOLE_LOG stderr.log' \
             'Options -MultiViews' > deploy/.htaccess
 
           # Backend compilado + copia do frontend para o fallback SPA do Express
