@@ -171,21 +171,34 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
     }
   };
 
-  // Initial load: fetch status first; only request QR if not connected
+  // ADM: discover the real Evolution instance first. Never generate QR for a connected instance.
   useEffect(() => {
     let mounted = true;
     const init = async () => {
-      const data = await fetchStatus();
-      if (mounted && data) {
-        if (data.status !== 'connected' && !data.qrCode) {
-          handleRefreshQr(data.instanceName);
+      try {
+        if (!isClientView) {
+          const res = await connectionService.getInstances();
+          if (!mounted) return;
+          setAvailableInstances(res.instances || []);
+          const preferred = (res.instances || []).find((i:any)=>i.connectionStatus==='open') || (res.instances || []).find((i:any)=>i.name===res.currentInstance) || (res.instances || [])[0];
+          if (preferred) {
+            setInfo(prev=>({...prev,instanceName:preferred.name,status:preferred.connectionStatus==='open'?'connected':'loading',qrCode:undefined}));
+            if (preferred.connectionStatus === 'open') {
+              setInfo(prev=>({...prev,status:'connected',webhookStatus:'active',qrCode:undefined,profile:{name:preferred.profileName||preferred.name,number:'',pictureUrl:'',connectedAt:'',lastSyncAt:new Date().toLocaleString('pt-BR'),version:''}}));
+              onStatusChange?.('connected');
+              return;
+            }
+            await connectionService.selectInstance(preferred.name);
+            const data=await fetchStatus(preferred.name);
+            if (mounted && data?.status!=='connected' && !data?.qrCode) await handleRefreshQr(preferred.name);
+            return;
+          }
         }
-      }
+        const data=await fetchStatus();
+        if(mounted && data?.status!=='connected' && !data?.qrCode) await handleRefreshQr(data?.instanceName);
+      } catch { if(mounted)setInfo(prev=>({...prev,status:'disconnected'})); }
     };
-    init();
-    return () => {
-      mounted = false;
-    };
+    init(); return ()=>{mounted=false};
   }, []);
 
   // Polling when waiting for QR scan
@@ -197,35 +210,6 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
       return () => clearInterval(interval);
     }
   }, [info.status, fetchStatus]);
-
-  // Quick State Switcher for previewing all 3 reference states (Aguardando leitura, Conectando, Conectado)
-  const setDemoState = (targetStatus: ConnectionStatus) => {
-    if (targetStatus === 'connected') {
-      setInfo((prev) => ({
-        ...prev,
-        status: 'connected',
-        webhookStatus: 'active',
-        profile: {
-          name: 'Groply WhatsApp',
-          number: '+55 (11) 99876-5432',
-          pictureUrl: '',
-          connectedAt: new Date().toLocaleString('pt-BR'),
-          lastSyncAt: new Date().toLocaleString('pt-BR'),
-          version: 'v2.3.7',
-        },
-      }));
-    } else if (targetStatus === 'connecting') {
-      setInfo((prev) => ({
-        ...prev,
-        status: 'connecting',
-      }));
-    } else {
-      setInfo((prev) => ({
-        ...prev,
-        status: 'waiting_qr',
-      }));
-    }
-  };
 
   return (
     <div className={`flex-1 flex flex-col min-w-0 ${isClientView ? 'bg-transparent' : 'bg-[#f8faf9] min-h-screen overflow-y-auto'}`}>
@@ -317,40 +301,6 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
 
           {/* Right: State toggle pills, Status Pill & Notification Bell */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* State Demo Switcher Pills (Allows direct inspection of Image 1, Image 2, and Image 3) */}
-            <div className="hidden md:flex items-center bg-[#f0f4f1] p-1 rounded-xl text-[11px] font-medium border border-[#dce5df]">
-              <button
-                onClick={() => setDemoState('waiting_qr')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                  info.status === 'waiting_qr'
-                    ? 'bg-white text-[#12382c] font-bold shadow-2xs'
-                    : 'text-[#56675d] hover:text-[#12382c]'
-                }`}
-              >
-                1. QR Code
-              </button>
-              <button
-                onClick={() => setDemoState('connecting')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                  info.status === 'connecting'
-                    ? 'bg-white text-[#12382c] font-bold shadow-2xs'
-                    : 'text-[#56675d] hover:text-[#12382c]'
-                }`}
-              >
-                2. Conectando
-              </button>
-              <button
-                onClick={() => setDemoState('connected')}
-                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
-                  info.status === 'connected'
-                    ? 'bg-white text-[#12382c] font-bold shadow-2xs'
-                    : 'text-[#56675d] hover:text-[#12382c]'
-                }`}
-              >
-                3. Conectado
-              </button>
-            </div>
-
             {/* Real Status Pill */}
             <div className="px-3 py-1.5 rounded-full bg-[#eaf4ef] border border-[#d6e8dd] text-xs font-bold text-[#108e66] flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${
