@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const navItems = [
     { id: 'radar', label: 'Radar', icon: RadarIcon, count: undefined },
+    { id: 'assinantes', label: 'Assinantes', icon: UserMultipleIcon, count: undefined },
     { id: 'oportunidades', label: 'Oportunidades', icon: Target02Icon, count: activeCount },
     { id: 'crm', label: 'CRM', icon: Message01Icon, count: undefined },
     { id: 'crm_atendimento', label: 'CRM Atendimento', icon: LightningIcon, badge: 'IA', count: undefined },
