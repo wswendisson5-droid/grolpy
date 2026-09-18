@@ -315,6 +315,13 @@ async function authenticatedUser(req:any){
   return db.getUserByToken(token);
 }
 
+async function ownedInstance(req:any, requireActive=true){
+  const user:any=await authenticatedUser(req); if(!user) return {error:"UNAUTHORIZED"};
+  if(requireActive && user.status!=="active") return {error:"PAYMENT_REQUIRED",user};
+  const db:any=await import("./database.cjs"); const inst=await db.ensureUserInstance(user.id);
+  return {user,db,instance:inst.instance_name,record:inst};
+}
+
 // Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -396,7 +403,8 @@ app.post("/api/evolution/select-instance", (req, res) => {
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
-  const instance = (req.query.instance as string) || memoryState.instanceName;
+  const own:any=await ownedInstance(req); if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."}); if(own.error)return res.status(402).json({error:"Plano inativo."});
+  const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
@@ -503,7 +511,8 @@ app.get("/api/evolution/status", async (req, res) => {
 
 // 5. Request REAL QR Code from Evolution API: GET /instance/connect/{instance}
 app.get("/api/evolution/qrcode", async (req, res) => {
-  const instance = (req.query.instance as string) || memoryState.instanceName;
+  const own:any=await ownedInstance(req); if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."}); if(own.error)return res.status(402).json({error:"Plano inativo."});
+  const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
@@ -583,7 +592,8 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 
 // 5.1 Clean Reset & Recreate Instance (Fixes corrupt Baileys session or stuck count)
 app.post("/api/evolution/reset-instance", async (req, res) => {
-  const instance = req.body?.instanceName || (req.query.instance as string) || memoryState.instanceName;
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const instance = own.instance;
 
   try {
     // 1. Delete old instance cleanly
@@ -687,7 +697,8 @@ app.post("/api/evolution/create-instance", async (req, res) => {
 
 // 7. Restart instance: POST /instance/restart/{instance}
 app.post("/api/evolution/restart", async (req, res) => {
-  const instance = req.body.instanceName || memoryState.instanceName;
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const instance = own.instance;
 
   try {
     const restartRes = await callEvolution(`/instance/restart/${instance}`, {
@@ -706,7 +717,8 @@ app.post("/api/evolution/restart", async (req, res) => {
 
 // 8. Logout instance: DELETE /instance/logout/{instance}
 app.post("/api/evolution/logout", async (req, res) => {
-  const instance = req.body.instanceName || memoryState.instanceName;
+  const own:any=await ownedInstance(req,false); if(own.error)return res.status(401).json({error:"Sessão inválida."});
+  const instance = own.instance;
 
   try {
     const logoutRes = await callEvolution(`/instance/logout/${instance}`, {
@@ -729,7 +741,8 @@ app.post("/api/evolution/logout", async (req, res) => {
 
 // 9. Configure Webhook
 app.post("/api/evolution/set-webhook", async (req, res) => {
-  const instance = req.body.instanceName || memoryState.instanceName;
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const instance = own.instance;
   const host = req.get("host");
   const protocol = req.protocol;
   const appUrl = process.env.APP_URL || `${protocol}://${host}`;
@@ -1850,8 +1863,9 @@ app.get("/api/client/imported-groups", (req, res) => {
 });
 
 // Save/Update imported groups for client instance
-app.post("/api/client/imported-groups", (req, res) => {
-  const instance = (req.body.instanceName as string) || "minhabagg-leads";
+app.post("/api/client/imported-groups", async (req, res) => {
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const instance = own.instance;
   const { groups } = req.body;
   if (!Array.isArray(groups)) {
     return res.status(400).json({ error: "groups deve ser um array." });
@@ -1876,7 +1890,8 @@ app.post("/api/client/imported-groups", (req, res) => {
 
 // Get real groups from connected WhatsApp instance with 0-ms instant response
 app.get("/api/client/groups", async (req, res) => {
-  const reqInstance = (req.query.instance as string) || "minhabagg-leads";
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const reqInstance = own.instance;
   const forceRefresh = req.query.refresh === "true";
 
   if (forceRefresh) {
@@ -2127,6 +2142,7 @@ app.get("/api/client/campaigns", (_req, res) => {
 
 // Create new campaign with real schedule support
 app.post("/api/client/campaigns/create", async (req, res) => {
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const {
     id,
     title,
@@ -2148,7 +2164,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     instanceName,
   } = req.body;
 
-  const targetInstance = instanceName || "minhabagg-leads";
+  const targetInstance = own.instance;
   console.log(`\n[VALIDATION] Validando criação de divulgação '${title}' na instância ${targetInstance}...`);
 
   if (!title || !previewText) {
@@ -2549,11 +2565,9 @@ async function executeGroupDispatch(
 
 // Real Dispatch of Campaign to WhatsApp Groups via Evolution API
 app.post("/api/client/campaigns/send-now", async (req, res) => {
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const { campaignId, customGroupJids, customMessage, imageUrl, instanceName, intervalSeconds } = req.body;
-  const instanceParam = instanceName || (req.query.instance as string);
-  if (!instanceParam) {
-    return res.status(400).json({ error: "Instância de conexão não fornecida. Conecte seu WhatsApp no painel." });
-  }
+  const instanceParam = own.instance;
   const instance = await getActiveConnectedInstance(instanceParam);
 
   let camp = clientCampaignsStore.find((c) => c.id === campaignId);
