@@ -1748,6 +1748,13 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </div>
             </div>
 
+            {onboardingMode && (
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-[#23382d] mb-1.5">CPF do titular</label>
+                <input value={customerCpf} onChange={(e)=>setCustomerCpf(e.target.value)} inputMode="numeric" placeholder="000.000.000-00" className="w-full px-4 py-3 bg-white text-sm rounded-xl border border-[#d5ded8] focus:border-[#00c968] focus:outline-none" />
+              </div>
+            )}
+
             {/* Action CTA Button */}
             <div className="flex flex-col gap-2 pt-2">
               <button
