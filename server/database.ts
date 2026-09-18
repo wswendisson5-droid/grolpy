@@ -154,3 +154,8 @@ export async function createCampaignForUser(userId:number,data:any){
  return r.insertId;
 }
 export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r;}
+
+export async function getSubscriptionForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM subscriptions WHERE user_id=? LIMIT 1",[userId]);return r[0]||null;}
+export async function setSubscriptionByPayment(paymentId:string,status:string,nextDueDate?:string){
+ await pool.execute("UPDATE subscriptions SET status=?,next_due_date=COALESCE(?,next_due_date) WHERE current_payment_id=?",[status,nextDueDate||null,paymentId]);
+}
