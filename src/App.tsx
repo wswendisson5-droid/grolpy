@@ -51,7 +51,7 @@ import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminVie
 
 export default function App() {
   const [panelMode, setPanelMode] = useState<any>('loading');
-  useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('groply_token');if(!token){if(alive)setPanelMode('landing');return;}try{const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error();const d=await r.json();if(!alive)return;if(d?.user?.role==='admin')setPanelMode('admin');else if(d?.access)setPanelMode('client');else if(d?.subscription)setPanelMode('public-checkout');else setPanelMode('public-plans');}catch{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');if(alive)setPanelMode('landing')}})();return()=>{alive=false}},[]);
+  useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('groply_token');if(!token){if(alive)setPanelMode('landing');return;}try{const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error();const d=await r.json();if(!alive)return;if(d?.user?.role==='admin'){setCurrentTab('radar');setPanelMode('admin');}else if(d?.access)setPanelMode('client');else if(d?.subscription)setPanelMode('public-checkout');else setPanelMode('public-plans');}catch{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');if(alive)setPanelMode('landing')}})();return()=>{alive=false}},[]);
   const logout=()=>{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');setPanelMode('landing');};
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
   const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
@@ -335,7 +335,7 @@ export default function App() {
   if (panelMode === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const raw=localStorage.getItem('groply_user'); const localUser=raw?JSON.parse(raw):null; const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); if(d?.user?.role==='admin'){setPanelMode('admin');return;} setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
+        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const raw=localStorage.getItem('groply_user'); const localUser=raw?JSON.parse(raw):null; const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); if(d?.user?.role==='admin'){setCurrentTab('radar');setPanelMode('admin');return;} setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
         onNavigateRegister={() => setPanelMode('public-plans')}
         onNavigateHome={() => setPanelMode('landing')}
       />
