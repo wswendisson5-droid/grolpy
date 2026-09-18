@@ -265,6 +265,7 @@ app.get("/api/health", (_req, res) => {
 app.get("/api/database/health", async (_req, res) => {
   try {
     const mysqlModule: any = await import("./database.cjs");
+    await mysqlModule.initDatabase();
     const mysql: any = mysqlModule.mysql || mysqlModule.default || mysqlModule;
     const connection = await mysql.createConnection({
       host: process.env.DB_HOST || "localhost",
@@ -305,6 +306,14 @@ app.get("/api/database/health", async (_req, res) => {
     res.status(503).json({ success: false, connected: false, code: err?.code || "DB_ERROR", error: err?.message || "MySQL indisponível" });
   }
 });
+
+
+async function authenticatedUser(req:any){
+  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,"").trim();
+  if(!token) return null;
+  const db:any=await import("./database.cjs");
+  return db.getUserByToken(token);
+}
 
 // Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
 app.post("/api/auth/register", async (req, res) => {
@@ -633,7 +642,12 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
 
 // 6. Create instance manually: POST /instance/create
 app.post("/api/evolution/create-instance", async (req, res) => {
-  const instance = req.body.instanceName || memoryState.instanceName;
+  const user:any = await authenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Sessão inválida." });
+  if (user.status !== "active") return res.status(402).json({ error: "Plano aguardando pagamento ou suspenso." });
+  const db:any = await import("./database.cjs");
+  const owned = await db.ensureUserInstance(user.id);
+  const instance = owned.instance_name;
 
   try {
     const payload = {
@@ -659,6 +673,7 @@ app.post("/api/evolution/create-instance", async (req, res) => {
       memoryState.state = "waiting_qr";
     }
 
+    await db.setUserInstanceStatus(user.id, "waiting_qr");
     res.json({
       success: true,
       instanceName: instance,
@@ -2054,8 +2069,11 @@ app.post("/api/client/checkout/simulate-confirm/:id", (req, res) => {
 });
 
 // Asaas Webhook: Receives official Asaas webhooks (PAYMENT_RECEIVED, PAYMENT_CONFIRMED)
-app.post("/api/webhook/asaas", (req, res) => {
+app.post("/api/webhook/asaas", async (req, res) => {
   try {
+    const db:any = await import("./database.cjs");
+    const eventKey = String(req.body?.id || req.body?.payment?.id + ":" + req.body?.event);
+    await db.applyPaymentEvent(eventKey, req.body?.event, req.body?.payment);
     const { event, payment } = req.body;
     console.log(`[Asaas Webhook] Event received: ${event}`, payment?.id);
 
