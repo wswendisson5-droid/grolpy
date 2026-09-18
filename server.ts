@@ -2672,7 +2672,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
             camp.totalSent = successfulCount;
             camp.totalFailed = failedCount;
             camp.status = "enviando";
-            await own.db.saveCampaignForUser(own.user.id,camp);
+            own.db.saveCampaignForUser(own.user.id,camp).catch(()=>{});
           }
         }
       );
