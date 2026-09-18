@@ -47,11 +47,12 @@ import { Menu } from 'lucide-react';
 import { ClientPlanosView } from './components/client-panel/views/ClientPlanosView';
 import { ClientCheckoutView } from './components/client-panel/views/ClientCheckoutView';
 import { PlanId } from './services/planService';
+import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 
 export default function App() {
   const [panelMode, setPanelMode] = useState<any>('landing');
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'radar' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('conexao');
+  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('conexao');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
@@ -371,7 +372,9 @@ export default function App() {
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {/* VIEW 1: OPORTUNIDADES PAGE */}
+        {currentTab === 'assinantes' && <div className="flex-1 overflow-y-auto"><SubscriptionsAdminView /></div>}
+
+                {/* VIEW 1: OPORTUNIDADES PAGE */}
         {currentTab === 'oportunidades' && (
           <OpportunitiesView
             opportunities={opportunities}
