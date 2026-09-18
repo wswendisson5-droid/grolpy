@@ -25,8 +25,6 @@ jobs:
       - name: Compilar Grolpy
         run: npm run build
 
-      - name: Instalar dependencias de producao no pacote
-        run: npm install --omit=dev --ignore-scripts --prefix deploy-deps || true
 
       - name: Preparar arquivos de producao
         run: |
@@ -37,8 +35,6 @@ jobs:
           printf "import './dist/server.cjs';\n" > deploy/server.js
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
-          # Dependencias Node precisam existir no servidor para o Passenger.
-          cp -r node_modules deploy/node_modules
 
           # Configuracao suportada pelo CloudLinux Node.js Selector + LiteSpeed.
           # Nao inclui segredos e nao toca no .env persistente do servidor.
