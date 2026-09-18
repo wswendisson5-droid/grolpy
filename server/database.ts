@@ -108,6 +108,11 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)",["004_history_payload_groups"]);
     }
+    if (!done.has("005_roles_admin")) {
+      await c.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'client'").catch(()=>{});
+      await c.query("UPDATE users SET role='admin' WHERE id=1");
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["005_roles_admin"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -127,7 +132,7 @@ export async function registerUser(name:string,email:string,phone:string,passwor
 }
 export async function loginUser(email:string,password:string){
   const normalizedEmail=String(email||"").trim().toLowerCase();
-  const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
+  const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status,role FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
   const u=rows[0]; if(!u||!verifyPassword(String(password),u.password_hash)) return null;
   const token=crypto.randomBytes(32).toString("hex"), tokenHash=crypto.createHash("sha256").update(token).digest("hex");
   await pool.execute("INSERT INTO sessions(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(), INTERVAL 30 DAY))",[u.id,tokenHash]);
@@ -137,7 +142,7 @@ export async function databaseHealth(){ const [r]:any=await pool.query("SELECT D
 
 export async function getUserByToken(token:string){
   const h=crypto.createHash("sha256").update(token).digest("hex");
-  const [rows]:any=await pool.execute(`SELECT u.id,u.name,u.email,u.phone,u.cpf_cnpj,u.plan,u.status
+  const [rows]:any=await pool.execute(`SELECT u.id,u.name,u.email,u.phone,u.cpf_cnpj,u.plan,u.status,u.role
     FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>NOW() LIMIT 1`,[h]);
   return rows[0]||null;
 }
