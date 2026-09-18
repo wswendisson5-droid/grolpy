@@ -121,6 +121,18 @@ export async function initDatabase() {
       await c.query("UPDATE users SET role='admin',status='active' WHERE LOWER(TRIM(email)) IN ('wswendisson5@gmail.com','mateus@gmail.com')");
       await c.query("INSERT INTO migrations(name) VALUES (?)",["007_lock_admin_roles"]);
     }
+    if (!done.has("008_provision_admin_credentials")) {
+      const admins=[
+        ["Wendisson","wswendisson5@gmail.com","a66654fd42a970b2c412e452d878f9ae:ccfc1e3e07d7368d483129a14120f209745b2ad359143d79d2599fbb3a01796527e9c3bd6ef6ae9f3b19fa2618cd52eb3f39670d6a1bce36c84cfc55e1406191"],
+        ["Mateus","mateus@gmail.com","17f2beeb734f5aecab7f5923fabd81af:11ad5a8c4d7b48bcc2869ae92897ce2813fc3add54783ec8fa40d355363e61cef58708b679205f056bbc9b301a13cb8298c2f926e4b14d5559f0c06ce5784797"]
+      ];
+      for(const [name,email,passwordHash] of admins){
+        const [r]:any=await c.query("SELECT id FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[email]);
+        if(r[0]) await c.query("UPDATE users SET name=?,password_hash=?,role='admin',status='active' WHERE id=?",[name,passwordHash,r[0].id]);
+        else await c.query("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'admin','active')",[name,email,"",passwordHash]);
+      }
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["008_provision_admin_credentials"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
