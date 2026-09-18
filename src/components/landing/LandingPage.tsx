@@ -80,20 +80,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <header className="sticky top-0 z-50 bg-[#f8faf9]/90 backdrop-blur-md border-b border-[#e5ece8]/80 transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           {/* Brand Logo */}
-          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            {/* Gruply Green Logo Icon */}
-            <div className="w-10 h-10 rounded-2xl bg-[#00c968] flex items-center justify-center text-white shadow-[0_4px_14px_rgba(0,201,104,0.35)] shrink-0">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M12 3C6.477 3 2 6.94 2 11.8c0 2.22.92 4.25 2.45 5.82L3.3 21l4.03-1.34c1.43.6 3.01.94 4.67.94 5.523 0 10-3.94 10-8.8S17.523 3 12 3z"
-                  fill="white"
-                />
-                <circle cx="8" cy="11.5" r="1.5" fill="#00c968" />
-                <circle cx="12" cy="11.5" r="1.5" fill="#00c968" />
-                <circle cx="16" cy="11.5" r="1.5" fill="#00c968" />
-              </svg>
-            </div>
-            <span className="text-2xl font-black tracking-tight text-[#0e261f]">gruply</span>
+          <div className="flex items-center cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <img
+              src="https://i.imgur.com/HqvEmQF.png"
+              alt="Groply"
+              referrerPolicy="no-referrer"
+              className="h-10 w-auto object-contain max-w-[170px]"
+            />
           </div>
 
           {/* Center Nav Links (Desktop) */}
