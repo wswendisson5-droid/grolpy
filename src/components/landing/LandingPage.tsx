@@ -248,7 +248,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   onClick={onGetStarted}
                   className="inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full text-base font-bold text-white bg-[#0e261f] hover:bg-[#163a2f] transition-all duration-200 shadow-md hover:shadow-lg hover:-translate-y-0.5 cursor-pointer group"
                 >
-                  <span>Comece agora grátis</span>
+                  <span>Começar agora</span>
                   <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
                 </button>
 
