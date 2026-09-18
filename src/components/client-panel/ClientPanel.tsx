@@ -32,6 +32,7 @@ interface ClientPanelProps {
 
 export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [currentTab, setCurrentTab] = useState<ClientTab>('inicio');
+  useEffect(()=>{ setCurrentTab('inicio'); },[]);
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId>('pro');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
