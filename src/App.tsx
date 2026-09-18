@@ -335,7 +335,7 @@ export default function App() {
   if (panelMode === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const raw=localStorage.getItem('groply_user'); const localUser=raw?JSON.parse(raw):null; if(localUser?.role==='admin'){setPanelMode('admin');return;} const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); if(d?.user?.role==='admin'){setPanelMode('admin');return;} setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
+        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const raw=localStorage.getItem('groply_user'); const localUser=raw?JSON.parse(raw):null; const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); if(d?.user?.role==='admin'){setPanelMode('admin');return;} setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
         onNavigateRegister={() => setPanelMode('public-plans')}
         onNavigateHome={() => setPanelMode('landing')}
       />
