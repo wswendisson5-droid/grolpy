@@ -93,6 +93,21 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)",["003_user_campaigns"]);
     }
+    if (!done.has("004_history_payload_groups")) {
+      await c.query("ALTER TABLE user_history ADD COLUMN campaign_title VARCHAR(190) NULL").catch(()=>{});
+      await c.query("ALTER TABLE user_history ADD COLUMN message_text TEXT NULL").catch(()=>{});
+      await c.query("ALTER TABLE user_history ADD COLUMN media_url LONGTEXT NULL").catch(()=>{});
+      await c.query("ALTER TABLE user_history ADD COLUMN media_type VARCHAR(30) NULL").catch(()=>{});
+      await c.query("ALTER TABLE user_history ADD COLUMN duration VARCHAR(40) NULL").catch(()=>{});
+      await c.query(`CREATE TABLE IF NOT EXISTS user_groups (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,group_jid VARCHAR(190) NOT NULL,
+        group_name VARCHAR(190) NULL,members_count INT NOT NULL DEFAULT 0,selected TINYINT(1) NOT NULL DEFAULT 1,
+        payload_json LONGTEXT NULL,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_group(user_id,group_jid),INDEX(user_id),
+        CONSTRAINT fk_groups_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["004_history_payload_groups"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -167,8 +182,10 @@ export async function saveCampaignForUser(userId:number,data:any){
 }
 export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r.map((x:any)=>{try{return JSON.parse(x.config_json)}catch{return {}}});}
 export async function deleteCampaignForUser(userId:number,key:string){const [r]:any=await pool.execute("DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=?",[userId,key]);return r.affectedRows>0;}
-export async function addHistoryForUser(userId:number,data:any){await pool.execute("INSERT INTO user_history(user_id,client_id,campaign_key,group_jid,group_name,status,error_text) VALUES(?,?,?,?,?,?,?)",[userId,"client-"+userId,data.campaignId||null,data.groupJid||null,data.groupName||null,data.status||"unknown",data.error||null]);}
-export async function listHistoryForUser(userId:number,days=90){const [r]:any=await pool.execute("SELECT id,campaign_key AS campaignId,group_jid AS groupJid,group_name AS groupName,status,error_text AS error,created_at AS timestamp FROM user_history WHERE user_id=? AND created_at>=DATE_SUB(NOW(),INTERVAL ? DAY) ORDER BY created_at DESC",[userId,days]);return r;}
+export async function addHistoryForUser(userId:number,data:any){await pool.execute(`INSERT INTO user_history(user_id,client_id,campaign_key,campaign_title,group_jid,group_name,message_text,media_url,media_type,status,error_text,duration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,[userId,"client-"+userId,data.campaignId||null,data.campaignTitle||null,data.groupJid||null,data.groupName||null,data.messageText||"",data.imageUrl||data.mediaUrl||null,data.mediaType||null,data.status||"unknown",data.error||null,data.duration||null]);}
+export async function listHistoryForUser(userId:number,days=90){const [r]:any=await pool.execute("SELECT CAST(id AS CHAR) id,campaign_key AS campaignId,COALESCE(campaign_title,'Divulgação') campaignTitle,group_jid AS groupJid,COALESCE(group_name,'Grupo') groupName,COALESCE(message_text,'') messageText,media_url AS imageUrl,media_type AS mediaType,status,error_text AS error,duration,DATE_FORMAT(created_at,'%H:%i') timeFormatted,created_at AS timestamp FROM user_history WHERE user_id=? AND created_at>=DATE_SUB(NOW(),INTERVAL ? DAY) ORDER BY created_at DESC",[userId,days]);return r;}
+export async function saveGroupsForUser(userId:number,groups:any[]){for(const g of groups||[]){const jid=String(g.jid||g.id||g.groupJid||"");if(!jid)continue;await pool.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);}}
+export async function listGroupsForUser(userId:number){const [r]:any=await pool.execute("SELECT payload_json FROM user_groups WHERE user_id=? ORDER BY updated_at DESC",[userId]);return r.map((x:any)=>{try{return JSON.parse(x.payload_json)}catch{return null}}).filter(Boolean);}
 
 export async function getSubscriptionForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM subscriptions WHERE user_id=? LIMIT 1",[userId]);return r[0]||null;}
 export async function setSubscriptionByPayment(paymentId:string,status:string,nextDueDate?:string){
