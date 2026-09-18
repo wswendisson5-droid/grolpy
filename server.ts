@@ -16,8 +16,8 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 // Evolution API credentials from environment
-const DEFAULT_EVOLUTION_URL = (process.env.EVOLUTION_API_URL || "").replace(/\/+$/, "");
-const DEFAULT_EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || "";
+const DEFAULT_EVOLUTION_URL = (process.env.EVOLUTION_API_URL || "https://143.95.217.174").replace(/\/+$/, "");
+const DEFAULT_EVOLUTION_KEY = process.env.EVOLUTION_API_KEY || "ae6da6860c03e5e5385edd7689313ae941958d5f10b47923d962e141a106f103";
 const DEFAULT_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || "minhabagg-leads";
 
 // Server-side in-memory cache for Evolution state & webhook events
@@ -2795,7 +2795,7 @@ app.get("/api/client/stats", async (req, res) => {
 // VITE MIDDLEWARE & STATIC SERVING
 // ----------------------------------------------------
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && process.env.GROPLY_DEV === "true") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
