@@ -315,7 +315,7 @@ export default function App() {
   if (panelMode === 'landing') {
     return (
       <LandingPage
-        onGetStarted={() => setPanelMode('register')}
+        onGetStarted={() => setPanelMode('public-plans')}
         onLogin={() => setPanelMode('login')}
         onNavigateToPlans={() => setPanelMode('public-plans')}
       />
@@ -331,7 +331,7 @@ export default function App() {
     return (
       <LoginPage
         onLoginSuccess={() => setPanelMode('client')}
-        onNavigateRegister={() => setPanelMode('register')}
+        onNavigateRegister={() => setPanelMode('public-plans')}
         onNavigateHome={() => setPanelMode('landing')}
       />
     );
