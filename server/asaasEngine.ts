@@ -348,6 +348,28 @@ class AsaasEngine {
     return fallbackRecord;
   }
 
+  async createMonthlyPixSubscription(params: { planId:"start"|"pro"|"max"; planName:string; value:number; customer:{name:string;email:string;cpfCnpj:string;phone?:string}; externalReference:string }) {
+    const apiKey=this.getApiKey();
+    if(!apiKey) throw new Error("ASAAS_API_KEY não configurada.");
+    let customerId="";
+    const find=await fetch(`${this.getBaseUrl()}/customers?email=${encodeURIComponent(params.customer.email)}`,{headers:this.getHeaders()});
+    const found:any=await find.json(); customerId=found?.data?.[0]?.id||"";
+    if(!customerId){
+      const cr=await fetch(`${this.getBaseUrl()}/customers`,{method:"POST",headers:this.getHeaders(),body:JSON.stringify({
+        name:params.customer.name,email:params.customer.email,cpfCnpj:params.customer.cpfCnpj.replace(/\D/g,""),phone:(params.customer.phone||"").replace(/\D/g,"")
+      })}); const cj:any=await cr.json(); if(!cj.id) throw new Error(cj?.errors?.map((x:any)=>x.description).join(", ")||"Falha ao criar cliente Asaas"); customerId=cj.id;
+    }
+    const nextDueDate=new Date().toISOString().slice(0,10);
+    const sr=await fetch(`${this.getBaseUrl()}/subscriptions`,{method:"POST",headers:this.getHeaders(),body:JSON.stringify({
+      customer:customerId,billingType:"PIX",value:params.value,nextDueDate,cycle:"MONTHLY",
+      description:`Groply - Plano ${params.planName}`,externalReference:params.externalReference
+    })}); const sub:any=await sr.json(); if(!sub.id) throw new Error(sub?.errors?.map((x:any)=>x.description).join(", ")||"Falha ao criar assinatura Asaas");
+    const pr=await fetch(`${this.getBaseUrl()}/subscriptions/${sub.id}/payments`,{headers:this.getHeaders()}); const pj:any=await pr.json();
+    const payment=pj?.data?.[0]; if(!payment?.id) throw new Error("Cobrança inicial da assinatura não encontrada.");
+    const qr=await fetch(`${this.getBaseUrl()}/payments/${payment.id}/pixQrCode`,{headers:this.getHeaders()}); const q:any=await qr.json();
+    return {customerId,subscriptionId:sub.id,paymentId:payment.id,nextDueDate:sub.nextDueDate||nextDueDate,status:payment.status,pix:{payload:q.payload,encodedImage:q.encodedImage,expirationDate:q.expirationDate}};
+  }
+
   getPayment(paymentId: string): AsaasPaymentResult | undefined {
     return paymentsStore.get(paymentId);
   }
