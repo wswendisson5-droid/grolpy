@@ -2127,7 +2127,8 @@ app.post("/api/webhook/asaas", async (req, res) => {
 });
 
 // Get real campaigns
-app.get("/api/client/campaigns", (_req, res) => {
+app.get("/api/client/campaigns", async (req, res) => {
+  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   clientCampaignsStore.forEach((c) => {
     if (c.delaySeconds === 600) {
       c.delaySeconds = 120;
