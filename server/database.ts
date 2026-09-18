@@ -110,12 +110,16 @@ export async function initDatabase() {
     }
     if (!done.has("005_roles_admin")) {
       await c.query("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'client'").catch(()=>{});
-      await c.query("UPDATE users SET role='admin' WHERE id=1");
       await c.query("INSERT INTO migrations(name) VALUES (?)",["005_roles_admin"]);
     }
     if (!done.has("006_admin_accounts")) {
       await c.query("UPDATE users SET role='admin',status='active' WHERE LOWER(TRIM(email)) IN ('wswendisson5@gmail.com','mateus@gmail.com')");
       await c.query("INSERT INTO migrations(name) VALUES (?)",["006_admin_accounts"]);
+    }
+    if (!done.has("007_lock_admin_roles")) {
+      await c.query("UPDATE users SET role='client' WHERE LOWER(TRIM(email)) NOT IN ('wswendisson5@gmail.com','mateus@gmail.com')");
+      await c.query("UPDATE users SET role='admin',status='active' WHERE LOWER(TRIM(email)) IN ('wswendisson5@gmail.com','mateus@gmail.com')");
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["007_lock_admin_roles"]);
     }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
