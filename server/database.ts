@@ -138,6 +138,13 @@ export async function registerUser(name:string,email:string,phone:string,passwor
   const [r]:any=await pool.execute("INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)",[name.trim(),email.trim().toLowerCase(),phone,passwordHash]);
   return {id:r.insertId,name,email:email.toLowerCase(),phone,plan:"start"};
 }
+export async function ensureAdminAccount(name:string,email:string,password:string){
+ const normalized=String(email).trim().toLowerCase(); const passwordHash=hashPassword(password);
+ const [rows]:any=await pool.execute("SELECT id FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalized]);
+ if(rows[0]) await pool.execute("UPDATE users SET name=?,password_hash=?,role='admin',status='active' WHERE id=?",[name,passwordHash,rows[0].id]);
+ else await pool.execute("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'admin','active')",[name,normalized,"",passwordHash]);
+ return true;
+}
 export async function loginUser(email:string,password:string){
   const normalizedEmail=String(email||"").trim().toLowerCase();
   const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status,role FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
