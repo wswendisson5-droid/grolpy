@@ -773,6 +773,19 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
     );
   }
 
+  useEffect(() => {
+    if (!onboardingMode || step !== 'pix') return;
+    const check = async () => {
+      try {
+        const token=localStorage.getItem('groply_token')||'';
+        const r=await fetch('/api/onboarding/payment-status',{headers:{Authorization:`Bearer ${token}`}});
+        const d=await r.json();
+        if(d?.access){ setStep('success'); }
+      } catch {}
+    };
+    check(); const timer=setInterval(check,5000); return ()=>clearInterval(timer);
+  }, [onboardingMode, step]);
+
   // =========================================================================
   // SCREEN 2: PAGAMENTO VIA PIX (file_00000000dd6c820e9a912b2dbb792c70.png)
   // =========================================================================
