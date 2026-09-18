@@ -6,6 +6,7 @@ export const ClientConexaoView: React.FC = () => {
   const [status, setStatus] = useState<'loading' | 'disconnected' | 'waiting_qr' | 'connected' | 'error'>('loading');
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleSetQrCode = async (codeData: any) => {
     if (!codeData) return;
@@ -54,14 +55,18 @@ export const ClientConexaoView: React.FC = () => {
 
   const createInstance = async () => {
     try {
-      setQrCode(null); setStatus('loading');
+      setErrorMessage(''); setQrCode(null); setStatus('loading');
       const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'});
       const data=await res.json();
       if(!res.ok) throw new Error(data.error||'Falha ao criar conexão');
       if(!data.qrCode?.base64 && !data.qrCode?.code) throw new Error('QR Code não retornado pela Evolution');
       await handleSetQrCode(data.qrCode);
       setStatus('waiting_qr');
-    } catch(e){console.error(e);setStatus('error')}
+    } catch(e:any){
+      console.error(e);
+      setErrorMessage(e?.message || 'Não foi possível gerar o QR Code.');
+      setStatus('error');
+    }
   };
 
   const refreshQrCode = async () => {
@@ -203,9 +208,9 @@ export const ClientConexaoView: React.FC = () => {
            <div className="flex flex-col items-center justify-center py-16 text-center">
              <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
              <h2 className="text-xl font-bold text-[#11241c] mb-2">Erro de conexão</h2>
-             <p className="text-[#5b6e63] mb-6">Não foi possível carregar o status do WhatsApp. Verifique sua internet ou tente novamente.</p>
+             <p className="text-[#5b6e63] mb-6">{errorMessage || 'Não foi possível gerar o QR Code. Tente novamente.'}</p>
              <button 
-               onClick={fetchStatus}
+               onClick={createInstance}
                className="px-6 py-2 bg-[#109353] text-white font-bold rounded-full hover:bg-[#0c7a44] transition-colors"
              >
                Tentar novamente
