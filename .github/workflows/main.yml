@@ -1,4 +1,4 @@
-name: Build Grolpy
+name: Build e Deploy Grolpy
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - main
 
 jobs:
-  build:
+  build-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,12 +25,22 @@ jobs:
       - name: Compilar Grolpy
         run: npm run build
 
-      - name: Salvar build
-        uses: actions/upload-artifact@v4
+      - name: Preparar arquivos de producao
+        run: |
+          mkdir -p deploy
+          cp -r dist deploy/dist
+          cp server.js deploy/server.js
+          cp package.json deploy/package.json
+          if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
+
+      - name: Enviar para hospedagem
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.6
         with:
-          name: grolpy-build
-          path: |
-            dist/
-            server.js
-            package.json
-          if-no-files-found: error
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          port: 21
+          local-dir: ./deploy/
+          server-dir: ./
+          dangerous-clean-slate: false
