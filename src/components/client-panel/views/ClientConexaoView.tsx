@@ -33,18 +33,13 @@ export const ClientConexaoView: React.FC = () => {
         if (appState === 'connected' || appState === 'open') {
           setStatus('connected');
           setProfile(data.connectedProfile);
-        } else if (data.instanceExists === false) {
-          await createInstance();
         } else {
-          setStatus('waiting_qr');
-          if (data.qrCode) {
-             await handleSetQrCode(data.qrCode);
-          } else {
-             fetchQrCode();
-          }
+          setQrCode(null);
+          setProfile(null);
+          setStatus('disconnected');
         }
       } else if (res.status === 404) {
-         await createInstance();
+         setQrCode(null); setProfile(null); setStatus('disconnected');
       } else {
          setStatus('disconnected');
       }
@@ -82,13 +77,9 @@ export const ClientConexaoView: React.FC = () => {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(() => {
-       if (status !== 'connected') {
-          fetchStatus();
-       }
-    }, 4000);
+    const interval = setInterval(fetchStatus, 8000);
     return () => clearInterval(interval);
-  }, [status]);
+  }, []);
 
   return (
     <div className="flex flex-col max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
@@ -107,6 +98,19 @@ export const ClientConexaoView: React.FC = () => {
              <Loader2 className="w-10 h-10 animate-spin text-[#109353] mb-4" />
              <p className="text-[#11241c] font-semibold text-lg">Carregando status...</p>
            </div>
+        )}
+
+        {status === 'disconnected' && (
+          <div className="flex flex-col items-center justify-center py-14 sm:py-16 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-[#eef6f1] border border-[#dbe9e1] flex items-center justify-center mb-5">
+              <RefreshCw className="w-6 h-6 text-[#109353]" />
+            </div>
+            <h2 className="text-xl sm:text-2xl font-bold text-[#11241c] mb-2">Conecte seu WhatsApp</h2>
+            <p className="text-[#5b6e63] max-w-md mb-7">Gere um QR Code somente quando estiver pronto para fazer a conexão.</p>
+            <button onClick={createInstance} className="px-6 py-3 bg-[#109353] text-white font-bold rounded-xl hover:bg-[#0c7a44] transition-colors">
+              Gerar QR Code
+            </button>
+          </div>
         )}
 
         {status === 'connected' && profile && (
