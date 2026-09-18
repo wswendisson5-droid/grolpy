@@ -30,8 +30,8 @@ jobs:
           rm -rf deploy
           mkdir -p deploy
 
-          # Passenger/cPanel precisa de CommonJS como arquivo inicial.
-          printf "require('./dist/server.cjs');\n" > deploy/server.js
+          # O projeto usa ESM; o bootstrap importa o backend compilado em CommonJS.
+          printf "import './dist/server.cjs';\n" > deploy/server.js
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
