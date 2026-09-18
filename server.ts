@@ -2879,9 +2879,14 @@ setInterval(async () => {
 
 // Get real history
 app.get("/api/client/history", async (req,res)=>{
- const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
- const sub=await own.db.getSubscriptionForUser(own.user.id); const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max'; const days=CLIENT_PLAN_LIMITS[planId].historyDays;
- const history=await own.db.listHistoryForUser(own.user.id,days); res.json({success:true,total:history.length,history});
+ const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"UNAUTHORIZED"});
+ const db:any=await import("./database.cjs");
+ const sub=await db.getSubscriptionForUser(user.id);
+ if(!sub || user.status!=="active")return res.status(402).json({success:false,error:"SUBSCRIPTION_REQUIRED"});
+ const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max';
+ const days=CLIENT_PLAN_LIMITS[planId].historyDays;
+ const history=await db.listHistoryForUser(user.id,days);
+ res.json({success:true,total:history.length,history});
 });
 
 // Client Dashboard Unified Stats - 100% REAL DATA, 0 MOCK
