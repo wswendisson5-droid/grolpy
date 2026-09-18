@@ -264,8 +264,8 @@ app.get("/api/health", (_req, res) => {
 // mysql2 is loaded lazily so a database/driver failure never takes the Groply process down.
 app.get("/api/database/health", async (_req, res) => {
   try {
-    const mysqlModule: any = await import("mysql2/promise");
-    const mysql: any = mysqlModule.default || mysqlModule;
+    const mysqlModule: any = await import("./dist/database.cjs");
+    const mysql: any = mysqlModule.mysql || mysqlModule.default || mysqlModule;
     const connection = await mysql.createConnection({
       host: process.env.DB_HOST || "localhost",
       port: Number(process.env.DB_PORT || 3306),
