@@ -30,7 +30,10 @@ jobs:
           rm -rf deploy
           mkdir -p deploy
 
-          cp server.js deploy/server.js
+          # Passenger/cPanel precisa de CommonJS como arquivo inicial.
+          cat > deploy/server.js <<'NODEEOF'
+require('./dist/server.cjs');
+NODEEOF
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
