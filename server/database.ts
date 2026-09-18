@@ -113,6 +113,10 @@ export async function initDatabase() {
       await c.query("UPDATE users SET role='admin' WHERE id=1");
       await c.query("INSERT INTO migrations(name) VALUES (?)",["005_roles_admin"]);
     }
+    if (!done.has("006_admin_accounts")) {
+      await c.query("UPDATE users SET role='admin',status='active' WHERE LOWER(TRIM(email)) IN ('wswendisson5@gmail.com','mateus@gmail.com')");
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["006_admin_accounts"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
