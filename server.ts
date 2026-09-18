@@ -1884,18 +1884,9 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
 });
 
 // Get imported groups saved for client instance (Instant response)
-app.get("/api/client/imported-groups", (req, res) => {
-  const instance = (req.query.instance as string) || "minhabagg-leads";
-  let groups = clientImportedGroupsStore.get(instance) || [];
-  if (instance === "minhabagg-leads" && groups.length === 0 && globalCachedGroups.length > 0) {
-    groups = globalCachedGroups;
-  }
-  res.json({
-    success: true,
-    instanceName: instance,
-    total: groups.length,
-    groups,
-  });
+app.get("/api/client/imported-groups", async (req,res)=>{
+ const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const groups=await own.db.listGroupsForUser(own.user.id); res.json({success:true,instanceName:own.instance,total:groups.length,groups});
 });
 
 // Save/Update imported groups for client instance
@@ -1916,6 +1907,7 @@ app.post("/api/client/imported-groups", async (req, res) => {
   }
 
   cachedGroupsByInstance.set(instance, { timestamp: Date.now(), groups });
+  await own.db.saveGroupsForUser(own.user.id,groups);
   res.json({
     success: true,
     instanceName: instance,
@@ -2652,7 +2644,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     camp.totalTarget = targets.length;
     camp.groupsCount = targets.length;
     camp.executed = true;
-    saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+    await own.db.saveCampaignForUser(own.user.id,camp);
   }
 
   const intervalMs = intervalSeconds !== undefined && Number(intervalSeconds) >= 0
@@ -2680,25 +2672,26 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
             camp.totalSent = successfulCount;
             camp.totalFailed = failedCount;
             camp.status = "enviando";
-            saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+            await own.db.saveCampaignForUser(own.user.id,camp);
           }
         }
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
+      for(const result of dispatchResults){await own.db.addHistoryForUser(own.user.id,{campaignId:camp?.id||campaignId,campaignTitle:camp?.title||"Disparo Imediato",groupJid:result.jid||result.groupJid,groupName:result.groupName||result.jid||"Grupo",messageText:textToSend,imageUrl:imgToSend,mediaType:imgToSend?"imagem":"texto",status:result.success?"delivered":"failed",error:result.error||null});}
 
       if (camp) {
         camp.totalSent = successfulCount;
         camp.status = successfulCount === targets.length ? "concluida" : (successfulCount > 0 ? "parcial" : "falha");
         camp.active = false;
         camp.lastSentAt = `Hoje às ${new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`;
-        saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+        await own.db.saveCampaignForUser(own.user.id,camp);
       }
     } catch (err) {
       console.error("[Dispatch] Error during execution:", err);
       if (camp) {
         camp.status = "falha";
-        saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+        await own.db.saveCampaignForUser(own.user.id,camp);
       }
     } finally {
       if (camp) activeCampaignsRunning.delete(camp.id);
