@@ -294,6 +294,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   // ----------------------------------------------------
   const handleProceedToPayment = async () => {
     setErrorMessage(null);
+    if (onboardingMode) { await createOnboardingPix(); return; }
 
     // If Credit Card, navigate directly to card screen without creating payment yet
     if (selectedMethod === 'card') {
