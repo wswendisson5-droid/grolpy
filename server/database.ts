@@ -180,3 +180,17 @@ export async function authDiagnostic(){
  const [ss]:any=await pool.query("SELECT COUNT(*) total FROM sessions WHERE expires_at>NOW()");
  return {users:Number(u[0]?.total||0),usersWithPassword:Number(u[0]?.with_password||0),activeSessions:Number(ss[0]?.total||0)};
 }
+
+export async function listAdminSubscriptions(){
+ const [r]:any=await pool.query(`SELECT u.id AS user_id,u.name,u.email,u.phone,u.status AS user_status,u.created_at,
+ s.plan_id,s.status AS subscription_status,s.next_due_date,
+ (SELECT COUNT(*) FROM user_campaigns c WHERE c.user_id=u.id) campaigns,
+ (SELECT COUNT(*) FROM user_history h WHERE h.user_id=u.id AND h.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)) monthly_events
+ FROM users u LEFT JOIN subscriptions s ON s.user_id=u.id ORDER BY u.created_at DESC`); return r;
+}
+export async function adminSetSubscription(userId:number,action:string){
+ if(action==="approve"){await pool.execute("UPDATE users SET status='active' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='active' WHERE user_id=?",[userId]);}
+ else if(action==="suspend"){await pool.execute("UPDATE users SET status='suspended' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='suspended' WHERE user_id=?",[userId]);}
+ else if(action==="renew"){await pool.execute("UPDATE users SET status='active' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='active',next_due_date=DATE_ADD(COALESCE(GREATEST(next_due_date,CURDATE()),CURDATE()),INTERVAL 1 MONTH) WHERE user_id=?",[userId]);}
+ else throw new Error("INVALID_ACTION");
+}
