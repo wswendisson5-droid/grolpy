@@ -367,6 +367,11 @@ app.get("/api/auth/diagnostic", async (_req,res)=>{
  }catch(e:any){console.error("[AUTH-DIAGNOSTIC]",e?.code||e?.message);res.status(500).json({success:false,error:"AUTH_DATABASE_ERROR"});}
 });
 
+app.post("/api/admin/test-subscriber", async (req,res)=>{
+ try{const db:any=await import("./database.cjs");const user=await db.createPendingTestSubscriber(req.body||{});res.status(201).json({success:true,user});}
+ catch(e:any){res.status(e?.code==="ER_DUP_ENTRY"?409:500).json({success:false,error:"Não foi possível criar assinante de teste."});}
+});
+
 app.get("/api/admin/subscriptions", async (_req,res)=>{
  try{const db:any=await import("./database.cjs");res.json({success:true,subscriptions:await db.listAdminSubscriptions()});}
  catch(e:any){res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
