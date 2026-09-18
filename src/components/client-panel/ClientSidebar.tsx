@@ -11,7 +11,8 @@ import {
   Crown,
   Headphones,
   MoreVertical,
-  X
+  X,
+  LogOut
 } from 'lucide-react';
 import { ClientTab, AppPanelMode } from './types';
 import { planService } from '../../services/planService';
@@ -241,10 +242,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                   </div>
 
                   <div className="p-1.5 border-b border-[#f0f4f1]">
-                    <button
-                      onClick={() => { setIsUserMenuOpen(false); onSwitchPanel && onSwitchPanel('landing'); }}
-                      className="w-full flex items-center px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#1f3329] font-medium"
-                    >Ver site / início</button>
+                    <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold"><LogOut size={15}/>Sair da conta</button>
                   </div>
 
                   <div className="p-1">
