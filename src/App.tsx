@@ -330,7 +330,7 @@ export default function App() {
   if (panelMode === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={() => setPanelMode('client')}
+        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
         onNavigateRegister={() => setPanelMode('public-plans')}
         onNavigateHome={() => setPanelMode('landing')}
       />
