@@ -29,8 +29,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email,password}) });
-      const data = await response.json();
+      const response = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:email.trim().toLowerCase(),password}) });
+      const raw=await response.text(); let data:any={}; try{data=raw?JSON.parse(raw):{}}catch{throw new Error('O servidor de login retornou uma resposta inválida.');}
       if (!response.ok) throw new Error(data.error || 'Não foi possível entrar.');
       localStorage.setItem('groply_token', data.token);
       localStorage.setItem('groply_user', JSON.stringify(data.user));
