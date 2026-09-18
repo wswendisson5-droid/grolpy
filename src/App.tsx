@@ -50,7 +50,9 @@ import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 
 export default function App() {
-  const [panelMode, setPanelMode] = useState<any>('landing');
+  const [panelMode, setPanelMode] = useState<any>('loading');
+  useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('groply_token');if(!token){if(alive)setPanelMode('landing');return;}try{const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error();const d=await r.json();if(!alive)return;if(d?.user?.role==='admin')setPanelMode('admin');else if(d?.access)setPanelMode('client');else if(d?.subscription)setPanelMode('public-checkout');else setPanelMode('public-plans');}catch{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');if(alive)setPanelMode('landing')}})();return()=>{alive=false}},[]);
+  const logout=()=>{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');setPanelMode('landing');};
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
   const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('conexao');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
@@ -312,6 +314,8 @@ export default function App() {
     return opportunities.filter((o) => o.stage === 'nao_atribuidas').length;
   }, [opportunities]);
 
+  if(panelMode==='loading') return <div className="min-h-screen bg-[#f8faf9]" />;
+
   // If Landing Page mode is active, render the Index / Landing Page
   if (panelMode === 'landing') {
     return (
@@ -355,7 +359,7 @@ export default function App() {
 
   // If Client Panel mode is active, render Client Dashboard
   if (panelMode === 'client') {
-    return <ClientPanel onSwitchPanel={setPanelMode} />;
+    return <ClientPanel onSwitchPanel={(mode:any)=>mode==='landing'?logout():setPanelMode(mode)} />;
   }
 
   if(panelMode !== 'admin') { setPanelMode('landing'); return null; }
@@ -369,7 +373,7 @@ export default function App() {
         activeCount={unassignedCount}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onSwitchPanel={setPanelMode}
+        onSwitchPanel={(mode:any)=>mode==='landing'?logout():setPanelMode(mode)}
       />
 
       {/* Main Workspace Area */}
