@@ -174,3 +174,9 @@ export async function getSubscriptionForUser(userId:number){const [r]:any=await 
 export async function setSubscriptionByPayment(paymentId:string,status:string,nextDueDate?:string){
  await pool.execute("UPDATE subscriptions SET status=?,next_due_date=COALESCE(?,next_due_date) WHERE current_payment_id=?",[status,nextDueDate||null,paymentId]);
 }
+
+export async function authDiagnostic(){
+ const [u]:any=await pool.query("SELECT COUNT(*) total, SUM(password_hash IS NOT NULL AND password_hash<>'') with_password FROM users");
+ const [ss]:any=await pool.query("SELECT COUNT(*) total FROM sessions WHERE expires_at>NOW()");
+ return {users:Number(u[0]?.total||0),usersWithPassword:Number(u[0]?.with_password||0),activeSessions:Number(ss[0]?.total||0)};
+}
