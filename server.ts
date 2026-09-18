@@ -459,6 +459,7 @@ app.get("/api/evolution/status", async (req, res) => {
 
     currentInst.state = appState;
     currentInst.lastUpdated = new Date().toISOString();
+    await own.db.setUserInstanceStatus(own.user.id, appState);
 
     // If connected, fetch real WhatsApp profile metadata
     if (appState === "connected") {
@@ -594,6 +595,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 app.post("/api/evolution/reset-instance", async (req, res) => {
   const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const instance = own.instance;
+  const currentInst = getInstanceCache(instance);
 
   try {
     // 1. Delete old instance cleanly
@@ -629,20 +631,21 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
     }
 
     if (q) {
-      memoryState.qrCode = {
+      currentInst.qrCode = {
         base64: q.base64,
         code: q.code,
         pairingCode: q.pairingCode,
         updatedAt: Date.now(),
       };
-      memoryState.state = "waiting_qr";
-      memoryState.lastUpdated = new Date().toISOString();
+      currentInst.state = "waiting_qr";
+      currentInst.lastUpdated = new Date().toISOString();
     }
 
+    await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
     res.json({
       success: true,
       instanceName: instance,
-      qrCode: memoryState.qrCode,
+      qrCode: currentInst.qrCode,
       message: "Instância reiniciada com sucesso. Novo QR Code limpo gerado.",
     });
   } catch (err: any) {
@@ -658,6 +661,7 @@ app.post("/api/evolution/create-instance", async (req, res) => {
   const db:any = await import("./database.cjs");
   const owned = await db.ensureUserInstance(user.id);
   const instance = owned.instance_name;
+  const currentInst = getInstanceCache(instance);
 
   try {
     const payload = {
@@ -674,13 +678,13 @@ app.post("/api/evolution/create-instance", async (req, res) => {
 
     const qrcode = createRes.data?.qrcode;
     if (qrcode) {
-      memoryState.qrCode = {
+      currentInst.qrCode = {
         code: qrcode.code,
         base64: qrcode.base64,
         pairingCode: qrcode.pairingCode,
         updatedAt: Date.now(),
       };
-      memoryState.state = "waiting_qr";
+      currentInst.state = "waiting_qr";
     }
 
     await db.setUserInstanceStatus(user.id, "waiting_qr");
@@ -688,7 +692,7 @@ app.post("/api/evolution/create-instance", async (req, res) => {
       success: true,
       instanceName: instance,
       result: createRes.data,
-      qrCode: memoryState.qrCode,
+      qrCode: currentInst.qrCode,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2279,7 +2283,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     tags: [category ? category.split("&")[0].trim() : "Divulgação", scheduleMode === 'agendar' ? 'Agendada' : (scheduleMode === 'recorrente' ? 'Recorrente' : 'Imediata')],
     createdAt: new Date().toISOString(),
     executed: false,
-    instanceName: instanceName || "minhabagg-leads",
+    instanceName: targetInstance,
   };
 
   clientCampaignsStore.unshift(newCampaign);
