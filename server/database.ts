@@ -75,6 +75,15 @@ export async function initDatabase() {
       await c.query("INSERT INTO migrations(name) VALUES (?)",["002_saas_billing_instances"]);
       await c.commit();
     }
+    if (!done.has("003_user_campaigns")) {
+      await c.query(`CREATE TABLE IF NOT EXISTS user_campaigns (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,name VARCHAR(190) NOT NULL,
+        message TEXT NULL,media_url TEXT NULL,status VARCHAR(30) NOT NULL DEFAULT 'draft',scheduled_at DATETIME NULL,
+        interval_seconds INT NOT NULL DEFAULT 30,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX(user_id),INDEX(status),CONSTRAINT fk_campaign_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["003_user_campaigns"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -138,3 +147,10 @@ export async function applyPaymentEvent(eventKey:string,eventType:string,payment
   }
   return true;
 }
+
+export async function createCampaignForUser(userId:number,data:any){
+ const [r]:any=await pool.execute(`INSERT INTO user_campaigns(user_id,name,message,media_url,status,scheduled_at,interval_seconds,created_at) VALUES(?,?,?,?,?,?,?,NOW())`,
+ [userId,data.name||"Divulgação",data.message||"",data.mediaUrl||null,data.status||"draft",data.scheduledAt||null,Number(data.intervalSeconds||30)]);
+ return r.insertId;
+}
+export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r;}
