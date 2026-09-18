@@ -31,9 +31,7 @@ jobs:
           mkdir -p deploy
 
           # Passenger/cPanel precisa de CommonJS como arquivo inicial.
-          cat > deploy/server.js <<'NODEEOF'
-require('./dist/server.cjs');
-NODEEOF
+          printf "require('./dist/server.cjs');\n" > deploy/server.js
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
@@ -41,14 +39,13 @@ NODEEOF
           printf 'NODE_ENV=production\nEVOLUTION_INSTANCE_NAME=nexus-crm-01\nASAAS_ENVIRONMENT=production\n' > deploy/.env
 
           # Garante que /api/* seja entregue ao Express/Passenger, e nao pelo Apache como 404.
-          cat > deploy/.htaccess <<'HTEOF'
-PassengerEnabled on
-PassengerAppType node
-PassengerStartupFile server.js
-PassengerAppRoot /home3/minhabagg/grolpy.minhabagg.com.br
-PassengerBaseURI /
-Options -MultiViews
-HTEOF
+          printf '%s\n' \
+            'PassengerEnabled on' \
+            'PassengerAppType node' \
+            'PassengerStartupFile server.js' \
+            'PassengerAppRoot /home3/minhabagg/grolpy.minhabagg.com.br' \
+            'PassengerBaseURI /' \
+            'Options -MultiViews' > deploy/.htaccess
 
           # Backend compilado + copia do frontend para o fallback SPA do Express
           cp -r dist deploy/dist
