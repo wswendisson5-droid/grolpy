@@ -44,9 +44,13 @@ import {
   LightningIcon,
 } from './components/icons/HugeIcon';
 import { Menu } from 'lucide-react';
+import { ClientPlanosView } from './components/client-panel/views/ClientPlanosView';
+import { ClientCheckoutView } from './components/client-panel/views/ClientCheckoutView';
+import { PlanId } from './services/planService';
 
 export default function App() {
-  const [panelMode, setPanelMode] = useState<AppPanelMode>('landing');
+  const [panelMode, setPanelMode] = useState<any>('landing');
+  const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
   const [currentTab, setCurrentTab] = useState<'radar' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('conexao');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
@@ -313,9 +317,13 @@ export default function App() {
       <LandingPage
         onGetStarted={() => setPanelMode('register')}
         onLogin={() => setPanelMode('login')}
-        onNavigateToPlans={() => setPanelMode('client')}
+        onNavigateToPlans={() => setPanelMode('public-plans')}
       />
     );
+  }
+
+  if (panelMode === 'public-plans') {
+    return <div className="min-h-screen bg-[#f8faf9] px-4 py-8 sm:px-8"><div className="max-w-7xl mx-auto"><button onClick={()=>setPanelMode('landing')} className="mb-6 text-sm font-bold text-[#109353]">← Voltar</button><ClientPlanosView publicMode onOpenCheckout={(id)=>{setPublicPlanId(id);setPanelMode('register');}} /></div></div>;
   }
 
   // If Login page mode is active
@@ -333,11 +341,15 @@ export default function App() {
   if (panelMode === 'register') {
     return (
       <RegisterPage
-        onRegisterSuccess={() => setPanelMode('client')}
+        onRegisterSuccess={() => setPanelMode('public-checkout')}
         onNavigateLogin={() => setPanelMode('login')}
         onNavigateHome={() => setPanelMode('landing')}
       />
     );
+  }
+
+  if (panelMode === 'public-checkout') {
+    return <ClientCheckoutView initialPlanId={publicPlanId} onboardingMode onBack={()=>setPanelMode('public-plans')} onGoToDashboard={()=>setPanelMode('client')} onGoToPlans={()=>setPanelMode('public-plans')} onGoToNovaDivulgacao={()=>setPanelMode('client')} />;
   }
 
   // If Client Panel mode is active, render Client Dashboard
