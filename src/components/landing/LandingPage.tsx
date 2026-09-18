@@ -267,119 +267,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            {/* Right: Realistic Phone Mockup (Exactly like in the reference image) */}
+            {/* Produto real: mobile + dashboard */}
             <div className="lg:col-span-6 flex items-center justify-center relative">
-              {/* Organic light green blob behind the phone */}
-              <div className="absolute w-[300px] sm:w-[420px] h-[480px] sm:h-[580px] bg-[#6ee7b7]/30 rounded-[60px] rotate-3 blur-xl -z-10" />
-
-              {/* Smartphone Frame */}
-              <div className="w-[300px] sm:w-[350px] bg-[#0c1a14] p-3.5 sm:p-4 rounded-[48px] shadow-[0_25px_60px_-15px_rgba(14,38,31,0.35)] border-[5px] border-[#22392f] relative select-none">
-                {/* Speaker & camera notch */}
-                <div className="absolute top-6 left-1/2 -translate-x-1/2 w-28 h-4 bg-[#0c1a14] rounded-full z-20 flex items-center justify-center">
-                  <div className="w-10 h-1.5 bg-[#22392f] rounded-full" />
-                </div>
-
-                {/* Inner Screen Content */}
-                <div className="bg-white rounded-[36px] overflow-hidden text-[#0e261f] flex flex-col pt-6 pb-4 px-4.5 min-h-[560px] sm:min-h-[610px] justify-between shadow-inner">
-                  {/* Top Phone Header */}
-                  <div className="flex items-center justify-between pt-3 pb-3 border-b border-[#f0f4f1]">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-6 h-6 rounded-lg bg-[#00c968] flex items-center justify-center text-white">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                          <path
-                            d="M12 3C6.477 3 2 6.94 2 11.8c0 2.22.92 4.25 2.45 5.82L3.3 21l4.03-1.34c1.43.6 3.01.94 4.67.94 5.523 0 10-3.94 10-8.8S17.523 3 12 3z"
-                            fill="white"
-                          />
-                        </svg>
-                      </div>
-                      <span className="text-base font-extrabold text-[#0e261f] tracking-tight">gruply</span>
-                    </div>
-                    <div className="w-6 h-6 rounded-full bg-[#f0f5f2] flex items-center justify-center text-[#55695e]">
-                      <Sliders size={12} />
-                    </div>
-                  </div>
-
-                  {/* Greeting Box */}
-                  <div className="py-2.5">
-                    <p className="text-xs font-bold text-[#0e261f]">Olá, tudo certo? 👋</p>
-                    <p className="text-[11px] text-[#6b7d73]">Vamos impulsionar suas conexões hoje?</p>
-                  </div>
-
-                  {/* Big Action Button (Enviar para grupos) */}
-                  <div className="bg-[#00c968] rounded-2xl p-4 text-white flex items-center justify-between shadow-[0_8px_20px_rgba(0,201,104,0.3)]">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
-                        <Send size={18} className="text-white" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold leading-tight">Enviar para grupos</p>
-                        <p className="text-[10px] text-white/80 leading-none mt-0.5">Alcance mais pessoas</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 4 Feature Action Tiles in 2x2 Grid */}
-                  <div className="grid grid-cols-2 gap-2.5 my-3">
-                    <div className="bg-[#f7faf8] border border-[#e8efe9] rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-1.5 shadow-2xs">
-                      <div className="w-8 h-8 rounded-full bg-[#e5f8ee] flex items-center justify-center text-[#00c968]">
-                        <Clock size={16} />
-                      </div>
-                      <span className="text-[11px] font-bold text-[#0e261f] leading-tight">Agendar envios</span>
-                    </div>
-
-                    <div className="bg-[#f7faf8] border border-[#e8efe9] rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-1.5 shadow-2xs">
-                      <div className="w-8 h-8 rounded-full bg-[#e8f1fd] flex items-center justify-center text-[#2563eb]">
-                        <Users size={16} />
-                      </div>
-                      <span className="text-[11px] font-bold text-[#0e261f] leading-tight">Meus grupos</span>
-                    </div>
-
-                    <div className="bg-[#f7faf8] border border-[#e8efe9] rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-1.5 shadow-2xs">
-                      <div className="w-8 h-8 rounded-full bg-[#f3edf9] flex items-center justify-center text-[#8b5cf6]">
-                        <BarChart3 size={16} />
-                      </div>
-                      <span className="text-[11px] font-bold text-[#0e261f] leading-tight">Relatórios</span>
-                    </div>
-
-                    <div className="bg-[#f7faf8] border border-[#e8efe9] rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-1.5 shadow-2xs">
-                      <div className="w-8 h-8 rounded-full bg-[#f5f5f5] flex items-center justify-center text-[#55695e]">
-                        <Sliders size={16} />
-                      </div>
-                      <span className="text-[11px] font-bold text-[#0e261f] leading-tight">Configurações</span>
-                    </div>
-                  </div>
-
-                  {/* Phone Bottom Navigation */}
-                  <div className="border-t border-[#f0f4f1] pt-2 px-1 flex items-center justify-between text-[9px] text-[#6b7d73]">
-                    <div className="flex flex-col items-center text-[#00c968] font-bold">
-                      <div className="w-4 h-4 mb-0.5 flex items-center justify-center">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" />
-                        </svg>
-                      </div>
-                      <span>Início</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-4 h-4 mb-0.5 flex items-center justify-center">
-                        <Send size={12} />
-                      </div>
-                      <span>Campanhas</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-4 h-4 mb-0.5 flex items-center justify-center">
-                        <Users size={12} />
-                      </div>
-                      <span>Grupos</span>
-                    </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-4 h-4 mb-0.5 flex items-center justify-center">
-                        <span className="font-bold text-xs tracking-tighter">•••</span>
-                      </div>
-                      <span>Mais</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <div className="absolute w-[300px] sm:w-[460px] h-[480px] sm:h-[600px] bg-[#6ee7b7]/25 rounded-[60px] rotate-3 blur-xl -z-10" />
+              <picture>
+                <source media="(max-width: 639px)" srcSet="https://i.imgur.com/pRMndRA.jpeg" />
+                <img src="https://i.imgur.com/QGVPcAW.png" alt="Painel Grolpy" referrerPolicy="no-referrer" className="w-full max-w-[620px] max-h-[620px] object-contain rounded-[28px] shadow-[0_25px_60px_-20px_rgba(14,38,31,0.28)]" />
+              </picture>
             </div>
           </div>
         </div>
