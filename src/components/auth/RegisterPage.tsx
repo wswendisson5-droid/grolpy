@@ -35,7 +35,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     setPhone(value);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage('');
 
@@ -50,10 +50,13 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const response = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:fullName,email,phone,password}) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Não foi possível criar a conta.');
       onRegisterSuccess();
-    }, 700);
+    } catch (err:any) { setErrorMessage(err.message || 'Não foi possível criar a conta.'); }
+    finally { setIsLoading(false); }
   };
 
   const handleGoogleSignup = () => {
