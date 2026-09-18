@@ -2550,7 +2550,7 @@ async function executeGroupDispatch(
 app.post("/api/client/campaigns/send-now", async (req, res) => {
   const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const { campaignId, customGroupJids, customMessage, imageUrl, instanceName, intervalSeconds } = req.body;
-  const instanceParam = own.instance;
+  const instanceParam = own.instance;\n  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);\n  const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);\n  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
   const instance = await getActiveConnectedInstance(instanceParam);
 
   let camp = clientCampaignsStore.find((c) => c.id === campaignId);
@@ -2588,7 +2588,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     });
   }
 
-  const currentLimits = CLIENT_PLAN_LIMITS[clientPlanState.planId] || CLIENT_PLAN_LIMITS.pro;
+  const currentLimits = CLIENT_PLAN_LIMITS[userPlanId];
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   if (totalSentFromCampaigns + targets.length > currentLimits.maxMonthlySends) {
     return res.status(403).json({
