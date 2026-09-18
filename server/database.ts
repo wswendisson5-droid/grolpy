@@ -107,12 +107,13 @@ function verifyPassword(password:string,stored:string){
 }
 export async function registerUser(name:string,email:string,phone:string,password:string){
   const passwordHash=hashPassword(password);
-  const [r]:any=await pool.execute("INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)",[name,email.toLowerCase(),phone,passwordHash]);
+  const [r]:any=await pool.execute("INSERT INTO users(name,email,phone,password_hash) VALUES(?,?,?,?)",[name.trim(),email.trim().toLowerCase(),phone,passwordHash]);
   return {id:r.insertId,name,email:email.toLowerCase(),phone,plan:"start"};
 }
 export async function loginUser(email:string,password:string){
-  const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status FROM users WHERE email=? LIMIT 1",[email.toLowerCase()]);
-  const u=rows[0]; if(!u||!verifyPassword(password,u.password_hash)) return null;
+  const normalizedEmail=String(email||"").trim().toLowerCase();
+  const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
+  const u=rows[0]; if(!u||!verifyPassword(String(password),u.password_hash)) return null;
   const token=crypto.randomBytes(32).toString("hex"), tokenHash=crypto.createHash("sha256").update(token).digest("hex");
   await pool.execute("INSERT INTO sessions(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(), INTERVAL 30 DAY))",[u.id,tokenHash]);
   delete u.password_hash; return {user:u,token};
