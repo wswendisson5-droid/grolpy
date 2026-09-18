@@ -41,7 +41,7 @@ export interface ClientPlanUsageMetrics {
 }
 
 class ClientService {
-  private defaultInstance: string = 'minhabagg-leads';
+  private defaultInstance: string = '';
   private cachedGroups: ClientGroup[] = [];
   private cachedCampaigns: DivulgacaoCard[] = [];
   private lastFetchTime: number = 0;
@@ -68,9 +68,8 @@ class ClientService {
     }
   }
 
-  getDefaultInstance(): string {
-    return this.defaultInstance;
-  }
+  getDefaultInstance(): string { return this.defaultInstance; }
+  private authHeaders(extra:Record<string,string>={}) { const token=typeof window!=='undefined'?localStorage.getItem('groply_token')||'':''; return {...extra,...(token?{Authorization:`Bearer ${token}`}:{})}; }
 
   getCachedGroups(): ClientGroup[] {
     return this.cachedGroups;
@@ -97,7 +96,7 @@ class ClientService {
     }
 
     try {
-      const res = await fetch(`/api/evolution/status?instance=${safeEncodeURIComponent(instance)}`);
+      const res = await fetch('/api/evolution/status',{headers:this.authHeaders()});
       const data = await res.json();
       
       const isConn = data.state === 'connected' || data.state === 'open' || data.status === 'CONNECTED';
@@ -131,7 +130,7 @@ class ClientService {
 
     try {
       const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
-      const res = await fetch(url);
+      const res = await fetch(url,{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
         this.cachedGroups = data.groups;
@@ -155,7 +154,7 @@ class ClientService {
     if (now - this.lastFetchTime < 10000) return;
     this.lastFetchTime = now;
     try {
-      const res = await fetch(`/api/client/groups?instance=${safeEncodeURIComponent(instance)}`);
+      const res = await fetch('/api/client/groups',{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
         this.cachedGroups = data.groups;
@@ -194,8 +193,8 @@ class ClientService {
     try {
       const res = await fetch('/api/client/imported-groups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instanceName: instance, groups }),
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ groups }),
       });
       const data = await res.json();
       if (data.success && Array.isArray(data.groups)) {
@@ -210,7 +209,7 @@ class ClientService {
 
   async getCampaigns(): Promise<DivulgacaoCard[]> {
     try {
-      const res = await fetch('/api/client/campaigns');
+      const res = await fetch('/api/client/campaigns',{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success && Array.isArray(data.campaigns)) {
         this.cachedCampaigns = data.campaigns;
