@@ -318,10 +318,12 @@ async function authenticatedUser(req:any){
 const ADMIN_EMAILS=new Set(["wswendisson5@gmail.com","mateus@gmail.com"]);
 async function requireAdmin(req:any){ const user:any=await authenticatedUser(req); return user?.role==="admin"&&ADMIN_EMAILS.has(String(user.email||"").trim().toLowerCase())?user:null; }
 
-async function ownedInstance(req:any, requireActive=true){
+async function ownedInstance(req:any, requireActive=true, createIfMissing=true){
   const user:any=await authenticatedUser(req); if(!user) return {error:"UNAUTHORIZED"};
   if(requireActive && user.status!=="active") return {error:"PAYMENT_REQUIRED",user};
-  const db:any=await import("./database.cjs"); const inst=await db.ensureUserInstance(user.id);
+  const db:any=await import("./database.cjs");
+  const inst=createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
+  if(!inst) return {error:"INSTANCE_NOT_FOUND",user,db};
   return {user,db,instance:inst.instance_name,record:inst};
 }
 
@@ -450,7 +452,10 @@ app.post("/api/evolution/select-instance", (req, res) => {
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."}); if(own.error)return res.status(402).json({error:"Plano inativo."});
+  const own:any=await ownedInstance(req,true,false);
+  if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."});
+  if(own.error==="PAYMENT_REQUIRED")return res.status(402).json({error:"Plano inativo."});
+  if(own.error==="INSTANCE_NOT_FOUND")return res.json({configured:true,instanceExists:false,state:"disconnected",connectedProfile:null});
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
