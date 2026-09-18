@@ -41,14 +41,23 @@ export const ClientConexaoView: React.FC = () => {
              fetchQrCode();
           }
         }
+      } else if (res.status === 404) {
+         await createInstance();
       } else {
          setStatus('disconnected');
-         fetchQrCode();
       }
     } catch (e) {
       console.error(e);
       setStatus('error');
     }
+  };
+
+  const createInstance = async () => {
+    try { setQrCode(null); setStatus('loading'); const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'}); const data=await res.json(); if(!res.ok)throw new Error(data.error||'Falha ao criar conexão'); if(data.qrCode)await handleSetQrCode(data.qrCode); setStatus('waiting_qr'); } catch(e){console.error(e);setStatus('error')}
+  };
+
+  const refreshQrCode = async () => {
+    try { setQrCode(null); setStatus('loading'); const res=await fetch('/api/evolution/reset-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'}); const data=await res.json(); if(!res.ok)throw new Error(data.error||'Falha ao renovar QR Code'); if(data.qrCode)await handleSetQrCode(data.qrCode); setStatus('waiting_qr'); } catch(e){console.error(e);setStatus('error')}
   };
 
   const fetchQrCode = async () => {
@@ -137,7 +146,7 @@ export const ClientConexaoView: React.FC = () => {
                   )}
                 </div>
                 <button 
-                  onClick={fetchQrCode}
+                  onClick={refreshQrCode}
                   className="mt-6 flex items-center gap-2 px-4 py-2 bg-[#f0f4f1] text-[#11241c] font-semibold rounded-full hover:bg-[#e4ede8] transition-colors"
                 >
                   <RefreshCw size={16} /> Atualizar QR Code
