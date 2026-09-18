@@ -27,11 +27,21 @@ jobs:
 
       - name: Preparar arquivos de producao
         run: |
+          rm -rf deploy
           mkdir -p deploy
-          cp -r dist deploy/dist
+
           cp server.js deploy/server.js
           cp package.json deploy/package.json
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
+
+          # Backend compilado + copia do frontend para o fallback SPA do Express
+          cp -r dist deploy/dist
+
+          # O Apache/cPanel pode servir arquivos fisicos na raiz antes do Passenger.
+          # Publicamos tambem o frontend Vite compilado na raiz para evitar que
+          # um index.html-fonte antigo carregue /src/main.tsx em producao.
+          cp dist/index.html deploy/index.html
+          if [ -d dist/assets ]; then cp -r dist/assets deploy/assets; fi
 
       - name: Enviar para hospedagem
         uses: SamKirkland/FTP-Deploy-Action@v4.3.6
