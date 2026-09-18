@@ -21,9 +21,11 @@ export const ClientConexaoView: React.FC = () => {
     }
   };
 
+  const authHeaders=()=>({Authorization:`Bearer ${localStorage.getItem('groply_token')||''}`});
+
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/evolution/status?instance=minhabagg-leads');
+      const res = await fetch('/api/evolution/status',{headers:authHeaders()});
       if (res.ok) {
         const data = await res.json();
         const appState = data.state;
@@ -51,7 +53,7 @@ export const ClientConexaoView: React.FC = () => {
 
   const fetchQrCode = async () => {
     try {
-      const res = await fetch('/api/evolution/qrcode?instance=minhabagg-leads');
+      const res = await fetch('/api/evolution/qrcode',{headers:authHeaders()});
       if (res.ok) {
         const data = await res.json();
         if (data.base64 || data.code) {
