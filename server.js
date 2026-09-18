@@ -1,3 +1,3 @@
 // Setup Node.js App (cPanel / Passenger) Entrypoint
-// CommonJS bootstrap: package.json uses type=module, while the compiled backend is dist/server.cjs.
+// Passenger bootstrap: restart marker 2026-09-18T19:59-03:00. Compiled backend is dist/server.cjs.
 import './dist/server.cjs';
