@@ -339,6 +339,14 @@ app.post("/api/auth/register", async (req, res) => {
   }
 });
 
+app.post("/api/auth/bootstrap-admin", async (req,res)=>{
+ try{
+  const key=String(req.headers["x-bootstrap-key"]||""); if(!process.env.ADMIN_BOOTSTRAP_KEY||key!==process.env.ADMIN_BOOTSTRAP_KEY)return res.status(404).json({error:"Not found"});
+  const db:any=await import("./database.cjs"); const {name,email,password}=req.body||{}; if(!name||!email||!password)return res.status(400).json({error:"Dados obrigatórios"});
+  await db.ensureAdminAccount(String(name),String(email),String(password)); res.json({success:true});
+ }catch(e:any){res.status(500).json({success:false,error:"ADMIN_BOOTSTRAP_FAILED"});}
+});
+
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { loginUser } = await import("./database.cjs");
