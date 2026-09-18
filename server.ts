@@ -9,11 +9,14 @@ import dotenv from "dotenv";
 import { radarEngine } from "./server/radarEngine";
 import { atendimentoEngine } from "./server/atendimentoEngine";
 import { asaasEngine } from "./server/asaasEngine";
+import { initDatabase, registerUser, loginUser, databaseHealth } from "./server/database";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+initDatabase().catch((err) => console.error("[DB] Falha ao inicializar MySQL:", err?.message || err));
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -256,6 +259,32 @@ app.get("/api/health", (_req, res) => {
     instanceName: memoryState.instanceName,
     apiUrl: memoryState.apiUrl,
   });
+});
+
+// Database/authentication
+app.get("/api/database/health", async (_req, res) => {
+  try { res.json({ success: true, ...(await databaseHealth()) }); }
+  catch (err:any) { res.status(503).json({ success:false, error: err?.message || "MySQL indisponível" }); }
+});
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { name, email, phone, password } = req.body || {};
+    if (!name || !email || !phone || !password || String(password).length < 6) return res.status(400).json({error:"Dados de cadastro inválidos."});
+    const user=await registerUser(String(name).trim(),String(email).trim(),String(phone).trim(),String(password));
+    res.status(201).json({success:true,user});
+  } catch(err:any) {
+    if (err?.code==="ER_DUP_ENTRY") return res.status(409).json({error:"Este e-mail já está cadastrado."});
+    res.status(500).json({error:"Não foi possível criar a conta."});
+  }
+});
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password }=req.body || {};
+    if(!email||!password) return res.status(400).json({error:"Informe e-mail e senha."});
+    const auth=await loginUser(String(email).trim(),String(password));
+    if(!auth) return res.status(401).json({error:"E-mail ou senha inválidos."});
+    res.json({success:true,...auth});
+  } catch { res.status(500).json({error:"Não foi possível entrar."}); }
 });
 
 // 2. Fetch all instances available on the Evolution server
