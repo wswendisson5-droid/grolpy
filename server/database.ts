@@ -183,10 +183,13 @@ export async function authDiagnostic(){
 
 export async function listAdminSubscriptions(){
  const [r]:any=await pool.query(`SELECT u.id AS user_id,u.name,u.email,u.phone,u.status AS user_status,u.created_at,
- s.plan_id,s.status AS subscription_status,s.next_due_date,
- (SELECT COUNT(*) FROM user_campaigns c WHERE c.user_id=u.id) campaigns,
- (SELECT COUNT(*) FROM user_history h WHERE h.user_id=u.id AND h.created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)) monthly_events
- FROM users u LEFT JOIN subscriptions s ON s.user_id=u.id ORDER BY u.created_at DESC`); return r;
+ s.plan_id,s.status AS subscription_status,s.next_due_date
+ FROM users u LEFT JOIN subscriptions s ON s.user_id=u.id ORDER BY u.created_at DESC`);
+ for(const x of r){
+   try{const [c]:any=await pool.execute("SELECT COUNT(*) n FROM user_campaigns WHERE user_id=?",[x.user_id]);x.campaigns=Number(c[0]?.n||0)}catch{x.campaigns=0}
+   try{const [h]:any=await pool.execute("SELECT COUNT(*) n FROM user_history WHERE user_id=? AND created_at>=DATE_SUB(NOW(),INTERVAL 30 DAY)",[x.user_id]);x.monthly_events=Number(h[0]?.n||0)}catch{x.monthly_events=0}
+ }
+ return r;
 }
 export async function adminSetSubscription(userId:number,action:string){
  if(action==="approve"){await pool.execute("UPDATE users SET status='active' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='active' WHERE user_id=?",[userId]);}
