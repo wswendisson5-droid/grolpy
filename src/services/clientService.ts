@@ -170,7 +170,7 @@ class ClientService {
       return this.cachedGroups;
     }
     try {
-      const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`);
+      const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`,{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
         this.cachedGroups = data.groups;
@@ -228,7 +228,7 @@ class ClientService {
     try {
       const res = await fetch('/api/client/campaigns/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(campaign),
       });
       const data = await res.json();
@@ -246,7 +246,7 @@ class ClientService {
     try {
       const res = await fetch('/api/client/campaigns/toggle', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ id }),
       });
       const data = await res.json();
@@ -259,7 +259,7 @@ class ClientService {
   async deleteCampaign(id: string): Promise<boolean> {
     try {
       const res = await fetch(`/api/client/campaigns/${encodeURIComponent(id)}`, {
-        method: 'DELETE',
+        method: 'DELETE', headers:this.authHeaders(),
       });
       const data = await res.json();
       if (data.success) {
@@ -296,7 +296,7 @@ class ClientService {
 
   async getHistory(): Promise<ClientHistoryItem[]> {
     try {
-      const res = await fetch('/api/client/history');
+      const res = await fetch('/api/client/history',{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success && Array.isArray(data.history)) {
         return data.history;
@@ -309,7 +309,7 @@ class ClientService {
 
   async getDashboardStats(instance: string = this.defaultInstance): Promise<any> {
     try {
-      const res = await fetch(`/api/client/stats?instance=${safeEncodeURIComponent(instance)}`);
+      const res = await fetch(`/api/client/stats?instance=${safeEncodeURIComponent(instance)}`,{headers:this.authHeaders()});
       const data = await res.json();
       if (data.success) {
         return data;
