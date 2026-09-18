@@ -46,6 +46,35 @@ export async function initDatabase() {
       await c.query("INSERT INTO migrations(name) VALUES (?)",["001_users_sessions"]);
       await c.commit();
     }
+    if (!done.has("002_saas_billing_instances")) {
+      await c.beginTransaction();
+      await c.query(`ALTER TABLE users ADD COLUMN cpf_cnpj VARCHAR(20) NULL`).catch(()=>{});
+      await c.query(`ALTER TABLE users MODIFY status VARCHAR(30) NOT NULL DEFAULT 'pending_payment'`);
+      await c.query(`CREATE TABLE IF NOT EXISTS subscriptions (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL,
+        plan_id VARCHAR(30) NOT NULL, status VARCHAR(30) NOT NULL DEFAULT 'pending',
+        asaas_customer_id VARCHAR(80) NULL, asaas_subscription_id VARCHAR(80) NULL,
+        current_payment_id VARCHAR(80) NULL, next_due_date DATE NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_subscription_user(user_id), INDEX(status), INDEX(current_payment_id),
+        CONSTRAINT fk_subscription_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query(`CREATE TABLE IF NOT EXISTS evolution_instances (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, user_id BIGINT UNSIGNED NOT NULL,
+        instance_name VARCHAR(120) NOT NULL UNIQUE, status VARCHAR(30) NOT NULL DEFAULT 'disconnected',
+        owner_phone VARCHAR(30) NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_instance_user(user_id),
+        CONSTRAINT fk_instance_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query(`CREATE TABLE IF NOT EXISTS payment_events (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY, event_key VARCHAR(190) NOT NULL UNIQUE,
+        event_type VARCHAR(80) NOT NULL, payment_id VARCHAR(80) NULL, payload_json LONGTEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX(payment_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["002_saas_billing_instances"]);
+      await c.commit();
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -71,3 +100,41 @@ export async function loginUser(email:string,password:string){
   delete u.password_hash; return {user:u,token};
 }
 export async function databaseHealth(){ const [r]:any=await pool.query("SELECT DATABASE() db, NOW() now"); return r[0]; }
+
+export async function getUserByToken(token:string){
+  const h=crypto.createHash("sha256").update(token).digest("hex");
+  const [rows]:any=await pool.execute(`SELECT u.id,u.name,u.email,u.phone,u.cpf_cnpj,u.plan,u.status
+    FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>NOW() LIMIT 1`,[h]);
+  return rows[0]||null;
+}
+export async function getUserInstance(userId:number){
+  const [r]:any=await pool.execute("SELECT * FROM evolution_instances WHERE user_id=? LIMIT 1",[userId]); return r[0]||null;
+}
+export async function ensureUserInstance(userId:number){
+  const existing=await getUserInstance(userId); if(existing) return existing;
+  const name=`grolpy-u${userId}-${crypto.randomBytes(5).toString("hex")}`;
+  await pool.execute("INSERT INTO evolution_instances(user_id,instance_name,status) VALUES(?,?,'disconnected')",[userId,name]);
+  return getUserInstance(userId);
+}
+export async function setUserInstanceStatus(userId:number,status:string,phone?:string){
+  await pool.execute("UPDATE evolution_instances SET status=?, owner_phone=COALESCE(?,owner_phone) WHERE user_id=?",[status,phone||null,userId]);
+}
+export async function setUserBillingIdentity(userId:number,cpfCnpj:string){ await pool.execute("UPDATE users SET cpf_cnpj=? WHERE id=?",[cpfCnpj,userId]); }
+export async function upsertSubscription(userId:number,planId:string,data:any){
+  await pool.execute(`INSERT INTO subscriptions(user_id,plan_id,status,asaas_customer_id,asaas_subscription_id,current_payment_id,next_due_date)
+  VALUES(?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE plan_id=VALUES(plan_id),status=VALUES(status),asaas_customer_id=COALESCE(VALUES(asaas_customer_id),asaas_customer_id),
+  asaas_subscription_id=COALESCE(VALUES(asaas_subscription_id),asaas_subscription_id),current_payment_id=COALESCE(VALUES(current_payment_id),current_payment_id),
+  next_due_date=COALESCE(VALUES(next_due_date),next_due_date)`,[userId,planId,data.status||"pending",data.customerId||null,data.subscriptionId||null,data.paymentId||null,data.nextDueDate||null]);
+  await pool.execute("UPDATE users SET plan=?, status=? WHERE id=?",[planId,data.status==="active"?"active":"pending_payment",userId]);
+}
+export async function applyPaymentEvent(eventKey:string,eventType:string,payment:any){
+  try{await pool.execute("INSERT INTO payment_events(event_key,event_type,payment_id,payload_json) VALUES(?,?,?,?)",[eventKey,eventType,payment?.id||null,JSON.stringify(payment||{})]);}catch(e:any){if(e?.code==="ER_DUP_ENTRY")return false;throw e;}
+  const active=eventType==="PAYMENT_RECEIVED"||eventType==="PAYMENT_CONFIRMED";
+  const overdue=eventType==="PAYMENT_OVERDUE";
+  if(payment?.id && (active||overdue)){
+    const status=active?"active":"overdue";
+    await pool.execute("UPDATE subscriptions SET status=? WHERE current_payment_id=?",[status,payment.id]);
+    await pool.execute(`UPDATE users u JOIN subscriptions s ON s.user_id=u.id SET u.status=? WHERE s.current_payment_id=?`,[active?"active":"suspended",payment.id]);
+  }
+  return true;
+}
