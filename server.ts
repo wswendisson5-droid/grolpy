@@ -315,6 +315,8 @@ async function authenticatedUser(req:any){
   return db.getUserByToken(token);
 }
 
+async function requireAdmin(req:any){ const user:any=await authenticatedUser(req); return user?.role==="admin"?user:null; }
+
 async function ownedInstance(req:any, requireActive=true){
   const user:any=await authenticatedUser(req); if(!user) return {error:"UNAUTHORIZED"};
   if(requireActive && user.status!=="active") return {error:"PAYMENT_REQUIRED",user};
@@ -368,15 +370,18 @@ app.get("/api/auth/diagnostic", async (_req,res)=>{
 });
 
 app.post("/api/admin/test-subscriber", async (req,res)=>{
+ const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
  try{const db:any=await import("./database.cjs");const user=await db.createPendingTestSubscriber(req.body||{});res.status(201).json({success:true,user});}
  catch(e:any){res.status(e?.code==="ER_DUP_ENTRY"?409:500).json({success:false,error:"Não foi possível criar assinante de teste."});}
 });
 
-app.get("/api/admin/subscriptions", async (_req,res)=>{
+app.get("/api/admin/subscriptions", async (req,res)=>{
+ const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
  try{const db:any=await import("./database.cjs");res.json({success:true,subscriptions:await db.listAdminSubscriptions()});}
  catch(e:any){console.error("[ADMIN-SUBSCRIPTIONS]",e?.code||e?.message);res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
 });
 app.post("/api/admin/subscriptions/:userId/action", async (req,res)=>{
+ const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
  try{const action=String(req.body?.action||"");if(!["approve","renew","suspend"].includes(action))return res.status(400).json({error:"Ação inválida"});
  const db:any=await import("./database.cjs");await db.adminSetSubscription(Number(req.params.userId),action);res.json({success:true});}
  catch(e:any){res.status(500).json({success:false,error:"Não foi possível atualizar a assinatura."});}
