@@ -1998,6 +1998,19 @@ app.post("/api/client/plan", (req, res) => {
   });
 });
 
+// Public onboarding: authenticated account chooses a plan and receives the first real recurring Pix charge.
+app.post("/api/onboarding/subscribe", async (req,res)=>{
+  try{
+    const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Faça login para continuar."});
+    const {planId,cpfCnpj}=req.body||{}; const prices:any={start:39.9,pro:69.9,max:119.9}; const names:any={start:"Start",pro:"Pro",max:"Max"};
+    if(!prices[planId]||!cpfCnpj)return res.status(400).json({success:false,error:"Plano e CPF são obrigatórios."});
+    const db:any=await import("./database.cjs"); await db.setUserBillingIdentity(user.id,String(cpfCnpj));
+    const sub:any=await asaasEngine.createMonthlyPixSubscription({planId,planName:names[planId],value:prices[planId],customer:{name:user.name,email:user.email,cpfCnpj:String(cpfCnpj),phone:user.phone},externalReference:`grolpy:user:${user.id}:plan:${planId}`});
+    await db.upsertSubscription(user.id,planId,{status:"pending",customerId:sub.customerId,subscriptionId:sub.subscriptionId,paymentId:sub.paymentId,nextDueDate:sub.nextDueDate});
+    res.json({success:true,subscription:{planId,status:"pending",asaasSubscriptionId:sub.subscriptionId},payment:{id:sub.paymentId,status:sub.status,pix:sub.pix}});
+  }catch(err:any){console.error("[Onboarding]",err?.message||err);res.status(500).json({success:false,error:err?.message||"Falha ao iniciar assinatura."});}
+});
+
 // Asaas Checkout API: Create Payment (Pix, Credit Card, or Boleto)
 app.post("/api/client/checkout/create", async (req, res) => {
   try {
