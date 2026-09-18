@@ -2329,7 +2329,15 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
 });
 
 // Delete campaign
-app.delete("/api/client/campaigns/:id", async (req,res)=>{\n const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});\n const ok=await own.db.deleteCampaignForUser(own.user.id,String(req.params.id)); if(!ok)return res.status(404).json({error:"Campanha não encontrada"});\n res.json({success:true});\n});\n\n// Helper to look up real group name
+app.delete("/api/client/campaigns/:id", async (req,res)=>{
+ const own:any=await ownedInstance(req);
+ if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const ok=await own.db.deleteCampaignForUser(own.user.id,String(req.params.id));
+ if(!ok)return res.status(404).json({error:"Campanha não encontrada"});
+ res.json({success:true});
+});
+
+// Helper to look up real group name
 function lookupGroupName(jid: string, instance: string): string {
   const list = clientImportedGroupsStore.get(instance) || clientImportedGroupsStore.get("default") || [];
   const found = list.find((g: any) => g.jid === jid || g.id === jid);
