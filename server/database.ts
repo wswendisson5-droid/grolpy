@@ -1,4 +1,5 @@
 import * as mysql from "mysql2/promise";
+export { mysql };
 import crypto from "crypto";
 
 const pool = mysql.createPool({
