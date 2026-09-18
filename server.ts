@@ -306,6 +306,34 @@ app.get("/api/database/health", async (_req, res) => {
   }
 });
 
+// Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { registerUser } = await import("./database.cjs");
+    const { name, email, phone, password } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ success:false, error:"Preencha nome, e-mail e senha." });
+    const user = await registerUser(String(name), String(email), String(phone || ""), String(password));
+    res.status(201).json({ success:true, user });
+  } catch (err:any) {
+    const duplicate = err?.code === "ER_DUP_ENTRY";
+    res.status(duplicate ? 409 : 500).json({ success:false, error: duplicate ? "Este e-mail já está cadastrado." : "Não foi possível criar a conta." });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { loginUser } = await import("./database.cjs");
+    const { email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ success:false, error:"Informe e-mail e senha." });
+    const result = await loginUser(String(email), String(password));
+    if (!result) return res.status(401).json({ success:false, error:"E-mail ou senha incorretos." });
+    res.json({ success:true, ...result });
+  } catch (err:any) {
+    console.error("[AUTH] login:", err?.code || err?.message || err);
+    res.status(500).json({ success:false, error:"Não foi possível entrar agora." });
+  }
+});
+
 // 2. Fetch all instances available on the Evolution server
 app.get("/api/evolution/instances", async (_req, res) => {
   try {
