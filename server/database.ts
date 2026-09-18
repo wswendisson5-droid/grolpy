@@ -77,10 +77,19 @@ export async function initDatabase() {
     }
     if (!done.has("003_user_campaigns")) {
       await c.query(`CREATE TABLE IF NOT EXISTS user_campaigns (
-        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,name VARCHAR(190) NOT NULL,
-        message TEXT NULL,media_url TEXT NULL,status VARCHAR(30) NOT NULL DEFAULT 'draft',scheduled_at DATETIME NULL,
-        interval_seconds INT NOT NULL DEFAULT 30,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX(user_id),INDEX(status),CONSTRAINT fk_campaign_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,client_id VARCHAR(80) NOT NULL,
+        campaign_key VARCHAR(120) NOT NULL,name VARCHAR(190) NOT NULL,message TEXT NULL,media_url LONGTEXT NULL,
+        config_json LONGTEXT NULL,status VARCHAR(30) NOT NULL DEFAULT 'draft',scheduled_at DATETIME NULL,
+        interval_seconds INT NOT NULL DEFAULT 30,total_sent INT NOT NULL DEFAULT 0,total_failed INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_campaign(user_id,campaign_key),INDEX(user_id),INDEX(client_id),INDEX(status),
+        CONSTRAINT fk_campaign_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci);
+      await c.query(`CREATE TABLE IF NOT EXISTS user_history (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,user_id BIGINT UNSIGNED NOT NULL,client_id VARCHAR(80) NOT NULL,
+        campaign_key VARCHAR(120) NULL,group_jid VARCHAR(190) NULL,group_name VARCHAR(190) NULL,status VARCHAR(30) NOT NULL,
+        error_text TEXT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,INDEX(user_id),INDEX(client_id),INDEX(campaign_key),
+        CONSTRAINT fk_history_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)",["003_user_campaigns"]);
     }
@@ -148,12 +157,17 @@ export async function applyPaymentEvent(eventKey:string,eventType:string,payment
   return true;
 }
 
-export async function createCampaignForUser(userId:number,data:any){
- const [r]:any=await pool.execute(`INSERT INTO user_campaigns(user_id,name,message,media_url,status,scheduled_at,interval_seconds,created_at) VALUES(?,?,?,?,?,?,?,NOW())`,
- [userId,data.name||"Divulgação",data.message||"",data.mediaUrl||null,data.status||"draft",data.scheduledAt||null,Number(data.intervalSeconds||30)]);
- return r.insertId;
+export async function saveCampaignForUser(userId:number,data:any){
+ const clientId="client-"+userId; const key=String(data.id||data.campaignKey||("camp-"+Date.now()));
+ await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
+ [userId,clientId,key,data.title||data.name||"Divulgação",data.previewText||data.message||"",data.imageUrl||data.mediaUrl||null,JSON.stringify(data),data.status||"draft",data.scheduleDate||data.scheduledAt||null,Number(data.delaySeconds||data.intervalSeconds||30),Number(data.totalSent||0),Number(data.totalFailed||0)]);
+ return key;
 }
-export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r;}
+export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r.map((x:any)=>{try{return JSON.parse(x.config_json)}catch{return {}}});}
+export async function deleteCampaignForUser(userId:number,key:string){const [r]:any=await pool.execute("DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=?",[userId,key]);return r.affectedRows>0;}
+export async function addHistoryForUser(userId:number,data:any){await pool.execute("INSERT INTO user_history(user_id,client_id,campaign_key,group_jid,group_name,status,error_text) VALUES(?,?,?,?,?,?,?)",[userId,"client-"+userId,data.campaignId||null,data.groupJid||null,data.groupName||null,data.status||"unknown",data.error||null]);}
+export async function listHistoryForUser(userId:number,days=90){const [r]:any=await pool.execute("SELECT id,campaign_key AS campaignId,group_jid AS groupJid,group_name AS groupName,status,error_text AS error,created_at AS timestamp FROM user_history WHERE user_id=? AND created_at>=DATE_SUB(NOW(),INTERVAL ? DAY) ORDER BY created_at DESC",[userId,days]);return r;}
 
 export async function getSubscriptionForUser(userId:number){const [r]:any=await pool.execute("SELECT * FROM subscriptions WHERE user_id=? LIMIT 1",[userId]);return r[0]||null;}
 export async function setSubscriptionByPayment(paymentId:string,status:string,nextDueDate?:string){
