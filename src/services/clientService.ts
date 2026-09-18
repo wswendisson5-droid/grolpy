@@ -47,24 +47,12 @@ class ClientService {
   private lastFetchTime: number = 0;
 
   constructor() {
-    // Restore from localStorage immediately for 0ms initial load
+    // Dados de cliente nunca são restaurados de cache global.
+    // Cada sessão começa vazia e o backend autenticado decide o que pertence ao usuário.
     if (typeof window !== 'undefined') {
-      try {
-        const savedGroups = localStorage.getItem('groply_cached_groups');
-        if (savedGroups) {
-          const parsed = JSON.parse(savedGroups);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            this.cachedGroups = parsed;
-          }
-        }
-        const savedCamps = localStorage.getItem('groply_cached_campaigns');
-        if (savedCamps) {
-          const parsedCamps = JSON.parse(savedCamps);
-          if (Array.isArray(parsedCamps)) {
-            this.cachedCampaigns = parsedCamps;
-          }
-        }
-      } catch {}
+      localStorage.removeItem('groply_cached_groups');
+      localStorage.removeItem('groply_cached_campaigns');
+      localStorage.removeItem('groply_whatsapp_profile');
     }
   }
 
@@ -85,27 +73,14 @@ class ClientService {
       instanceName?: string;
     } | null;
   }> {
-    let cachedProfile = null;
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('groply_whatsapp_profile');
-        if (saved) {
-          cachedProfile = JSON.parse(saved);
-        }
-      } catch {}
-    }
-
     try {
       const res = await fetch('/api/evolution/status',{headers:this.authHeaders()});
       const data = await res.json();
       
       const isConn = data.state === 'connected' || data.state === 'open' || data.status === 'CONNECTED';
-      const profile = data.connectedProfile || cachedProfile || { instanceName: instance };
+      const profile = isConn ? (data.connectedProfile || { instanceName: data.instanceName || instance }) : null;
       
-      if (isConn && data.connectedProfile && typeof window !== 'undefined') {
-        localStorage.setItem('groply_whatsapp_profile', JSON.stringify(data.connectedProfile));
-      }
-      
+
       return {
         isConnected: isConn,
         state: data.state || 'disconnected',
@@ -116,18 +91,11 @@ class ClientService {
     return {
       isConnected: false,
       state: 'disconnected',
-      profile: cachedProfile || { instanceName: instance },
+      profile: null,
     };
   }
 
   async getRealGroups(instance: string = this.defaultInstance, forceRefresh: boolean = false): Promise<ClientGroup[]> {
-    // If we have cached groups and not forcing a refresh, return immediately
-    if (this.cachedGroups.length > 0 && !forceRefresh) {
-      // Revalidate in background
-      this.syncGroupsInBackground(instance);
-      return this.cachedGroups;
-    }
-
     try {
       const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
       const res = await fetch(url,{headers:this.authHeaders()});
@@ -139,9 +107,11 @@ class ClientService {
         }
         return data.groups;
       }
-      return this.cachedGroups;
+      this.cachedGroups = [];
+      return [];
     } catch {
-      return this.cachedGroups;
+      this.cachedGroups = [];
+      return [];
     }
   }
 
