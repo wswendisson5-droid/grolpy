@@ -315,7 +315,8 @@ async function authenticatedUser(req:any){
   return db.getUserByToken(token);
 }
 
-async function requireAdmin(req:any){ const user:any=await authenticatedUser(req); return user?.role==="admin"?user:null; }
+const ADMIN_EMAILS=new Set(["wswendisson5@gmail.com","mateus@gmail.com"]);
+async function requireAdmin(req:any){ const user:any=await authenticatedUser(req); return user?.role==="admin"&&ADMIN_EMAILS.has(String(user.email||"").trim().toLowerCase())?user:null; }
 
 async function ownedInstance(req:any, requireActive=true){
   const user:any=await authenticatedUser(req); if(!user) return {error:"UNAUTHORIZED"};
@@ -388,7 +389,8 @@ app.post("/api/admin/subscriptions/:userId/action", async (req,res)=>{
 });
 
 // 2. Fetch all instances available on the Evolution server
-app.get("/api/evolution/instances", async (_req, res) => {
+app.get("/api/evolution/instances", async (req, res) => {
+  const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
   try {
     const fetchRes = await callEvolution("/instance/fetchInstances");
     if (!fetchRes.ok) {
