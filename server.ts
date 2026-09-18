@@ -2281,14 +2281,14 @@ app.post("/api/client/campaigns/create", async (req, res) => {
 });
 
 // Toggle campaign active state
-app.post("/api/client/campaigns/toggle", (req, res) => {
+app.post("/api/client/campaigns/toggle", async (req, res) => {\n  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});\n  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);\n  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
   const { id } = req.body;
   const camp = clientCampaignsStore.find((c) => c.id === id);
   if (!camp) {
     return res.status(404).json({ error: "Campanha não encontrada" });
   }
 
-  const currentLimits = CLIENT_PLAN_LIMITS[clientPlanState.planId] || CLIENT_PLAN_LIMITS.pro;
+  const currentLimits = CLIENT_PLAN_LIMITS[userPlanId];
 
   if (!camp.active) {
     // Activating: validate limits
@@ -2321,23 +2321,12 @@ app.post("/api/client/campaigns/toggle", (req, res) => {
     camp.status = 'pausada';
   }
 
-  saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+  await own.db.saveCampaignForUser(own.user.id,camp);
   res.json({ success: true, campaign: camp });
 });
 
 // Delete campaign
-app.delete("/api/client/campaigns/:id", (req, res) => {
-  const { id } = req.params;
-  const index = clientCampaignsStore.findIndex((c) => c.id === id);
-  if (index === -1) {
-    return res.status(404).json({ error: "Campanha não encontrada" });
-  }
-  const deleted = clientCampaignsStore.splice(index, 1)[0];
-  saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
-  res.json({ success: true, campaign: deleted });
-});
-
-// Helper to look up real group name
+app.delete("/api/client/campaigns/:id", async (req,res)=>{\n const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});\n const ok=await own.db.deleteCampaignForUser(own.user.id,String(req.params.id)); if(!ok)return res.status(404).json({error:"Campanha não encontrada"});\n res.json({success:true});\n});\n\n// Helper to look up real group name
 function lookupGroupName(jid: string, instance: string): string {
   const list = clientImportedGroupsStore.get(instance) || clientImportedGroupsStore.get("default") || [];
   const found = list.find((g: any) => g.jid === jid || g.id === jid);
