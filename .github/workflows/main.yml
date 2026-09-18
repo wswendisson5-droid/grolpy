@@ -51,6 +51,14 @@ jobs:
           # Backend compilado + copia do frontend para o fallback SPA do Express
           cp -r dist deploy/dist
 
+          # O Passenger usa o ambiente Node Selector do cPanel. Instala somente
+          # o driver MySQL dentro do pacote de deploy, sem alterar o .env.
+          mkdir -p deploy/node_modules
+          cp -r node_modules/mysql2 deploy/node_modules/mysql2
+          for pkg in denque generate-function is-property lru.min named-placeholders seq-queue sqlstring; do
+            if [ -d "node_modules/$pkg" ]; then cp -r "node_modules/$pkg" deploy/node_modules/; fi
+          done
+
           # O Apache/cPanel pode servir arquivos fisicos na raiz antes do Passenger.
           # Publicamos tambem o frontend Vite compilado na raiz para evitar que
           # um index.html-fonte antigo carregue /src/main.tsx em producao.
