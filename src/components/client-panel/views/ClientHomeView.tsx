@@ -6,7 +6,7 @@ import { ClientWhatsAppCard } from '../components/ClientWhatsAppCard';
 import { ClientNextSendsCard } from '../components/ClientNextSendsCard';
 import { ClientActiveDivulgacoes } from '../components/ClientActiveDivulgacoes';
 import { ClientPlanUsageCard } from '../components/ClientPlanUsageCard';
-import { ClientConexaoView } from './ClientConexaoView';
+
 import { AgendaItem, DivulgacaoCard, ClientPlanUsage, ClientTab } from '../types';
 
 interface ClientHomeViewProps {
@@ -36,16 +36,23 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   whatsappPhoneNumber,
   whatsappIsConnected,
 }) => {
-  if (whatsappIsConnected === false) {
-    return <ClientConexaoView />;
-  }
-
   const activeCampaigns = campaigns.filter((c) => c.active);
   const totalSentMessages = campaigns.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   const successRate = totalSentMessages > 0 ? '100%' : '0%';
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
+      {whatsappIsConnected === false && (
+        <div className="bg-white border border-[#dce8e1] rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xs">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-[#173126]">WhatsApp ainda não conectado</p>
+            <p className="text-xs text-[#667b70] mt-0.5">Conecte seu número para começar a enviar divulgações.</p>
+          </div>
+          <button onClick={() => onNavigateTab('conexao')} className="shrink-0 px-4 py-2 rounded-xl bg-[#109353] text-white text-xs font-bold hover:bg-[#0d7f47] transition-colors">
+            Conectar
+          </button>
+        </div>
+      )}
       {/* 1. 4 METRIC INDICATORS ROW */}
       <ClientMetricsRow
         totalSentMessages={totalSentMessages}
