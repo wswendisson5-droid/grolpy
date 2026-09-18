@@ -345,7 +345,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
           onImportGroups={() => setIsImportarGruposOpen(true)}
           onSwitchPanel={onSwitchPanel}
-          onOpenPlanModal={() => setIsPlanoModalOpen(true)}
+          onOpenPlanModal={() => setCurrentTab('planos')}
           whatsappProfilePic={whatsappProfile.isConnected ? whatsappProfile.pictureUrl : undefined}
           isLoadingProfile={whatsappProfile.isLoading}
           planUsage={planUsage}
