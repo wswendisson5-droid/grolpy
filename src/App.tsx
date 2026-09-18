@@ -359,7 +359,7 @@ export default function App() {
 
   // If Client Panel mode is active, render Client Dashboard
   if (panelMode === 'client') {
-    return <ClientPanel onSwitchPanel={(mode:any)=>mode==='landing'?logout():setPanelMode(mode)} />;
+    return <ClientPanel onSwitchPanel={(_mode:any)=>logout()} />;
   }
 
   if(panelMode !== 'admin') { setPanelMode('landing'); return null; }
