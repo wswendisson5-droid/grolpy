@@ -55,6 +55,99 @@ export const ClientConexaoView: React.FC = () => {
     }
   };
 
+  const requestQrCode = async () => {
+    qrActiveRef.current = true;
+    setErrorMessage('');
+    setQrCode(null);
+    setStatus('loading');
+
+    let lastError = 'Não foi possível gerar o QR Code.';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch('/api/evolution/qrcode', { headers: authHeaders() });
+        const raw = await res.text();
+        let data: any = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch {
+          lastError = 'O servidor retornou uma resposta inválida. Tente novamente.';
+          if (attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+
+        if (!res.ok) {
+          lastError = data.error || 'A Evolution ainda está preparando a conexão.';
+          if (attempt < 2 && (res.status === 502 || res.status === 503 || res.status === 504)) {
+            await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+
+        const qr = data.qrCode || data.qrcode || data;
+        if (!qr?.base64 && !qr?.code) {
+          lastError = 'A Evolution ainda não disponibilizou o QR Code.';
+          if (attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
+            continue;
+          }
+          throw new Error(lastError);
+        }
+
+        await handleSetQrCode(qr);
+        setStatus('waiting_qr');
+        return;
+      } catch (e: any) {
+        lastError = e?.message || lastError;
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1200 * (attempt + 1)));
+          continue;
+        }
+      }
+    }
+
+    qrActiveRef.current = false;
+    setErrorMessage(lastError);
+    setStatus('error');
+  };
+
+  const createInstance = requestQrCode;
+
+  const refreshQrCode = requestQrCode;
+
+  const fetchStatus = async () => {
+    try {
+      const res = await fetch('/api/evolution/status',{headers:authHeaders()});
+      if (res.ok) {
+        const data = await res.json();
+        const appState = data.state;
+        
+        if (appState === 'connected' || appState === 'open') {
+          qrActiveRef.current = false;
+          setStatus('connected');
+          setProfile(data.connectedProfile);
+        } else if (!qrActiveRef.current) {
+          setQrCode(null);
+          setProfile(null);
+          setStatus('disconnected');
+        }
+      } else if (!qrActiveRef.current) {
+         setQrCode(null); setProfile(null); setStatus('disconnected');
+      }
+    } catch (e) {
+      console.error(e);
+      // Falha ao consultar a Evolution não deve transformar uma conta sem conexão em erro.
+      if (!qrActiveRef.current) {
+        setQrCode(null);
+        setProfile(null);
+        setStatus('disconnected');
+      }
+    }
+  };
+
   const createInstance = async () => {
     try {
       qrActiveRef.current = true;
