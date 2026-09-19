@@ -244,7 +244,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       refreshStats();
       refreshWhatsAppStatus();
       refreshGroups();
-    }, 4000);
+    }, 30000);
 
     return () => {
       clearInterval(interval);
