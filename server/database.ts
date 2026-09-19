@@ -836,14 +836,24 @@ export async function getUserByInstance(instanceName: string): Promise<any> {
 }
 export async function saveGroupsForUser(userId:number,groups:any[]){
   await ensureCampaignsTable().catch(() => {});
+  const conn:any = await pool.getConnection();
   try {
+    await conn.beginTransaction();
+    // A sincronização representa o estado atual da Evolution. Substituir o snapshot
+    // inteiro evita que grupos antigos permaneçam no banco e contaminem o contador.
+    await conn.execute("DELETE FROM user_groups WHERE user_id=?", [userId]);
     for(const g of groups||[]){
       const jid=String(g.jid||g.id||g.groupJid||"").trim();
       if(!jid || !jid.includes("@g.us") || jid.includes("@broadcast") || jid.includes("@newsletter") || jid.includes("@s.whatsapp.net") || jid.includes("@lid")) continue;
-      await pool.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);
+      await conn.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);
     }
+    await conn.commit();
   } catch(err) {
-    console.warn("[DB] Erro ao salvar grupos user=" + userId, err);
+    try { await conn.rollback(); } catch {}
+    console.warn("[DB] Erro ao substituir grupos user=" + userId, err);
+    throw err;
+  } finally {
+    conn.release();
   }
 }
 export async function clearGroupsForUser(userId:number){
