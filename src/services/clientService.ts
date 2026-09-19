@@ -221,7 +221,10 @@ class ClientService {
       }
       return groups;
     } catch {
-      return this.getCachedGroups();
+      // Não mascarar falhas de sincronização com um snapshot local possivelmente antigo.
+      this.cachedGroups = [];
+      if (typeof window !== 'undefined') localStorage.removeItem(key);
+      return [];
     }
   }
 
