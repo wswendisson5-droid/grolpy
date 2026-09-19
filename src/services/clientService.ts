@@ -68,22 +68,34 @@ class ClientService {
     return this.cachedGroups;
   }
 
+  getProfileStorageKey(): string {
+    if (typeof window === 'undefined') return 'groply_whatsapp_profile';
+    try {
+      const u = JSON.parse(localStorage.getItem('groply_user') || '{}');
+      return u.id ? `groply_whatsapp_profile_${u.id}` : 'groply_whatsapp_profile';
+    } catch {
+      return 'groply_whatsapp_profile';
+    }
+  }
+
   isWhatsAppConnected(): boolean {
     if (typeof window === 'undefined') return false;
     try {
-      const p = localStorage.getItem('groply_whatsapp_profile');
+      const key = this.getProfileStorageKey();
+      const p = localStorage.getItem(key);
       if (p) {
         const parsed = JSON.parse(p);
-        if (parsed.number || parsed.pictureUrl || parsed.isConnected) return true;
+        if (parsed.isConnected || parsed.number || parsed.pictureUrl) return true;
       }
     } catch {}
-    return this.getCachedGroups().length > 0;
+    return false;
   }
 
   getCachedProfile(): any {
     if (typeof window === 'undefined') return null;
     try {
-      const p = localStorage.getItem('groply_whatsapp_profile');
+      const key = this.getProfileStorageKey();
+      const p = localStorage.getItem(key);
       return p ? JSON.parse(p) : null;
     } catch {
       return null;
@@ -118,17 +130,14 @@ class ClientService {
         let profile = data.connectedProfile;
         if (isConn && !profile) {
           profile = {
-            name: 'Wendisson',
-            number: '+55 (27) 99659-9231',
+            name: 'WhatsApp Conectado',
+            number: '',
             pictureUrl: `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`,
             instanceName: data.instanceName || instance,
           };
         } else if (isConn && profile) {
-          if (!profile.name || profile.name === 'WhatsApp Conectado') {
-            profile.name = 'Wendisson';
-          }
-          if (!profile.number) {
-            profile.number = '+55 (27) 99659-9231';
+          if (!profile.name) {
+            profile.name = 'WhatsApp Conectado';
           }
           if (!profile.pictureUrl) {
             profile.pictureUrl = `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`;
@@ -137,8 +146,11 @@ class ClientService {
           }
         }
 
+        const key = this.getProfileStorageKey();
         if (isConn && profile && typeof window !== 'undefined') {
-          localStorage.setItem('groply_whatsapp_profile', JSON.stringify(profile));
+          localStorage.setItem(key, JSON.stringify({ ...profile, isConnected: true }));
+        } else if (!isConn && typeof window !== 'undefined') {
+          localStorage.removeItem(key);
         }
 
         return {
@@ -152,7 +164,8 @@ class ClientService {
     // Resilient fallback to cached profile in localStorage if network blips
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('groply_whatsapp_profile');
+        const key = this.getProfileStorageKey();
+        const saved = localStorage.getItem(key);
         if (saved) {
           const profile = JSON.parse(saved);
           return {

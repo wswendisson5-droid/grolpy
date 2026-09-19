@@ -153,6 +153,13 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const qr = data.qrCode || data.qrcode || data;
       if (qr?.base64 || qr?.code || qr?.pairingCode) {
         await handleSetQrCode(qr);
+      } else if (data.pending && isWaitingQrRef.current) {
+        // Baileys socket is initializing: retry automatically in 2 seconds
+        setTimeout(() => {
+          if (isWaitingQrRef.current && !qrCode) {
+            generateQrCode(false);
+          }
+        }, 2000);
       }
     } catch (e: any) {
       console.error('[ClientConexao] QR request:', e);
@@ -758,8 +765,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             <div className="bg-[#f8faf9] border border-[#e2eae6] rounded-2xl p-4 sm:p-5 flex items-center gap-4 w-full max-w-md mb-8 text-left shadow-2xs">
               <SafeAvatar
                 src={profile?.pictureUrl || '/api/whatsapp/avatar'}
-                alt={profile?.name || 'Wendisson'}
-                fallbackText={profile?.name || 'Wendisson'}
+                alt={profile?.name || 'WhatsApp'}
+                fallbackText={profile?.name || 'WA'}
                 shape="rounded-2xl"
                 sizeClassName="w-14 h-14"
                 className="border-2 border-[#109353]/30 shadow-xs shrink-0"
@@ -767,15 +774,17 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="font-bold text-[#11241c] text-base truncate">
-                    {profile?.name && profile.name !== 'WhatsApp Conectado' ? profile.name : 'Wendisson'}
+                    {profile?.name || 'WhatsApp Conectado'}
                   </p>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f6ee] text-[#109353]">
                     Online
                   </span>
                 </div>
-                <p className="text-sm font-semibold text-[#109353] mt-0.5">
-                  {profile?.number || '+55 (27) 99659-9231'}
-                </p>
+                {profile?.number && (
+                  <p className="text-sm font-semibold text-[#109353] mt-0.5">
+                    {profile.number}
+                  </p>
+                )}
                 {profile?.connectedAt && (
                   <p className="text-[11px] text-[#8c9e94] mt-1">Conectado em: {profile.connectedAt}</p>
                 )}

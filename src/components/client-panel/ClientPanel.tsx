@@ -60,15 +60,14 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     isLoading: boolean;
   }>(() => {
     try {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('groply_whatsapp_profile') : null;
-      if (saved) {
-        const p = JSON.parse(saved);
+      const p = clientService.getCachedProfile();
+      if (p) {
         return {
-          name: p.name && p.name !== 'WhatsApp Conectado' ? p.name : 'Wendisson',
-          number: p.number || '+55 (27) 99659-9231',
-          pictureUrl: p.pictureUrl || '/api/whatsapp/avatar',
+          name: p.name && p.name !== 'WhatsApp Conectado' ? p.name : undefined,
+          number: p.number || undefined,
+          pictureUrl: p.pictureUrl || undefined,
           connectedAt: p.connectedAt,
-          isConnected: true,
+          isConnected: Boolean(p.isConnected),
           isLoading: false,
         };
       }
@@ -195,9 +194,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const statusData = await clientService.getWhatsAppStatus();
       setWhatsappProfile({
-        name: statusData.profile?.name || (statusData.isConnected ? 'Wendisson' : undefined),
-        number: statusData.profile?.number || (statusData.isConnected ? '+55 (27) 99659-9231' : undefined),
-        pictureUrl: statusData.profile?.pictureUrl || (statusData.isConnected ? '/api/whatsapp/avatar' : undefined),
+        name: statusData.profile?.name && statusData.profile.name !== 'WhatsApp Conectado' ? statusData.profile.name : undefined,
+        number: statusData.profile?.number || undefined,
+        pictureUrl: statusData.profile?.pictureUrl || undefined,
         connectedAt: statusData.profile?.connectedAt,
         isConnected: statusData.isConnected,
         isLoading: false,
@@ -405,7 +404,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           whatsappProfilePic={whatsappProfile.pictureUrl}
           whatsappProfileName={whatsappProfile.name}
           whatsappPhoneNumber={whatsappProfile.number}
-          whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
+          whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
           isLoadingProfile={whatsappProfile.isLoading}
           planUsage={planUsage}
         />
@@ -445,7 +444,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               whatsappProfilePic={whatsappProfile.pictureUrl}
               whatsappProfileName={whatsappProfile.name}
               whatsappPhoneNumber={whatsappProfile.number}
-              whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
+              whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
             />
           )}
 
@@ -469,7 +468,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               onNavigateToPlanos={() => setCurrentTab('planos')}
               campaigns={campaigns}
               groups={groups}
-              isWhatsappConnected={whatsappProfile.isConnected || groups.length > 0}
+              isWhatsappConnected={whatsappProfile.isConnected}
             />
           )}
 

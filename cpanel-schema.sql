@@ -1,4 +1,4 @@
-﻿-- ==============================================================================
+-- ==============================================================================
 -- GROPLY / MINHABAGG - ESQUEMA COMPLETO DO BANCO DE DADOS (cPanel / MySQL)
 -- ==============================================================================
 -- Execute este script no phpMyAdmin do seu cPanel selecionando o banco 'minhabagg_groply'.
@@ -238,9 +238,12 @@ CREATE TABLE IF NOT EXISTS `radar_opportunities` (
 -- ==============================================================================
 -- ATUALIZACAO SEGURA DE COLUNAS EXISTENTES (ALTER TABLE)
 -- ==============================================================================
+-- Garante a presenca de client_id para isolamento e compatibilidade com criacao de campanhas
+ALTER TABLE `user_campaigns` ADD COLUMN `client_id` VARCHAR(80) NOT NULL DEFAULT '' AFTER `user_id`;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `media_url` LONGTEXT NULL;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `config_json` LONGTEXT NULL;
 
+ALTER TABLE `user_history` ADD COLUMN `client_id` VARCHAR(80) NOT NULL DEFAULT '' AFTER `user_id`;
 ALTER TABLE `user_history` ADD COLUMN `campaign_title` VARCHAR(190) NULL;
 ALTER TABLE `user_history` ADD COLUMN `message_text` TEXT NULL;
 ALTER TABLE `user_history` ADD COLUMN `media_url` LONGTEXT NULL;

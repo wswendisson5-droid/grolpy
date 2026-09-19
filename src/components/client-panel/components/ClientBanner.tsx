@@ -6,7 +6,7 @@ interface ClientBannerProps {
   onNewCampaign?: () => void;
 }
 
-export const ClientBanner: React.FC<ClientBannerProps> = ({ userName = 'Wendisson', onNewCampaign }) => {
+export const ClientBanner: React.FC<ClientBannerProps> = ({ userName = 'Empreendedor', onNewCampaign }) => {
   return (
     <div
       id="client-hero-banner"

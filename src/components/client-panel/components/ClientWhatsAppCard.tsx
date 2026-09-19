@@ -19,11 +19,11 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
   initialPhoneNumber,
   whatsappIsConnected,
 }) => {
-  // Use passed prop if available, otherwise assume loading or disconnected based on presence of phone number or groups
-  const isLoading = whatsappIsConnected === undefined && !initialPhoneNumber && !initialProfilePic && groupsCount === 0;
-  const isConnected = whatsappIsConnected === true || (!isLoading && Boolean(initialPhoneNumber || initialProfilePic || groupsCount > 0));
-  const displayName = initialProfileName && initialProfileName !== 'WhatsApp Conectado' ? initialProfileName : (isConnected ? 'Wendisson' : 'WhatsApp Conectado');
-  const realPhone = initialPhoneNumber || (isConnected ? '+55 (27) 99659-9231' : '');
+  // Strictly respect real WhatsApp connection state
+  const isLoading = whatsappIsConnected === undefined && !initialPhoneNumber && !initialProfilePic;
+  const isConnected = whatsappIsConnected === true;
+  const displayName = initialProfileName && initialProfileName !== 'WhatsApp Conectado' ? initialProfileName : (isConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado');
+  const realPhone = initialPhoneNumber || '';
   
   return (
     <div

@@ -304,13 +304,36 @@ export async function getUserInstance(userId:number){
   const [r]:any=await pool.execute("SELECT * FROM evolution_instances WHERE user_id=? LIMIT 1",[userId]); return r[0]||null;
 }
 export async function ensureUserInstance(userId:number){
-  const existing=await getUserInstance(userId); if(existing) return existing;
-  const name=`grolpy-u${userId}-${crypto.randomBytes(5).toString("hex")}`;
+  const [u]: any = await pool.execute("SELECT id, email, role FROM users WHERE id=? LIMIT 1", [userId]);
+  const user = u[0];
+  const isGlobalAdmin = user && (user.role === 'admin' || user.email?.toLowerCase() === 'wswendisson5@gmail.com');
+
+  const existing = await getUserInstance(userId);
+  if (existing) {
+    // If NOT admin, guarantee they never share minhabagg-leads or default
+    if (!isGlobalAdmin && (existing.instance_name === 'minhabagg-leads' || existing.instance_name === 'default')) {
+      const privateName = `grolpy-u${userId}-${crypto.randomBytes(4).toString("hex")}`;
+      await pool.execute(
+        "UPDATE evolution_instances SET instance_name=?, status='disconnected', owner_phone=NULL, profile_name=NULL, profile_pic_url=NULL WHERE user_id=?",
+        [privateName, userId]
+      );
+      return getUserInstance(userId);
+    }
+    return existing;
+  }
+
+  const name = isGlobalAdmin ? (process.env.EVOLUTION_INSTANCE_NAME || 'minhabagg-leads') : `grolpy-u${userId}-${crypto.randomBytes(4).toString("hex")}`;
   await pool.execute("INSERT INTO evolution_instances(user_id,instance_name,status) VALUES(?,?,'disconnected')",[userId,name]);
   return getUserInstance(userId);
 }
 export async function updateUserInstanceName(userId:number, instanceName:string){
   try {
+    const [u]: any = await pool.execute("SELECT email, role FROM users WHERE id=? LIMIT 1", [userId]);
+    const isGlobalAdmin = u[0] && (u[0].role === 'admin' || u[0].email?.toLowerCase() === 'wswendisson5@gmail.com');
+    // Prevent non-admin users from ever being overwritten with the admin instance
+    if (!isGlobalAdmin && (instanceName === 'minhabagg-leads' || instanceName === 'default')) {
+      return;
+    }
     await pool.execute("UPDATE evolution_instances SET instance_name=? WHERE user_id=?", [instanceName, userId]);
   } catch {}
 }
@@ -357,14 +380,14 @@ export async function applyPaymentEvent(eventKey:string,eventType:string,payment
 }
 
 let campaignsTableEnsured = false;
-export async function ensureCampaignsTable(): Promise<void> {
-  if (campaignsTableEnsured) return;
+export async function ensureCampaignsTable(force = false): Promise<void> {
+  if (campaignsTableEnsured && !force) return;
   try {
     // 1. user_campaigns table (Safe: without foreign key constraint to eliminate MySQL errno 150)
     await pool.query(`CREATE TABLE IF NOT EXISTS user_campaigns (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id BIGINT UNSIGNED NOT NULL,
-      client_id VARCHAR(80) NOT NULL,
+      client_id VARCHAR(80) NOT NULL DEFAULT '',
       campaign_key VARCHAR(120) NOT NULL,
       name VARCHAR(190) NOT NULL,
       message TEXT NULL,
@@ -384,14 +407,30 @@ export async function ensureCampaignsTable(): Promise<void> {
       INDEX idx_camp_sched (scheduled_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
-    await pool.query("ALTER TABLE user_campaigns MODIFY media_url LONGTEXT NULL").catch(() => {});
-    await pool.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(() => {});
+    // Dynamic column check for user_campaigns: ensures legacy tables get client_id and LONGTEXT
+    try {
+      const [campCols]: any = await pool.query("SHOW COLUMNS FROM user_campaigns");
+      const campSet = new Set((campCols || []).map((c: any) => c.Field));
+      if (!campSet.has("client_id")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN client_id VARCHAR(80) NOT NULL DEFAULT '' AFTER user_id").catch(() => {});
+      }
+      if (!campSet.has("media_url")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN media_url LONGTEXT NULL").catch(() => {});
+      } else {
+        await pool.query("ALTER TABLE user_campaigns MODIFY media_url LONGTEXT NULL").catch(() => {});
+      }
+      if (!campSet.has("config_json")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN config_json LONGTEXT NULL").catch(() => {});
+      } else {
+        await pool.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(() => {});
+      }
+    } catch {}
 
     // 2. user_history table
     await pool.query(`CREATE TABLE IF NOT EXISTS user_history (
       id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
       user_id BIGINT UNSIGNED NOT NULL,
-      client_id VARCHAR(80) NOT NULL,
+      client_id VARCHAR(80) NOT NULL DEFAULT '',
       campaign_key VARCHAR(120) NULL,
       campaign_title VARCHAR(190) NULL,
       group_jid VARCHAR(190) NULL,
@@ -400,7 +439,7 @@ export async function ensureCampaignsTable(): Promise<void> {
       media_url LONGTEXT NULL,
       media_type VARCHAR(30) NULL,
       duration VARCHAR(40) NULL,
-      status VARCHAR(30) NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'unknown',
       error_text TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_hist_user (user_id),
@@ -409,11 +448,30 @@ export async function ensureCampaignsTable(): Promise<void> {
       INDEX idx_hist_created (created_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
-    await pool.query("ALTER TABLE user_history ADD COLUMN campaign_title VARCHAR(190) NULL").catch(() => {});
-    await pool.query("ALTER TABLE user_history ADD COLUMN message_text TEXT NULL").catch(() => {});
-    await pool.query("ALTER TABLE user_history ADD COLUMN media_url LONGTEXT NULL").catch(() => {});
-    await pool.query("ALTER TABLE user_history ADD COLUMN media_type VARCHAR(30) NULL").catch(() => {});
-    await pool.query("ALTER TABLE user_history ADD COLUMN duration VARCHAR(40) NULL").catch(() => {});
+    try {
+      const [histCols]: any = await pool.query("SHOW COLUMNS FROM user_history");
+      const histSet = new Set((histCols || []).map((c: any) => c.Field));
+      if (!histSet.has("client_id")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN client_id VARCHAR(80) NOT NULL DEFAULT '' AFTER user_id").catch(() => {});
+      }
+      if (!histSet.has("campaign_title")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN campaign_title VARCHAR(190) NULL").catch(() => {});
+      }
+      if (!histSet.has("message_text")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN message_text TEXT NULL").catch(() => {});
+      }
+      if (!histSet.has("media_url")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN media_url LONGTEXT NULL").catch(() => {});
+      } else {
+        await pool.query("ALTER TABLE user_history MODIFY media_url LONGTEXT NULL").catch(() => {});
+      }
+      if (!histSet.has("media_type")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN media_type VARCHAR(30) NULL").catch(() => {});
+      }
+      if (!histSet.has("duration")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN duration VARCHAR(40) NULL").catch(() => {});
+      }
+    } catch {}
 
     // 3. user_groups table
     await pool.query(`CREATE TABLE IF NOT EXISTS user_groups (
@@ -470,6 +528,25 @@ export async function saveCampaignForUser(userId: number, data: any) {
     [userId, clientId, key, title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed]);
     return key;
   } catch (err: any) {
+    if (err?.code === "ER_BAD_FIELD_ERROR" || String(err?.message || "").includes("Unknown column")) {
+      // Missing column on live DB: force table migration and retry!
+      await ensureCampaignsTable(true).catch(() => {});
+      try {
+        await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
+        [userId, clientId, key, title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed]);
+        return key;
+      } catch (retryErr: any) {
+        // Fallback: If client_id is somehow still rejecting, insert without client_id column
+        try {
+          await pool.execute(`INSERT INTO user_campaigns(user_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
+          [userId, key, title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed]);
+          return key;
+        } catch {}
+        throw retryErr;
+      }
+    }
     console.error(`[DB] Erro ao salvar campanha user=${userId} key=${key}:`, err);
     throw err;
   }

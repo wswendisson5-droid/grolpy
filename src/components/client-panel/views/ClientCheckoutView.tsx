@@ -213,7 +213,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
 
   // Card Form Fields
   const [cardNumber, setCardNumber] = useState('');
-  const [cardHolder, setCardHolder] = useState('Wendisson Santos');
+  const [cardHolder, setCardHolder] = useState('');
   const [cardExpiry, setCardExpiry] = useState('');
   const [cardCvv, setCardCvv] = useState('');
   const [installments, setInstallments] = useState('1');

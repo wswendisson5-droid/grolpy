@@ -599,10 +599,6 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
           return iName === instance;
         });
 
-        if (!instData) {
-          instData = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
-        }
-
         if (instData) {
           name = instData.profileName || instData.name || instData.instance?.profileName || instData.owner?.name || name;
           rawOwner = instData.ownerJid || instData.owner || instData.instance?.ownerJid || instData.instance?.owner || instData.number || rawOwner;
@@ -645,14 +641,14 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
     : `/api/whatsapp/avatar?instance=${encodeURIComponent(instance)}`;
 
   return {
-    name: name || "Wendisson",
+    name: name || "",
     number: formatted || (cleanDigits ? `+${cleanDigits}` : ""),
     pictureUrl: proxiedPictureUrl,
     connectedAt: new Date().toLocaleString("pt-BR"),
   };
 }
 
-// Global active instance resolver for Evolution API v2 (Instant 240ms resolution)
+// Global active instance resolver for Evolution API v2 (Strict per-tenant isolation)
 async function resolveActiveInstance(instance: string, userId?: number, db?: any): Promise<{
   isConnected: boolean;
   activeInstance: string;
@@ -664,7 +660,11 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
   let stateRes: any = { ok: false, status: 500, data: null };
   let instanceData: any = null;
 
-  // 1. Fetch all instances via /instance/fetchInstances first (takes ~240ms and brings full state + profile)
+  if (!instance) {
+    return { isConnected: false, activeInstance: "", stateRes, instanceData: null };
+  }
+
+  // 1. Fetch all instances via /instance/fetchInstances to check target user instance state
   try {
     const fetchRes = await callEvolution("/instance/fetchInstances", {}, 5000, 0);
     const list: any[] = Array.isArray(fetchRes.data)
@@ -676,7 +676,7 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
       : [];
 
     if (list.length > 0) {
-      // Priority 1: Current user instance
+      // Check ONLY current user's instance
       let target = list.find((i: any) => {
         const name = i.name || i.instanceName || i.instance?.instanceName || i.id;
         return name === instance;
@@ -688,64 +688,18 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
         instanceData = target;
         stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...target } } };
       }
-
-      // Priority 2: Check DEFAULT_INSTANCE_NAME if target wasn't open
-      if (!isConnected && DEFAULT_INSTANCE_NAME) {
-        const defInst = list.find((i: any) => {
-          const name = i.name || i.instanceName || i.instance?.instanceName || i.id;
-          return name === DEFAULT_INSTANCE_NAME;
-        });
-        if (defInst && (isEvolutionStateConnected(defInst) || isEvolutionStateConnected(defInst.instance))) {
-          isConnected = true;
-          activeInstance = defInst.name || defInst.instanceName || DEFAULT_INSTANCE_NAME;
-          instanceData = defInst;
-          stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...defInst } } };
-        }
-      }
-
-      // Priority 3: Any instance that is currently open/connected
-      if (!isConnected) {
-        const openInst = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
-        if (openInst) {
-          const oName = openInst.name || openInst.instanceName || openInst.instance?.instanceName || openInst.id;
-          if (oName) {
-            isConnected = true;
-            activeInstance = oName;
-            instanceData = openInst;
-            stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
-          }
-        }
-      }
     }
   } catch {}
 
-  // 2. Fallback: If fetchInstances didn't succeed, check connectionState directly
-  if (!isConnected) {
+  // 2. Direct fallback: If fetchInstances didn't locate state, check connectionState directly for THIS instance
+  if (!isConnected && instance) {
     try {
       stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 4000, 0);
       isConnected = isEvolutionStateConnected(stateRes.data);
     } catch {}
-
-    if (!isConnected && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
-      try {
-        const defRes = await callEvolution(`/instance/connectionState/${DEFAULT_INSTANCE_NAME}`, {}, 3000, 0);
-        if (isEvolutionStateConnected(defRes.data)) {
-          stateRes = defRes;
-          isConnected = true;
-          activeInstance = DEFAULT_INSTANCE_NAME;
-        }
-      } catch {}
-    }
   }
 
-  // 3. Update user's instance in MySQL if activeInstance changed
-  if (isConnected && activeInstance && userId && db && activeInstance !== instance) {
-    try {
-      await db.updateUserInstanceName(userId, activeInstance);
-    } catch {}
-  }
-
-  return { isConnected, activeInstance, stateRes, instanceData };
+  return { isConnected, activeInstance: instance, stateRes, instanceData };
 }
 
 // Avatar proxy route (bypasses browser CORS & hotlink protections from WhatsApp CDN)
@@ -778,9 +732,6 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
         const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3500, 0);
         const list: any[] = Array.isArray(fetchRes.data) ? fetchRes.data : [];
         let instData = list.find((i: any) => (i.name || i.instanceName) === inst);
-        if (!instData) {
-          instData = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
-        }
         const pic = instData?.profilePicUrl || instData?.profilePictureUrl || instData?.avatarUrl || instData?.instance?.profilePicUrl;
         if (pic && typeof pic === "string" && pic.startsWith("http")) {
           profilePicCache.set(inst, pic);
@@ -838,10 +789,11 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
       } catch {}
     }
 
-    // High fidelity SVG fallback (never 404, never broken image)
+    // High fidelity SVG fallback: clean user silhouette
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
       <circle cx="50" cy="50" r="50" fill="#109353"/>
-      <text x="50" y="62" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="42" font-weight="bold" fill="#ffffff" text-anchor="middle">W</text>
+      <circle cx="50" cy="38" r="18" fill="#ffffff"/>
+      <path d="M 22 84 C 22 66, 35 58, 50 58 C 65 58, 78 66, 78 84 Z" fill="#ffffff"/>
     </svg>`;
     res.setHeader("Content-Type", "image/svg+xml");
     res.setHeader("Cache-Control", "public, max-age=3600");
@@ -849,7 +801,8 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
   } catch (err: any) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
       <circle cx="50" cy="50" r="50" fill="#109353"/>
-      <text x="50" y="62" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="42" font-weight="bold" fill="#ffffff" text-anchor="middle">W</text>
+      <circle cx="50" cy="38" r="18" fill="#ffffff"/>
+      <path d="M 22 84 C 22 66, 35 58, 50 58 C 65 58, 78 66, 78 84 Z" fill="#ffffff"/>
     </svg>`;
     res.setHeader("Content-Type", "image/svg+xml");
     res.setHeader("Cache-Control", "public, max-age=3600");
@@ -885,7 +838,7 @@ app.get("/api/evolution/status", async (req, res) => {
         const prof = await fetchInstanceProfile(activeInstance, instanceData || stateRes.data);
         const realPictureUrl = prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || own.record?.profile_pic_url || `/api/whatsapp/avatar?instance=${encodeURIComponent(activeInstance)}`;
         const realNumber = prof.number || currentInst.connectedProfile?.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : "");
-        const realName = prof.name || currentInst.connectedProfile?.name || own.record?.profile_name || "Wendisson";
+        const realName = prof.name || currentInst.connectedProfile?.name || own.record?.profile_name || own.user?.name || "WhatsApp Conectado";
 
         currentInst.connectedProfile = {
           name: realName,
@@ -916,7 +869,7 @@ app.get("/api/evolution/status", async (req, res) => {
 
     if (!currentInst.connectedProfile && (own.record?.profile_pic_url || own.record?.owner_phone)) {
       currentInst.connectedProfile = {
-        name: own.record.profile_name || "Wendisson",
+        name: own.record.profile_name || own.user?.name || "WhatsApp Conectado",
         number: own.record.owner_phone ? formatPhone(own.record.owner_phone) : "",
         pictureUrl: own.record.profile_pic_url || `/api/whatsapp/avatar?instance=${encodeURIComponent(activeInstance)}`,
         connectedAt: own.record.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : undefined,
@@ -2599,25 +2552,48 @@ if (Array.isArray(initialImported) && initialImported.length > 0) {
   clientImportedGroupsStore.set("minhabagg-leads", initialImported);
 }
 
-// Dedicated Client WhatsApp Status endpoint (Instant response + background check)
+// Dedicated Client WhatsApp Status endpoint (Strict tenant isolation)
 app.get("/api/client/whatsapp/status", async (req, res) => {
-  const reqInstance = (req.query.instance as string) || DEFAULT_INSTANCE_NAME;
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error === "UNAUTHORIZED") {
+    return res.status(401).json({ error: "Sessão inválida." });
+  }
+
+  const instance = own.instance;
+  if (!instance) {
+    return res.json({
+      success: true,
+      configured: true,
+      isConnected: false,
+      state: "disconnected",
+      profile: {
+        name: own.user?.name || "Cliente",
+        number: undefined,
+        pictureUrl: "",
+        instanceName: "",
+      },
+    });
+  }
 
   try {
-    const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(reqInstance);
+    const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(instance, own.user?.id, own.db);
     if (isConnected) {
       const prof = await fetchInstanceProfile(activeInstance, instanceData || stateRes.data);
+      const realName = prof.name || own.record?.profile_name || own.user?.name || "WhatsApp Conectado";
+      const realNumber = prof.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : undefined);
+      const realPictureUrl = prof.pictureUrl || own.record?.profile_pic_url || `/api/whatsapp/avatar?instance=${encodeURIComponent(activeInstance)}`;
+
       return res.json({
         success: true,
         configured: true,
         isConnected: true,
         state: "connected",
         profile: {
-          name: prof.name || "Wendisson",
-          number: prof.number || "+55 (27) 99659-9231",
-          pictureUrl: prof.pictureUrl || `/api/whatsapp/avatar?instance=${encodeURIComponent(activeInstance)}`,
+          name: realName,
+          number: realNumber,
+          pictureUrl: realPictureUrl,
           instanceName: activeInstance,
-          connectedAt: prof.connectedAt,
+          connectedAt: prof.connectedAt || (own.record?.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : undefined),
         },
       });
     }
@@ -2630,10 +2606,10 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
     isConnected: false,
     state: "disconnected",
     profile: {
-      name: "Groply Cliente",
+      name: own.user?.name || "Cliente",
       number: undefined,
       pictureUrl: "",
-      instanceName: reqInstance,
+      instanceName: instance,
     },
   });
 });
@@ -2941,8 +2917,8 @@ app.post("/api/client/checkout/create", async (req, res) => {
       value: planPrices[targetPlan] || 69.9,
       billingType: billingType || "PIX",
       customer: customer || {
-        name: user?.name || "Wendisson Santos",
-        email: user?.email || "wendisson@email.com",
+        name: user?.name || "Cliente",
+        email: user?.email || "",
         cpfCnpj: user?.cpf_cnpj || undefined,
         phone: user?.phone || undefined,
       },
