@@ -29,7 +29,18 @@ class ConnectionService {
   }
 
   async requestNewQrCode(instanceName?: string): Promise<{success:boolean;qrCode?:QrCodeData;instanceName?:string;error?:string}> {
-    try{const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';const res=await fetch(url,{headers:this.authHeaders()});const data=await res.json();if(!res.ok)return {success:false,error:data.error||'QR indisponível'};let qrCode=data.qrCode;if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);return {success:true,qrCode,instanceName:data.instanceName};}catch(err:any){return {success:false,error:err.message};}
+    try{
+      const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';
+      const res=await fetch(url,{headers:this.authHeaders()});
+      const raw=await res.text();
+      let data:any={};
+      try{ data=raw?JSON.parse(raw):{}; }catch{ data={error:'O servidor retornou uma resposta inválida. Tente novamente.'}; }
+      if(!res.ok)return {success:false,error:data.error||`Falha ao gerar QR Code (${res.status}).`};
+      let qrCode=data.qrCode;
+      if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);
+      if(!qrCode?.base64&&!qrCode?.code)return {success:false,error:'A Evolution ainda não disponibilizou o QR Code. Tente novamente.'};
+      return {success:true,qrCode,instanceName:data.instanceName};
+    }catch(err:any){return {success:false,error:err.message||'Não foi possível gerar o QR Code.'};}
   }
 
   /**
