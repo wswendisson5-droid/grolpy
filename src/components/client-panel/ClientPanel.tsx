@@ -10,6 +10,7 @@ import { ClientHistoricoView } from './views/ClientHistoricoView';
 import { ClientRelatoriosView } from './views/ClientRelatoriosView';
 import { ClientConexaoView } from './views/ClientConexaoView';
 import { ClientConfiguracoesView } from './views/ClientConfiguracoesView';
+import { ClientAjudaView } from './views/ClientAjudaView';
 import { ImportarGruposModal } from './modals/ImportarGruposModal';
 import { PlanoModal } from './modals/PlanoModal';
 import { SuporteModal } from './modals/SuporteModal';
@@ -481,6 +482,14 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           {currentTab === 'relatorios' && <ClientRelatoriosView />}
 
           {currentTab === 'conexao' && <ClientConexaoView />}
+
+          {currentTab === 'ajuda' && (
+            <ClientAjudaView
+              onNavigateTab={setCurrentTab}
+              onOpenSupportModal={() => setIsSuporteModalOpen(true)}
+              onOpenPlanModal={() => setCurrentTab('planos')}
+            />
+          )}
 
           {currentTab === 'configuracoes' && <ClientConfiguracoesView />}
         </main>

@@ -9,7 +9,8 @@ export type ClientTab =
   | 'conexao'
   | 'configuracoes'
   | 'planos'
-  | 'checkout';
+  | 'checkout'
+  | 'ajuda';
 
 export type AppPanelMode = 'landing' | 'admin' | 'client' | 'login' | 'register';
 

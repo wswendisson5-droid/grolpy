@@ -10,6 +10,7 @@ import QRCode from "qrcode";
 import { radarEngine } from "./server/radarEngine";
 import { atendimentoEngine } from "./server/atendimentoEngine";
 import { asaasEngine } from "./server/asaasEngine";
+import { cleanPhoneDigits } from "./server/phoneUtils";
 
 
 dotenv.config();
@@ -77,9 +78,14 @@ async function normalizeQrCode(rawQr: any): Promise<{ base64?: string; code?: st
   const q = rawQr.qrcode || rawQr;
   let base64 = typeof q.base64 === "string" && q.base64.trim() ? q.base64.trim() : undefined;
   const code = typeof q.code === "string" && q.code.trim() ? q.code.trim() : undefined;
-  const pairingCode = typeof q.pairingCode === "string" && q.pairingCode.trim() ? q.pairingCode.trim() : undefined;
+  let pairingCode = typeof q.pairingCode === "string" && q.pairingCode.trim() ? q.pairingCode.trim() : undefined;
 
-  if (!base64 && code) {
+  // If pairingCode not explicit, check if code is an 8-character pairing code (not a full QR string)
+  if (!pairingCode && code && code.length <= 12 && !code.startsWith('2@') && !code.startsWith('1@') && !code.includes(',')) {
+    pairingCode = code;
+  }
+
+  if (!base64 && code && (code.length > 20 || code.startsWith('2@') || code.startsWith('1@') || code.includes(','))) {
     try {
       base64 = await QRCode.toDataURL(code, {
         margin: 2,
@@ -763,6 +769,147 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
   } catch (err: any) {
     console.error("[Evolution reset-instance]", instance, err?.message || err);
     return res.json({ success: true, pending: true, instanceName: instance, state: "waiting_qr" });
+  }
+});
+
+// 5.2 Request Pairing Code from Evolution API (Connect with Phone Number)
+app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
+  const own: any = await ownedInstance(req);
+  if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
+  if (own.error) return res.status(402).json({ error: "Plano inativo." });
+
+  const instance = own.instance;
+  const currentInst = getInstanceCache(instance);
+
+  const { phone, number } = req.body || {};
+  const rawPhone = String(phone || number || "").trim();
+  let cleanPhone = cleanPhoneDigits(rawPhone);
+
+  if (!cleanPhone) {
+    return res.status(400).json({ error: "Informe o número do WhatsApp para gerar o código." });
+  }
+
+  // Remove leading zeros (e.g. 011987654321 -> 11987654321)
+  cleanPhone = cleanPhone.replace(/^0+/, "");
+
+  // If 10 or 11 digits (Brazilian phone without country code), prepend DDI 55
+  if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+    cleanPhone = `55${cleanPhone}`;
+  }
+
+  if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+    return res.status(400).json({
+      error: "Número de telefone inválido. Informe o DDD e o número completo (ex: 11987654321).",
+    });
+  }
+
+  try {
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 1. Check if instance is already open/connected
+    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3500, 0);
+    const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
+    if (stateRes.ok && rawState === "open") {
+      currentInst.state = "connected";
+      await own.db.setUserInstanceStatus(own.user.id, "connected");
+      return res.json({
+        success: true,
+        instanceName: instance,
+        state: "connected",
+        message: "WhatsApp já está conectado.",
+      });
+    }
+
+    // 2. Request pairing code from Evolution API
+    // GET /instance/connect/{instance}?number={cleanPhone}
+    let connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
+
+    // If 404, instance does not exist on Evolution server -> proactively create it
+    if (!connectRes.ok && connectRes.status === 404) {
+      const createRes = await callEvolution(
+        "/instance/create",
+        {
+          method: "POST",
+          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+        },
+        8000,
+        0
+      );
+
+      if (createRes.ok) {
+        await sleep(800);
+        connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
+      }
+    }
+
+    let pairingCode: string | undefined = undefined;
+
+    if (connectRes.ok && connectRes.data) {
+      const norm = await normalizeQrCode(connectRes.data);
+      pairingCode = norm?.pairingCode || connectRes.data?.pairingCode || connectRes.data?.code;
+      if (pairingCode && (pairingCode.length > 15 || pairingCode.includes("@") || pairingCode.includes(","))) {
+        pairingCode = connectRes.data?.pairingCode;
+      }
+    }
+
+    // 3. If pairingCode not returned in initial call, poll briefly
+    if (!pairingCode) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await sleep(700);
+
+        if (currentInst.qrCode?.pairingCode) {
+          pairingCode = currentInst.qrCode.pairingCode;
+          break;
+        }
+
+        const poll = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 4000, 0);
+        if (poll.ok && poll.data) {
+          const norm = await normalizeQrCode(poll.data);
+          pairingCode = norm?.pairingCode || poll.data?.pairingCode || poll.data?.code;
+          if (pairingCode && (pairingCode.length > 15 || pairingCode.includes("@") || pairingCode.includes(","))) {
+            pairingCode = poll.data?.pairingCode;
+          }
+          if (pairingCode) break;
+        }
+      }
+    }
+
+    if (pairingCode) {
+      const formattedCode = String(pairingCode).trim();
+      currentInst.qrCode = {
+        pairingCode: formattedCode,
+        updatedAt: Date.now(),
+      };
+      currentInst.state = "waiting_qr";
+      currentInst.lastUpdated = new Date().toISOString();
+      await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+
+      return res.json({
+        success: true,
+        instanceName: instance,
+        pairingCode: formattedCode,
+        code: formattedCode,
+        phone: cleanPhone,
+        state: "waiting_qr",
+        message: "Código de pareamento gerado com sucesso!",
+      });
+    }
+
+    currentInst.state = "waiting_qr";
+    return res.json({
+      success: true,
+      pending: true,
+      instanceName: instance,
+      phone: cleanPhone,
+      pairingCode: currentInst.qrCode?.pairingCode || null,
+      state: "waiting_qr",
+      message: "Solicitando código de pareamento à Evolution API. Aguarde...",
+    });
+  } catch (err: any) {
+    console.error("[Evolution pairing-code]", instance, err?.message || err);
+    return res.status(500).json({
+      error: "Falha ao solicitar código de pareamento. Verifique se o número está correto e tente novamente.",
+    });
   }
 });
 

@@ -10,6 +10,7 @@ import {
   Settings,
   Crown,
   Headphones,
+  HelpCircle,
   MoreVertical,
   X,
   LogOut
@@ -56,13 +57,14 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
     return unsub;
   }, []);
 
-  // ONLY: Início, Divulgações, Histórico, Relatórios, Conexão WhatsApp e Configurações
+  // ONLY: Início, Divulgações, Histórico, Relatórios, Conexão WhatsApp, Central de Ajuda e Configurações
   const navItems: { id: ClientTab; label: string; icon: React.FC<{ size?: number; className?: string }>; badge?: number }[] = [
     { id: 'inicio', label: 'Início', icon: Home },
     { id: 'divulgacoes', label: 'Divulgações', icon: Megaphone, badge: campaignsCount > 0 ? campaignsCount : undefined },
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
     { id: 'conexao', label: 'Conexão WhatsApp', icon: MessageSquare },
+    { id: 'ajuda', label: 'Central de Ajuda', icon: HelpCircle },
     { id: 'configuracoes', label: 'Configurações', icon: Settings },
   ];
 
