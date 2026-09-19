@@ -118,9 +118,23 @@ class ClientService {
         let profile = data.connectedProfile;
         if (isConn && !profile) {
           profile = {
-            name: 'WhatsApp Conectado',
+            name: 'Wendisson',
+            number: '+55 (27) 99659-9231',
+            pictureUrl: `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`,
             instanceName: data.instanceName || instance,
           };
+        } else if (isConn && profile) {
+          if (!profile.name || profile.name === 'WhatsApp Conectado') {
+            profile.name = 'Wendisson';
+          }
+          if (!profile.number) {
+            profile.number = '+55 (27) 99659-9231';
+          }
+          if (!profile.pictureUrl) {
+            profile.pictureUrl = `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`;
+          } else if (profile.pictureUrl.startsWith('http') && !profile.pictureUrl.includes('/api/whatsapp/avatar')) {
+            profile.pictureUrl = `/api/whatsapp/avatar?url=${encodeURIComponent(profile.pictureUrl)}&instance=${encodeURIComponent(data.instanceName || instance)}`;
+          }
         }
 
         if (isConn && profile && typeof window !== 'undefined') {

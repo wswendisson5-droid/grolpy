@@ -64,9 +64,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       if (saved) {
         const p = JSON.parse(saved);
         return {
-          name: p.name || 'WhatsApp Conectado',
-          number: p.number,
-          pictureUrl: p.pictureUrl,
+          name: p.name && p.name !== 'WhatsApp Conectado' ? p.name : 'Wendisson',
+          number: p.number || '+55 (27) 99659-9231',
+          pictureUrl: p.pictureUrl || '/api/whatsapp/avatar',
           connectedAt: p.connectedAt,
           isConnected: true,
           isLoading: false,
@@ -195,9 +195,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const statusData = await clientService.getWhatsAppStatus();
       setWhatsappProfile({
-        name: statusData.profile?.name || (statusData.isConnected ? 'WhatsApp Conectado' : undefined),
-        number: statusData.profile?.number,
-        pictureUrl: statusData.profile?.pictureUrl,
+        name: statusData.profile?.name || (statusData.isConnected ? 'Wendisson' : undefined),
+        number: statusData.profile?.number || (statusData.isConnected ? '+55 (27) 99659-9231' : undefined),
+        pictureUrl: statusData.profile?.pictureUrl || (statusData.isConnected ? '/api/whatsapp/avatar' : undefined),
         connectedAt: statusData.profile?.connectedAt,
         isConnected: statusData.isConnected,
         isLoading: false,

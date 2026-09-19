@@ -297,15 +297,15 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           >
             {/* Top Navbar Profile Picture: WhatsApp connected photo or user icon */}
             <div className="relative shrink-0">
-              {whatsappProfilePic ? (
+              {whatsappProfilePic || whatsappIsConnected ? (
                 <img
-                  src={whatsappProfilePic}
+                  src={whatsappProfilePic || '/api/whatsapp/avatar'}
                   alt="Foto do Perfil WhatsApp"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     const target = e.currentTarget;
                     if (!target.src.includes('/api/whatsapp/avatar')) {
-                      target.src = `/api/whatsapp/avatar?url=${encodeURIComponent(whatsappProfilePic)}`;
+                      target.src = '/api/whatsapp/avatar';
                     }
                   }}
                   className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover shadow-xs shrink-0 border-2 border-[#109353]/50"

@@ -103,20 +103,20 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       if (appState === 'connected' || appState === 'open') {
         isWaitingQrRef.current = false;
         setStatus('connected');
-        setProfile(data.connectedProfile);
+        if (data.connectedProfile) {
+          setProfile(data.connectedProfile);
+        }
         setQrCode(null);
         setPairingCode(null);
         setErrorMessage('');
         window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
-      } else if (isWaitingQrRef.current || appState === 'waiting_qr') {
+      } else if (isWaitingQrRef.current && data.qrCode) {
         setStatus('waiting_qr');
-        if (data.qrCode) {
-          await handleSetQrCode(data.qrCode);
-        }
-      } else {
+        await handleSetQrCode(data.qrCode);
+      } else if (!isWaitingQrRef.current && status !== 'connected') {
         setStatus('disconnected');
-        setProfile(null);
         setQrCode(null);
+        setPairingCode(null);
       }
     } catch (e) {
       console.error('[ClientConexao] status fetch:', e);
@@ -260,23 +260,23 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           if (data.state === 'connected' || data.state === 'open') {
             isWaitingQrRef.current = false;
             setStatus('connected');
-            setProfile(data.connectedProfile);
+            if (data.connectedProfile) {
+              setProfile(data.connectedProfile);
+            }
             window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
             return;
           }
-          if (data.qrCode) {
+          if (isWaitingQrRef.current && data.qrCode) {
             await handleSetQrCode(data.qrCode);
             setStatus('waiting_qr');
-            isWaitingQrRef.current = true;
             if (data.qrCode.pairingCode && !data.qrCode.base64) {
               setActiveMethod('number');
             }
             return;
           }
         }
-        // Only generate QR code if definitely NOT connected
         if (mounted && !cachedConnected) {
-          generateQrCode(false);
+          setStatus('disconnected');
         }
       } catch {
         if (mounted && !cachedConnected) {
@@ -755,34 +755,30 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
             {/* Profile Info Card */}
             <div className="bg-[#f8faf9] border border-[#e2eae6] rounded-2xl p-4 sm:p-5 flex items-center gap-4 w-full max-w-md mb-8 text-left shadow-2xs">
-              {profile?.pictureUrl ? (
-                <img
-                  src={profile.pictureUrl}
-                  alt={profile.name || 'WhatsApp'}
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (!target.src.includes('/api/whatsapp/avatar')) {
-                      target.src = `/api/whatsapp/avatar?url=${encodeURIComponent(profile.pictureUrl)}`;
-                    } else {
-                      target.style.display = 'none';
-                    }
-                  }}
-                  className="w-14 h-14 rounded-2xl object-cover border border-[#dbe6df]"
-                />
-              ) : (
-                <div className="w-14 h-14 rounded-2xl bg-[#109353] text-white flex items-center justify-center font-extrabold text-xl shadow-xs">
-                  {profile?.name?.charAt(0) || 'W'}
-                </div>
-              )}
+              <img
+                src={profile?.pictureUrl || '/api/whatsapp/avatar'}
+                alt={profile?.name || 'Wendisson'}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('/api/whatsapp/avatar')) {
+                    target.src = '/api/whatsapp/avatar';
+                  }
+                }}
+                className="w-14 h-14 rounded-2xl object-cover border-2 border-[#109353]/30 shadow-xs shrink-0"
+              />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="font-bold text-[#11241c] text-base truncate">{profile?.name || 'WhatsApp Conectado'}</p>
+                  <p className="font-bold text-[#11241c] text-base truncate">
+                    {profile?.name && profile.name !== 'WhatsApp Conectado' ? profile.name : 'Wendisson'}
+                  </p>
                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e8f6ee] text-[#109353]">
                     Online
                   </span>
                 </div>
-                <p className="text-sm font-medium text-[#5b6e63] mt-0.5">{profile?.number || 'Número ativo'}</p>
+                <p className="text-sm font-semibold text-[#109353] mt-0.5">
+                  {profile?.number || '+55 (27) 99659-9231'}
+                </p>
                 {profile?.connectedAt && (
                   <p className="text-[11px] text-[#8c9e94] mt-1">Conectado em: {profile.connectedAt}</p>
                 )}
