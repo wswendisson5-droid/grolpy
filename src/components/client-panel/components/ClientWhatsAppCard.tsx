@@ -41,6 +41,12 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
                 src={initialProfilePic}
                 alt={'WhatsApp Conectado'}
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  if (!target.src.includes('/api/whatsapp/avatar')) {
+                    target.src = `/api/whatsapp/avatar?url=${encodeURIComponent(initialProfilePic)}`;
+                  }
+                }}
                 className="w-13 h-13 rounded-full object-cover shadow-sm border-2 border-[#109353]/30"
               />
             ) : isConnected ? (

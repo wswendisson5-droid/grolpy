@@ -485,6 +485,10 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         active: activateNow,
       });
 
+      if (!created) {
+        throw new Error('Não foi possível salvar a divulgação no banco de dados.');
+      }
+
       // If user chose immediate dispatch, trigger real Evolution API dispatch now
       if (sendImmediately || scheduleMode === 'imediato') {
         const dispatchRes = await clientService.dispatchNow({
@@ -496,17 +500,20 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         });
 
         if (dispatchRes.success) {
-          newCampaign.status = 'concluida';
-          newCampaign.totalSent = dispatchRes.successful !== undefined ? dispatchRes.successful : selectedGroupJids.length;
+          created.status = 'concluida';
+          created.totalSent = dispatchRes.successful !== undefined ? dispatchRes.successful : selectedGroupJids.length;
         }
       }
-    } catch (e) {
-      console.error('Error saving campaign:', e);
-    }
 
-    onSaveCampaign(newCampaign, true);
-    setSaving(false);
-    onBack();
+      onSaveCampaign(created || newCampaign, true);
+      setSaving(false);
+      onBack();
+    } catch (e: any) {
+      console.error('Error saving campaign:', e);
+      setValidationError(e?.message || 'Falha ao salvar a divulgação. Verifique os dados e tente novamente.');
+      setSaving(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   const stepsList = [

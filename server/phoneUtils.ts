@@ -6,7 +6,9 @@
 
 export function cleanPhoneDigits(raw: string | null | undefined): string {
   if (!raw) return '';
-  return String(raw).replace(/\D/g, '');
+  // Trata JIDs com sufixo de device (ex: 558198901234:12@s.whatsapp.net ou 558198901234:0@c.us)
+  const base = String(raw).split('@')[0].split(':')[0];
+  return base.replace(/\D/g, '');
 }
 
 /**

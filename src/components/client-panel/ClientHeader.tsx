@@ -302,6 +302,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                   src={whatsappProfilePic}
                   alt="Foto do Perfil WhatsApp"
                   referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.includes('/api/whatsapp/avatar')) {
+                      target.src = `/api/whatsapp/avatar?url=${encodeURIComponent(whatsappProfilePic)}`;
+                    }
+                  }}
                   className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover shadow-xs shrink-0 border-2 border-[#109353]/50"
                 />
               ) : isLoadingProfile ? (

@@ -539,7 +539,12 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
           {currentTab === 'relatorios' && <ClientRelatoriosView />}
 
-          {currentTab === 'conexao' && <ClientConexaoView />}
+          {currentTab === 'conexao' && (
+            <ClientConexaoView
+              isConnected={Boolean(whatsappProfile.isConnected || groups.length > 0)}
+              initialProfile={whatsappProfile}
+            />
+          )}
 
           {currentTab === 'ajuda' && (
             <ClientAjudaView

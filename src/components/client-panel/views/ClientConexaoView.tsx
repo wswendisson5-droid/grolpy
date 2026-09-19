@@ -15,16 +15,28 @@ import {
   Check,
   Sparkles,
 } from 'lucide-react';
+import { clientService } from '../../../services/clientService';
 
-export const ClientConexaoView: React.FC = () => {
-  const [status, setStatus] = useState<'loading' | 'disconnected' | 'waiting_qr' | 'connected' | 'error'>('loading');
+export interface ClientConexaoViewProps {
+  isConnected?: boolean;
+  initialProfile?: any;
+}
+
+export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnected: propConnected, initialProfile }) => {
+  const cachedConnected = propConnected !== undefined ? propConnected : clientService.isWhatsAppConnected();
+  const cachedProfile = initialProfile || clientService.getCachedProfile();
+
+  const [status, setStatus] = useState<'loading' | 'disconnected' | 'waiting_qr' | 'connected' | 'error'>(() => {
+    if (cachedConnected) return 'connected';
+    return 'loading';
+  });
   const [activeMethod, setActiveMethod] = useState<'qr' | 'number'>('qr');
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(() => cachedProfile);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -226,6 +238,16 @@ export const ClientConexaoView: React.FC = () => {
     }
   };
 
+  // Prop / Cache synchronization
+  useEffect(() => {
+    if (propConnected !== undefined) {
+      if (propConnected) {
+        setStatus('connected');
+        if (initialProfile) setProfile(initialProfile);
+      }
+    }
+  }, [propConnected, initialProfile]);
+
   // Initial load
   useEffect(() => {
     let mounted = true;
@@ -236,6 +258,7 @@ export const ClientConexaoView: React.FC = () => {
         if (res.ok) {
           const data = await res.json();
           if (data.state === 'connected' || data.state === 'open') {
+            isWaitingQrRef.current = false;
             setStatus('connected');
             setProfile(data.connectedProfile);
             window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
@@ -251,18 +274,18 @@ export const ClientConexaoView: React.FC = () => {
             return;
           }
         }
-        // Auto-generate QR code immediately
-        if (mounted) {
+        // Only generate QR code if definitely NOT connected
+        if (mounted && !cachedConnected) {
           generateQrCode(false);
         }
       } catch {
-        if (mounted) {
-          generateQrCode(false);
+        if (mounted && !cachedConnected) {
+          setStatus('disconnected');
         }
       }
     })();
     return () => { mounted = false; };
-  }, [authHeaders, handleSetQrCode]);
+  }, [authHeaders, handleSetQrCode, cachedConnected]);
 
   // Polling loop
   useEffect(() => {
@@ -736,6 +759,15 @@ export const ClientConexaoView: React.FC = () => {
                 <img
                   src={profile.pictureUrl}
                   alt={profile.name || 'WhatsApp'}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    const target = e.currentTarget;
+                    if (!target.src.includes('/api/whatsapp/avatar')) {
+                      target.src = `/api/whatsapp/avatar?url=${encodeURIComponent(profile.pictureUrl)}`;
+                    } else {
+                      target.style.display = 'none';
+                    }
+                  }}
                   className="w-14 h-14 rounded-2xl object-cover border border-[#dbe6df]"
                 />
               ) : (

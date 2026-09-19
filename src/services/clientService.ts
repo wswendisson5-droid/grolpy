@@ -68,6 +68,28 @@ class ClientService {
     return this.cachedGroups;
   }
 
+  isWhatsAppConnected(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      const p = localStorage.getItem('groply_whatsapp_profile');
+      if (p) {
+        const parsed = JSON.parse(p);
+        if (parsed.number || parsed.pictureUrl || parsed.isConnected) return true;
+      }
+    } catch {}
+    return this.getCachedGroups().length > 0;
+  }
+
+  getCachedProfile(): any {
+    if (typeof window === 'undefined') return null;
+    try {
+      const p = localStorage.getItem('groply_whatsapp_profile');
+      return p ? JSON.parse(p) : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<{
     isConnected: boolean;
     state: string;
@@ -242,14 +264,18 @@ class ClientService {
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(campaign),
       });
-      const data = await res.json();
-      if (data.success && data.campaign) {
-        this.cachedCampaigns = [data.campaign, ...this.cachedCampaigns];
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Não foi possível salvar a divulgação no banco de dados.');
+      }
+      if (data.campaign) {
+        this.cachedCampaigns = [data.campaign, ...this.cachedCampaigns.filter((c) => c.id !== data.campaign.id)];
         return data.campaign;
       }
       return null;
-    } catch {
-      return null;
+    } catch (err: any) {
+      console.error('[clientService] createCampaign error:', err);
+      throw err;
     }
   }
 

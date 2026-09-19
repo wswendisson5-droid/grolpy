@@ -340,11 +340,27 @@ export async function applyPaymentEvent(eventKey:string,eventType:string,payment
 }
 
 export async function saveCampaignForUser(userId:number,data:any){
- const clientId="client-"+userId; const key=String(data.id||data.campaignKey||("camp-"+Date.now()));
- await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
- [userId,clientId,key,data.title||data.name||"Divulgação",data.previewText||data.message||"",data.imageUrl||data.mediaUrl||null,JSON.stringify(data),data.status||"draft",data.scheduleDate||data.scheduledAt||null,Number(data.delaySeconds||data.intervalSeconds||30),Number(data.totalSent||0),Number(data.totalFailed||0)]);
- return key;
+  const clientId="client-"+userId; const key=String(data.id||data.campaignKey||("camp-"+Date.now()));
+  let safeScheduledAt: string | null = null;
+  const rawDate = data.scheduleDate || data.scheduledAt;
+  if (rawDate && typeof rawDate === 'string') {
+    const trimmed = rawDate.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const timePart = data.scheduleTime && /^\d{2}:\d{2}/.test(String(data.scheduleTime))
+        ? `${String(data.scheduleTime).slice(0, 5)}:00`
+        : '00:00:00';
+      safeScheduledAt = `${trimmed} ${timePart}`;
+    } else {
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        safeScheduledAt = parsed.toISOString().slice(0, 19).replace('T', ' ');
+      }
+    }
+  }
+  await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
+  VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
+  [userId,clientId,key,data.title||data.name||"Divulgação",data.previewText||data.message||"",data.imageUrl||data.mediaUrl||null,JSON.stringify(data),data.status||"draft",safeScheduledAt,Number(data.delaySeconds||data.intervalSeconds||30),Number(data.totalSent||0),Number(data.totalFailed||0)]);
+  return key;
 }
 export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r.map((x:any)=>{try{return JSON.parse(x.config_json)}catch{return {}}});}
 export async function deleteCampaignForUser(userId:number,key:string){const [r]:any=await pool.execute("DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=?",[userId,key]);return r.affectedRows>0;}

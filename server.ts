@@ -567,9 +567,9 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
       }
 
       if (instData) {
-        name = instData.profileName || instData.name || instData.instance?.profileName || name;
-        rawOwner = instData.ownerJid || instData.owner || instData.instance?.ownerJid || instData.instance?.owner || rawOwner;
-        pictureUrl = instData.profilePictureUrl || instData.profilePicUrl || instData.avatarUrl || instData.instance?.profilePictureUrl || instData.instance?.profilePicUrl || pictureUrl;
+        name = instData.profileName || instData.name || instData.instance?.profileName || instData.owner?.name || name;
+        rawOwner = instData.ownerJid || instData.owner || instData.instance?.ownerJid || instData.instance?.owner || instData.number || rawOwner;
+        pictureUrl = instData.profilePictureUrl || instData.profilePicUrl || instData.avatarUrl || instData.pictureUrl || instData.instance?.profilePictureUrl || instData.instance?.profilePicUrl || instData.instance?.avatarUrl || instData.instance?.pictureUrl || pictureUrl;
       }
     }
   } catch {}
@@ -581,16 +581,22 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
     try {
       let picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
         method: "POST",
-        body: JSON.stringify({ number: cleanDigits }),
+        body: JSON.stringify({ number: `${cleanDigits}@s.whatsapp.net` }),
       }, 3500, 0);
-      if (!picRes.ok || !(picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl)) {
+      if (!picRes.ok || !(picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl || picRes.data?.picture)) {
         picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
           method: "POST",
-          body: JSON.stringify({ number: `${cleanDigits}@s.whatsapp.net` }),
+          body: JSON.stringify({ number: cleanDigits }),
+        }, 3500, 0);
+      }
+      if (!picRes.ok || !(picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl || picRes.data?.picture)) {
+        picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
+          method: "POST",
+          body: JSON.stringify({ chatId: `${cleanDigits}@s.whatsapp.net` }),
         }, 3500, 0);
       }
       if (picRes.ok) {
-        pictureUrl = picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl || pictureUrl;
+        pictureUrl = picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl || picRes.data?.picture || picRes.data?.url || pictureUrl;
       }
     } catch {}
   }
@@ -603,7 +609,7 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
         body: JSON.stringify({ number: cleanDigits || "self" }),
       }, 3000, 0);
       if (pRes.ok && pRes.data) {
-        pictureUrl = pRes.data.pictureUrl || pRes.data.profilePictureUrl || pictureUrl;
+        pictureUrl = pRes.data.pictureUrl || pRes.data.profilePictureUrl || pRes.data.picture || pictureUrl;
         name = pRes.data.name || pRes.data.profileName || name;
       }
     } catch {}
@@ -618,71 +624,124 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
   return {
     name: name || "WhatsApp Conectado",
     number: formatted || (cleanDigits ? `+${cleanDigits}` : ""),
-    pictureUrl: pictureUrl || "",
+    pictureUrl: pictureUrl || (cleanDigits ? `/api/whatsapp/avatar?instance=${encodeURIComponent(instance)}` : ""),
     connectedAt: new Date().toLocaleString("pt-BR"),
   };
 }
+
+// Global active instance resolver for Evolution API v2
+async function resolveActiveInstance(instance: string, userId?: number, db?: any): Promise<{
+  isConnected: boolean;
+  activeInstance: string;
+  stateRes: any;
+}> {
+  let activeInstance = instance;
+  let isConnected = false;
+  let stateRes: any = { ok: false, status: 500, data: null };
+
+  // 1. Fetch connection state for the given instance
+  try {
+    stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3500, 0);
+    isConnected = isEvolutionStateConnected(stateRes.data);
+  } catch {}
+
+  // 2. Fallback: If not open, check DEFAULT_INSTANCE_NAME
+  if (!isConnected && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
+    try {
+      const defRes = await callEvolution(`/instance/connectionState/${DEFAULT_INSTANCE_NAME}`, {}, 3000, 0);
+      if (isEvolutionStateConnected(defRes.data)) {
+        stateRes = defRes;
+        isConnected = true;
+        activeInstance = DEFAULT_INSTANCE_NAME;
+      }
+    } catch {}
+  }
+
+  // 3. Fallback: Query all instances on Evolution server
+  if (!isConnected) {
+    try {
+      const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
+      const list: any[] = Array.isArray(fetchRes.data)
+        ? fetchRes.data
+        : Array.isArray(fetchRes.data?.instances)
+        ? fetchRes.data.instances
+        : Array.isArray(fetchRes.data?.data)
+        ? fetchRes.data.data
+        : [];
+
+      if (list.length > 0) {
+        const openInst = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
+        if (openInst) {
+          const oName = openInst.name || openInst.instanceName || openInst.instance?.instanceName || openInst.id;
+          if (oName) {
+            activeInstance = oName;
+            isConnected = true;
+            stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 4. Update user's instance in MySQL if activeInstance changed
+  if (isConnected && activeInstance && userId && db && activeInstance !== instance) {
+    try {
+      await db.updateUserInstanceName(userId, activeInstance);
+    } catch {}
+  }
+
+  return { isConnected, activeInstance, stateRes };
+}
+
+// Avatar proxy route (bypasses browser CORS & hotlink protections from WhatsApp CDN)
+app.get("/api/whatsapp/avatar", async (req, res) => {
+  try {
+    const rawUrl = (req.query.url as string) || "";
+    const instance = (req.query.instance as string) || DEFAULT_INSTANCE_NAME;
+    let target = rawUrl;
+    if (!target) {
+      target = profilePicCache.get(instance) || "";
+    }
+    if (!target) {
+      try {
+        const db: any = await getDatabase();
+        const [rows]: any = await db.mysql.execute("SELECT profile_pic_url FROM evolution_instances WHERE instance_name = ? LIMIT 1", [instance]);
+        if (rows[0]?.profile_pic_url) target = rows[0].profile_pic_url;
+      } catch {}
+    }
+    if (!target || !target.startsWith("http")) {
+      return res.status(404).json({ error: "Foto não disponível" });
+    }
+
+    const imgRes = await fetch(target, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+      },
+    });
+    if (!imgRes.ok) {
+      return res.status(imgRes.status).send("Failed to fetch image");
+    }
+    const buffer = await imgRes.arrayBuffer();
+    const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+    res.send(Buffer.from(buffer));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
   const own: any = await ownedInstance(req, false, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.json({ configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
-  let instance = own.instance;
-  let activeInstance = instance;
-  let currentInst = getInstanceCache(instance);
+
+  const { isConnected, activeInstance, stateRes } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+  const currentInst = getInstanceCache(activeInstance);
 
   try {
-    // 1. Fetch connection state for the user's primary instance
-    let stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 4000, 0);
-    let isConnected = isEvolutionStateConnected(stateRes.data);
-
-    // 2. Fallback: If primary instance is not open, check DEFAULT_INSTANCE_NAME
-    if (!isConnected && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
-      try {
-        const defRes = await callEvolution(`/instance/connectionState/${DEFAULT_INSTANCE_NAME}`, {}, 3000, 0);
-        if (isEvolutionStateConnected(defRes.data)) {
-          stateRes = defRes;
-          isConnected = true;
-          activeInstance = DEFAULT_INSTANCE_NAME;
-          currentInst = getInstanceCache(activeInstance);
-        }
-      } catch {}
-    }
-
-    // 3. Fallback: Query all instances on Evolution server to discover any open connected WhatsApp
-    if (!isConnected) {
-      try {
-        const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
-        const list: any[] = Array.isArray(fetchRes.data)
-          ? fetchRes.data
-          : Array.isArray(fetchRes.data?.instances)
-          ? fetchRes.data.instances
-          : Array.isArray(fetchRes.data?.data)
-          ? fetchRes.data.data
-          : [];
-
-        if (list.length > 0) {
-          const openInst = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
-          if (openInst) {
-            const oName = openInst.name || openInst.instanceName || openInst.instance?.instanceName || openInst.id;
-            if (oName) {
-              activeInstance = oName;
-              isConnected = true;
-              currentInst = getInstanceCache(activeInstance);
-              stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
-            }
-          }
-        }
-      } catch {}
-    }
-
-    // 4. Update user's instance in MySQL if activeInstance changed
-    if (isConnected && activeInstance && activeInstance !== own.instance) {
-      try {
-        await own.db.updateUserInstanceName(own.user.id, activeInstance);
-      } catch {}
-    }
 
     let appState: EvolutionLocalCache["state"] = isConnected
       ? "connected"
@@ -754,7 +813,7 @@ app.get("/api/evolution/status", async (req, res) => {
   } catch (err: any) {
     res.status(500).json({
       configured: true,
-      instanceName: instance,
+      instanceName: activeInstance,
       state: "error",
       error: err.message,
       lastUpdated: new Date().toISOString(),
@@ -771,9 +830,34 @@ app.get("/api/evolution/qrcode", async (req, res) => {
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
-  const instance = own.instance;
+  const { isConnected, activeInstance, stateRes } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+  const instance = activeInstance;
   const currentInst = getInstanceCache(instance);
   const force = req.query.force === "true" || req.query.force === "1";
+
+  // If already connected, return connected profile immediately (0ms)
+  if (isConnected) {
+    currentInst.state = "connected";
+    const prof = await fetchInstanceProfile(instance, stateRes.data);
+    currentInst.connectedProfile = {
+      name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
+      number: prof.number || currentInst.connectedProfile?.number || "",
+      pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || "",
+      connectedAt: currentInst.connectedProfile?.connectedAt || prof.connectedAt,
+      lastSyncAt: new Date().toLocaleString("pt-BR"),
+      version: "v2.3.7",
+    };
+    try {
+      await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
+    } catch {}
+    return res.json({
+      success: true,
+      instanceName: instance,
+      state: "connected",
+      connectedProfile: currentInst.connectedProfile,
+      message: "WhatsApp já está conectado.",
+    });
+  }
 
   // If we already have a valid QR code generated recently and force refresh wasn't requested, return it immediately
   if (!force && currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
@@ -788,32 +872,6 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 
   try {
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    // 1. Check if instance is already open/connected
-    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3500, 0);
-    const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
-    if (stateRes.ok && rawState === "open") {
-      currentInst.state = "connected";
-      const prof = await fetchInstanceProfile(instance, stateRes.data);
-      currentInst.connectedProfile = {
-        name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
-        number: prof.number || currentInst.connectedProfile?.number || "",
-        pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || "",
-        connectedAt: currentInst.connectedProfile?.connectedAt || prof.connectedAt,
-        lastSyncAt: new Date().toLocaleString("pt-BR"),
-        version: "v2.3.7",
-      };
-      try {
-        await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
-      } catch {}
-      return res.json({
-        success: true,
-        instanceName: instance,
-        state: "connected",
-        connectedProfile: currentInst.connectedProfile,
-        message: "WhatsApp já está conectado.",
-      });
-    }
 
     // 2. Request connection / QR code
     let connectRes = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 6000, 0);
@@ -973,7 +1031,8 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
-  const instance = own.instance;
+  const { isConnected, activeInstance, stateRes } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+  const instance = activeInstance;
   const currentInst = getInstanceCache(instance);
 
   const { phone, number } = req.body || {};
@@ -1002,9 +1061,7 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     // 1. Check if instance is already open/connected
-    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3500, 0);
-    const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
-    if (stateRes.ok && rawState === "open") {
+    if (isConnected) {
       currentInst.state = "connected";
       const prof = await fetchInstanceProfile(instance, stateRes.data);
       currentInst.connectedProfile = {
@@ -2961,7 +3018,8 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     instanceName,
   } = req.body;
 
-  const targetInstance = own.instance;
+  const { isConnected, activeInstance } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+  const targetInstance = activeInstance;
   console.log(`\n[VALIDATION] Validando criação de divulgação '${title}' na instância ${targetInstance}...`);
 
   if (!title || !previewText) {
@@ -2975,18 +3033,10 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     return res.status(400).json({ error: "Você precisa selecionar pelo menos um grupo." });
   }
 
-  // Check instance connection
-  try {
-    const fetchRes = await callEvolution(`/instance/connectionState/${targetInstance}`, {}, 4000);
-    const state = fetchRes.data?.instance?.state || fetchRes.data?.state;
-    if (state !== "open") {
-      console.log(`[VALIDATION] Falha: Instância ${targetInstance} desconectada (estado: ${state}).`);
-      return res.status(400).json({ error: "O WhatsApp selecionado está desconectado. Reconecte antes de agendar." });
-    }
-    console.log(`[VALIDATION] Instância conectada: OK`);
-  } catch (err: any) {
-    console.log(`[VALIDATION] Falha: Erro ao verificar instância: ${err.message}`);
-    return res.status(400).json({ error: "Não foi possível verificar a conexão do seu WhatsApp." });
+  // If immediate dispatch is requested, WhatsApp MUST be connected
+  if (scheduleMode === 'imediato' && !isConnected) {
+    console.log(`[VALIDATION] Falha: Instância ${targetInstance} desconectada para disparo imediato.`);
+    return res.status(400).json({ error: "O WhatsApp selecionado está desconectado. Conecte seu WhatsApp antes de disparar agora." });
   }
 
   const sub = await own.db.getSubscriptionForUser(own.user.id);
@@ -3090,8 +3140,14 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     instanceName: targetInstance,
   };
 
+  try {
+    await own.db.saveCampaignForUser(own.user.id, newCampaign);
+  } catch (err: any) {
+    console.error("[CAMPAIGNS] Erro ao salvar campanha no MySQL:", err);
+    return res.status(500).json({ error: "Erro ao gravar divulgação no banco de dados: " + (err.message || err) });
+  }
+
   clientCampaignsStore.unshift(newCampaign);
-  await own.db.saveCampaignForUser(own.user.id,newCampaign);
   saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
   res.json({ success: true, campaign: newCampaign });
 });
