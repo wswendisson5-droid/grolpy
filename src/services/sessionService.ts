@@ -1,4 +1,4 @@
-﻿let currentUser: any = null;
+let currentUser: any = null;
 let preferredPanel: 'client' | 'admin' = 'client';
 
 export const sessionService = {
@@ -10,7 +10,7 @@ export const sessionService = {
   async status() {
     const response = await fetch('/api/account/status');
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.error || 'SessÃ£o invÃ¡lida.'), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(data.error || 'Sessão inválida.'), { status: response.status });
     currentUser = data.user || null;
     return data;
   },

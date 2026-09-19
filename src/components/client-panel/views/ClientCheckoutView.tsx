@@ -124,7 +124,7 @@ const CheckoutStepper: React.FC<{
           />
         </div>
 
-        {/* Step 3: AtivaÃ§Ã£o / ConfirmaÃ§Ã£o */}
+        {/* Step 3: Ativação / Confirmação */}
         <div
           className={`flex items-center gap-1.5 sm:gap-2 shrink-0 ${
             currentStepNumber >= 3 ? 'text-[#109353]' : 'text-[#889b90]'
@@ -140,9 +140,9 @@ const CheckoutStepper: React.FC<{
             {currentStepNumber === 3 ? <Check size={14} className="stroke-[3]" /> : '3'}
           </div>
           <div className="flex flex-col text-left">
-            <span className="text-[11px] sm:text-xs font-bold text-[#11241c] leading-tight">AtivaÃ§Ã£o</span>
+            <span className="text-[11px] sm:text-xs font-bold text-[#11241c] leading-tight">Ativação</span>
             <span className="text-[9px] sm:text-[10px] text-[#889b90] leading-none">
-              {currentStepNumber === 3 ? 'ConcluÃ­da' : 'Aguardando'}
+              {currentStepNumber === 3 ? 'Concluída' : 'Aguardando'}
             </span>
           </div>
         </div>
@@ -231,10 +231,10 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
       if(!customerCpf.trim()) throw new Error('Informe seu CPF para gerar o Pix.');
       const token='';
       const res=await fetch('/api/onboarding/subscribe',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},body:JSON.stringify({planId:selectedPlanId,cpfCnpj:customerCpf})});
-      const data=await res.json(); if(!res.ok||!data.success)throw new Error(data.error||'NÃ£o foi possÃ­vel gerar o Pix.');
+      const data=await res.json(); if(!res.ok||!data.success)throw new Error(data.error||'Não foi possível gerar o Pix.');
       const p:any={id:data.payment.id,status:data.payment.status||'PENDING',billingType:'PIX',value:selectedPlan.price,planId:selectedPlanId,planName:selectedPlan.name,customer,dueDate:'',pix:data.payment.pix,createdAt:new Date().toISOString()};
       setPaymentData(p); setStep('pix');
-    } catch(e:any){setErrorMessage(e.message||'NÃ£o foi possÃ­vel gerar o Pix.')} finally{setIsLoading(false)}
+    } catch(e:any){setErrorMessage(e.message||'Não foi possível gerar o Pix.')} finally{setIsLoading(false)}
   };
 
   // Pix timer countdown
@@ -272,7 +272,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   const handleCopyPix = () => {
     const payload = paymentData?.pix?.payload;
     if (!payload) {
-      setErrorMessage('CÃ³digo Pix ainda nÃ£o estÃ¡ disponÃ­vel pelo Asaas.');
+      setErrorMessage('Código Pix ainda não está disponível pelo Asaas.');
       return;
     }
     navigator.clipboard.writeText(payload);
@@ -283,7 +283,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   const handleCopyBoleto = () => {
     const code = paymentData?.boleto?.identificationField;
     if (!code) {
-      setErrorMessage('Linha digitÃ¡vel do boleto ainda nÃ£o estÃ¡ disponÃ­vel pelo Asaas.');
+      setErrorMessage('Linha digitável do boleto ainda não está disponível pelo Asaas.');
       return;
     }
     navigator.clipboard.writeText(code);
@@ -317,10 +317,10 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
         setPaymentData(res.payment);
         setStep(selectedMethod === 'pix' ? 'pix' : 'boleto');
       } else {
-        setErrorMessage(res.error || 'NÃ£o foi possÃ­vel gerar a cobranÃ§a. Tente novamente.');
+        setErrorMessage(res.error || 'Não foi possível gerar a cobrança. Tente novamente.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro de comunicaÃ§Ã£o com o Asaas.');
+      setErrorMessage(err.message || 'Erro de comunicação com o Asaas.');
     } finally {
       setIsLoading(false);
     }
@@ -357,10 +357,10 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
         await planService.syncWithBackend();
         setStep('success');
       } else {
-        setErrorMessage(res.error || 'Falha na aprovaÃ§Ã£o do cartÃ£o. Verifique os dados e tente novamente.');
+        setErrorMessage(res.error || 'Falha na aprovação do cartão. Verifique os dados e tente novamente.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao processar cartÃ£o.');
+      setErrorMessage(err.message || 'Erro ao processar cartão.');
     } finally {
       setIsLoading(false);
     }
@@ -438,7 +438,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </span>
               <div className="flex items-baseline gap-1 text-[#11241c] font-black text-xl">
                 <span>R$ {planPriceFormatted}</span>
-                <span className="text-xs font-semibold text-[#64786d]">/mÃªs</span>
+                <span className="text-xs font-semibold text-[#64786d]">/mês</span>
               </div>
             </div>
           </div>
@@ -449,7 +449,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                 <Check size={11} className="stroke-[3.5]" />
               </div>
-              <span><strong>{selectedPlan.maxGroups}</strong> grupos em automaÃ§Ãµes</span>
+              <span><strong>{selectedPlan.maxGroups}</strong> grupos em automações</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
@@ -461,19 +461,19 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                 <Check size={11} className="stroke-[3.5]" />
               </div>
-              <span>AtÃ© <strong>{selectedPlan.maxMonthlySends.toLocaleString('pt-BR')}</strong> envios por mÃªs</span>
+              <span>Até <strong>{selectedPlan.maxMonthlySends.toLocaleString('pt-BR')}</strong> envios por mês</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                 <Check size={11} className="stroke-[3.5]" />
               </div>
-              <span><strong>{selectedPlan.maxActiveCampaigns}</strong> divulgaÃ§Ãµes ativas</span>
+              <span><strong>{selectedPlan.maxActiveCampaigns}</strong> divulgações ativas</span>
             </div>
             <div className="flex items-center gap-2.5">
               <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                 <Check size={11} className="stroke-[3.5]" />
               </div>
-              <span>HistÃ³rico de <strong>{selectedPlan.historyDays} dias</strong></span>
+              <span>Histórico de <strong>{selectedPlan.historyDays} dias</strong></span>
             </div>
           </div>
         </div>
@@ -485,7 +485,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             className="w-full py-3.5 bg-[#00874e] hover:bg-[#007543] text-white font-black text-sm rounded-2xl shadow-xs transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>Ir para o painel</span>
-            <span className="text-base">â†’</span>
+            <span className="text-base">� </span>
           </button>
           <button
             onClick={onGoToPlans}
@@ -504,10 +504,10 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             </div>
             <div className="flex flex-col">
               <h4 className="text-sm sm:text-base font-extrabold text-[#11241c]">
-                Tudo pronto para vocÃª ter mais resultados!
+                Tudo pronto para você ter mais resultados!
               </h4>
               <p className="text-xs sm:text-sm text-[#64786d]">
-                Agora Ã© sÃ³ criar suas divulgaÃ§Ãµes e alcanÃ§ar mais pessoas com o Groply.
+                Agora é só criar suas divulgações e alcançar mais pessoas com o Groply.
               </p>
             </div>
           </div>
@@ -517,7 +517,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             className="w-full sm:w-auto whitespace-nowrap px-5 py-2.5 bg-white hover:bg-[#f7faf8] text-[#11241c] font-extrabold text-xs sm:text-sm rounded-2xl border border-[#d5ded8] transition-all flex items-center justify-center gap-2 shadow-2xs cursor-pointer"
           >
             <Plus size={16} className="stroke-[3]" />
-            <span>Nova divulgaÃ§Ã£o</span>
+            <span>Nova divulgação</span>
           </button>
         </div>
       </div>
@@ -525,9 +525,9 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   }
 
   // =========================================================================
-  // SCREEN 3: CARTÃƒO DE CRÃ‰DITO (file_0000000035ec820e9b5b463a92df17f2.png)
-  // USER CONSTRAINT: "NÃ£o quero tÃ­tulo inicial, igual tÃ¡ na pÃ¡gina de cartÃ£o aÃ­.
-  // Pagamento com cartÃ£o e a descriÃ§Ã£o ali. NÃ£o quero esse tÃ­tulo e descriÃ§Ã£o em uma pÃ¡gina."
+  // SCREEN 3: CARTÒO DE CR�0DITO (file_0000000035ec820e9b5b463a92df17f2.png)
+  // USER CONSTRAINT: "Não quero título inicial, igual tá na página de cartão aí.
+  // Pagamento com cartão e a descrição ali. Não quero esse título e descrição em uma página."
   // =========================================================================
   if (step === 'card') {
     return (
@@ -544,7 +544,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
 
           <CheckoutStepper
             currentStepNumber={2}
-            step2Label="CartÃ£o"
+            step2Label="Cartão"
             planName={selectedPlan.name}
           />
 
@@ -554,7 +554,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
         {errorMessage && (
           <div className="p-4 bg-red-50 text-red-700 rounded-2xl border border-red-200 text-xs sm:text-sm font-bold flex items-center justify-between">
             <span>{errorMessage}</span>
-            <button onClick={() => setErrorMessage(null)} className="cursor-pointer">âœ•</button>
+            <button onClick={() => setErrorMessage(null)} className="cursor-pointer">�S"</button>
           </div>
         )}
 
@@ -563,9 +563,9 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
           {/* LEFT: Card Form */}
           <div className="lg:col-span-7 bg-white rounded-3xl p-6 sm:p-8 border border-[#e5ebe7] shadow-xs flex flex-col gap-5">
             <form onSubmit={handleProcessCardPayment} className="flex flex-col gap-5">
-              {/* NÃºmero do CartÃ£o */}
+              {/* Número do Cartão */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-[#11241c]">NÃºmero do cartÃ£o</label>
+                <label className="text-xs font-bold text-[#11241c]">Número do cartão</label>
                 <div className="relative flex items-center">
                   <CreditCard size={18} className="absolute left-3.5 text-[#889b90]" />
                   <input
@@ -589,15 +589,15 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 </div>
               </div>
 
-              {/* Nome no CartÃ£o */}
+              {/* Nome no Cartão */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-[#11241c]">Nome no cartÃ£o</label>
+                <label className="text-xs font-bold text-[#11241c]">Nome no cartão</label>
                 <input
                   type="text"
                   required
                   value={cardHolder}
                   onChange={(e) => setCardHolder(e.target.value)}
-                  placeholder="Como estÃ¡ escrito no cartÃ£o"
+                  placeholder="Como está escrito no cartão"
                   className="w-full px-3.5 py-3 bg-white border border-[#d5ded8] rounded-xl text-sm font-semibold text-[#11241c] focus:outline-none focus:border-[#109353] focus:ring-1 focus:ring-[#109353] transition-all"
                 />
               </div>
@@ -639,11 +639,11 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 </div>
               </div>
 
-              {/* CondiÃ§Ã£o de Pagamento (1x Ã  vista) */}
+              {/* Condição de Pagamento (1x à vista) */}
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-[#11241c]">CondiÃ§Ã£o de Pagamento</label>
+                <label className="text-xs font-bold text-[#11241c]">Condição de Pagamento</label>
                 <div className="w-full px-3.5 py-3 bg-[#f8faf9] border border-[#d5ded8] rounded-xl text-sm font-bold text-[#11241c] flex items-center justify-between">
-                  <span>1x de R$ {planPriceFormatted} (Ã  vista)</span>
+                  <span>1x de R$ {planPriceFormatted} (à vista)</span>
                   <span className="text-[11px] font-extrabold text-[#109353] bg-[#eaf6ef] px-2.5 py-1 rounded-md border border-[#c6e8d1]">
                     Sem juros
                   </span>
@@ -653,7 +653,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               {/* Info Badge */}
               <div className="p-3 bg-[#eaf6ef] rounded-xl border border-[#c6e8d1] flex items-center gap-2.5 text-xs text-[#0a6639] font-medium">
                 <ShieldCheck size={16} className="text-[#109353] shrink-0" />
-                <span>CobranÃ§a em 1x Ã  vista no cartÃ£o de crÃ©dito com confirmaÃ§Ã£o imediata.</span>
+                <span>Cobrança em 1x à vista no cartão de crédito com confirmação imediata.</span>
               </div>
 
               {/* Submit Button */}
@@ -678,7 +678,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               {/* PCI DSS Note */}
               <div className="flex items-center justify-center gap-2 text-[11px] text-[#64786d] pt-1">
                 <Lock size={13} className="text-[#889b90]" />
-                <span>Seus dados estÃ£o seguros. Utilizamos criptografia e certificaÃ§Ã£o PCI DSS.</span>
+                <span>Seus dados estão seguros. Utilizamos criptografia e certificação PCI DSS.</span>
               </div>
             </form>
           </div>
@@ -703,7 +703,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <span className="text-sm font-extrabold text-[#11241c]">Plano {selectedPlan.name}</span>
                   <div className="flex items-baseline gap-1 text-[#11241c] font-black text-xl">
                     <span>R$ {planPriceFormatted}</span>
-                    <span className="text-xs font-semibold text-[#64786d]">/mÃªs</span>
+                    <span className="text-xs font-semibold text-[#64786d]">/mês</span>
                   </div>
                 </div>
               </div>
@@ -714,7 +714,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>{selectedPlan.maxGroups} grupos em automaÃ§Ãµes</span>
+                  <span>{selectedPlan.maxGroups} grupos em automações</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
@@ -726,25 +726,25 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>AtÃ© {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mÃªs</span>
+                  <span>Até {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mês</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>{selectedPlan.maxActiveCampaigns} divulgaÃ§Ãµes ativas</span>
+                  <span>{selectedPlan.maxActiveCampaigns} divulgações ativas</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>HistÃ³rico de {selectedPlan.historyDays} dias</span>
+                  <span>Histórico de {selectedPlan.historyDays} dias</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>Suporte {selectedPlanId === 'max' ? 'VIP' : 'prioritÃ¡rio'}</span>
+                  <span>Suporte {selectedPlanId === 'max' ? 'VIP' : 'prioritário'}</span>
                 </div>
               </div>
 
@@ -763,7 +763,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-[#11241c]">Compra 100% segura</span>
                 <span className="text-[11px] text-[#55695f] leading-relaxed">
-                  Seus dados de pagamento sÃ£o protegidos e nÃ£o sÃ£o armazenados em nossos servidores.
+                  Seus dados de pagamento são protegidos e não são armazenados em nossos servidores.
                 </span>
               </div>
             </div>
@@ -826,14 +826,14 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 <div className="flex flex-col">
                   <h2 className="text-base sm:text-lg font-extrabold text-[#11241c]">Pagamento via Pix</h2>
                   <p className="text-xs text-[#64786d]">
-                    Escaneie o QR Code com o app do seu banco ou copie o cÃ³digo Pix e cole no pagamento.
+                    Escaneie o QR Code com o app do seu banco ou copie o código Pix e cole no pagamento.
                   </p>
                 </div>
               </div>
 
               <span className="px-2.5 py-1 bg-[#eaf6ef] text-[#109353] rounded-full text-[11px] font-bold shrink-0 flex items-center gap-1 border border-[#c5e7d0]">
                 <Check size={12} className="stroke-[3]" />
-                AprovaÃ§Ã£o rÃ¡pida
+                Aprovação rápida
               </span>
             </div>
 
@@ -866,9 +866,9 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <span className="absolute px-3 bg-white text-xs font-bold text-[#889b90]">ou</span>
             </div>
 
-            {/* Copie o CÃ³digo Pix */}
+            {/* Copie o Código Pix */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-bold text-[#11241c]">Copie o cÃ³digo Pix</label>
+              <label className="text-xs font-bold text-[#11241c]">Copie o código Pix</label>
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -902,7 +902,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             {/* Beneficiary Details */}
             <div className="p-3.5 bg-[#f8faf9] rounded-xl border border-[#e5ebe7] flex flex-col gap-1.5 text-xs text-[#40544a]">
               <div className="flex items-center justify-between">
-                <span className="text-[#64786d]">BeneficiÃ¡rio:</span>
+                <span className="text-[#64786d]">Beneficiário:</span>
                 <span className="font-extrabold text-[#11241c]">Wendisson santos Santana</span>
               </div>
               <div className="flex items-center justify-between">
@@ -910,7 +910,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 <span className="font-mono font-bold text-[#11241c]">087.355.455-85</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-[#64786d]">InstituiÃ§Ã£o:</span>
+                <span className="text-[#64786d]">Instituição:</span>
                 <span className="font-semibold text-[#109353]">Banco Central do Brasil / Pix</span>
               </div>
             </div>
@@ -918,7 +918,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             {/* Confirmation note banner */}
             <div className="p-3.5 bg-[#f0f7fe] rounded-xl border border-[#d3e5fa] flex items-center gap-2.5 text-xs text-[#1e58a2] font-medium">
               <Info size={16} className="text-[#2b7fff] shrink-0" />
-              <span>ApÃ³s o pagamento, a confirmaÃ§Ã£o Ã© automÃ¡tica e seu plano serÃ¡ ativado em poucos segundos.</span>
+              <span>Após o pagamento, a confirmação é automática e seu plano será ativado em poucos segundos.</span>
             </div>
 
             {/* Simulation action for instant test */}
@@ -930,7 +930,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 className="text-xs font-bold text-[#109353] hover:underline flex items-center gap-1 cursor-pointer"
               >
                 {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                <span>Simular confirmaÃ§Ã£o de pagamento</span>
+                <span>Simular confirmação de pagamento</span>
               </button>
             </div>
           </div>
@@ -954,7 +954,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <span className="text-sm font-extrabold text-[#11241c]">Plano {selectedPlan.name}</span>
                   <div className="flex items-baseline gap-1 text-[#11241c] font-black text-xl">
                     <span>R$ {planPriceFormatted}</span>
-                    <span className="text-xs font-semibold text-[#64786d]">/mÃªs</span>
+                    <span className="text-xs font-semibold text-[#64786d]">/mês</span>
                   </div>
                 </div>
               </div>
@@ -962,7 +962,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               {/* Features List */}
               <div className="flex flex-col gap-2.5 text-xs text-[#20362c]">
                 <div className="flex items-center justify-between">
-                  <span className="text-[#64786d]">Grupos em automaÃ§Ãµes</span>
+                  <span className="text-[#64786d]">Grupos em automações</span>
                   <span className="font-extrabold text-[#11241c]">{selectedPlan.maxGroups}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -970,15 +970,15 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <span className="font-extrabold text-[#11241c]">{selectedPlan.maxRoundsPerDay} (rodadas)</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#64786d]">Envios por mÃªs</span>
-                  <span className="font-extrabold text-[#11241c]">AtÃ© {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')}</span>
+                  <span className="text-[#64786d]">Envios por mês</span>
+                  <span className="font-extrabold text-[#11241c]">Até {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#64786d]">DivulgaÃ§Ãµes ativas</span>
+                  <span className="text-[#64786d]">Divulgações ativas</span>
                   <span className="font-extrabold text-[#11241c]">{selectedPlan.maxActiveCampaigns}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[#64786d]">HistÃ³rico</span>
+                  <span className="text-[#64786d]">Histórico</span>
                   <span className="font-extrabold text-[#11241c]">{selectedPlan.historyDays} dias</span>
                 </div>
               </div>
@@ -996,13 +996,13 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-[#11241c]">Pagamento 100% seguro</span>
-                <span className="text-[11px] text-[#55695f]">Seus dados estÃ£o protegidos.</span>
+                <span className="text-[11px] text-[#55695f]">Seus dados estão protegidos.</span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Bottom Rows: "Como pagar com Pix" & "DÃºvidas?" */}
+        {/* Bottom Rows: "Como pagar com Pix" & "Dúvidas?" */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
           {/* Como pagar com Pix */}
           <div className="md:col-span-8 bg-white rounded-3xl p-6 border border-[#e5ebe7] shadow-2xs flex flex-col sm:flex-row items-start sm:items-center gap-6">
@@ -1023,7 +1023,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <span className="w-5 h-5 rounded-full bg-[#109353] text-white font-bold flex items-center justify-center shrink-0 text-[11px]">
                     2
                   </span>
-                  <span>Escaneie o QR Code ou cole o cÃ³digo Pix</span>
+                  <span>Escaneie o QR Code ou cole o código Pix</span>
                 </div>
                 <div className="flex items-start gap-2">
                   <span className="w-5 h-5 rounded-full bg-[#109353] text-white font-bold flex items-center justify-center shrink-0 text-[11px]">
@@ -1035,11 +1035,11 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             </div>
           </div>
 
-          {/* DÃºvidas? Falar com suporte */}
+          {/* Dúvidas? Falar com suporte */}
           <div className="md:col-span-4 bg-[#f8faf9] rounded-3xl p-6 border border-[#e5ebe7] shadow-2xs flex flex-col justify-between gap-3">
             <div className="flex flex-col">
-              <h4 className="text-sm font-extrabold text-[#11241c]">DÃºvidas?</h4>
-              <p className="text-xs text-[#64786d]">Nosso suporte estÃ¡ sempre disponÃ­vel.</p>
+              <h4 className="text-sm font-extrabold text-[#11241c]">Dúvidas?</h4>
+              <p className="text-xs text-[#64786d]">Nosso suporte está sempre disponível.</p>
             </div>
 
             <button
@@ -1056,7 +1056,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
   }
 
   // =========================================================================
-  // SCREEN 4: BOLETO BANCÃRIO (file_000000008db4820e9304d081913af685.png)
+  // SCREEN 4: BOLETO BANCÁRIO (file_000000008db4820e9304d081913af685.png)
   // =========================================================================
   if (step === 'boleto') {
     const boletoCode =
@@ -1091,7 +1091,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
           <div className="flex flex-col">
             <h1 className="text-lg sm:text-xl font-black text-[#11241c]">Boleto gerado com sucesso!</h1>
             <p className="text-xs sm:text-sm text-[#64786d]">
-              Agora Ã© sÃ³ pagar atÃ© a data de vencimento para ativar seu plano.
+              Agora é só pagar até a data de vencimento para ativar seu plano.
             </p>
           </div>
         </div>
@@ -1099,7 +1099,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
         {emailSentAlert && (
           <div className="p-4 bg-[#eaf6ef] text-[#109353] rounded-2xl border border-[#c2e7ce] text-xs font-bold flex items-center justify-between">
             <span>Boleto enviado com sucesso para {customer.email}!</span>
-            <button onClick={() => setEmailSentAlert(false)} className="cursor-pointer">âœ•</button>
+            <button onClick={() => setEmailSentAlert(false)} className="cursor-pointer">�S"</button>
           </div>
         )}
 
@@ -1114,8 +1114,8 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <Barcode size={22} className="stroke-[2.2]" />
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="text-base font-extrabold text-[#11241c]">Boleto bancÃ¡rio</h3>
-                  <span className="text-xs text-[#64786d]">Pague em qualquer banco, app ou lotÃ©rica.</span>
+                  <h3 className="text-base font-extrabold text-[#11241c]">Boleto bancário</h3>
+                  <span className="text-xs text-[#64786d]">Pague em qualquer banco, app ou lotérica.</span>
                 </div>
               </div>
 
@@ -1152,7 +1152,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </span>
             </div>
 
-            {/* Linha DigitÃ¡vel Input with Copy */}
+            {/* Linha Digitável Input with Copy */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
                 <input
@@ -1177,7 +1177,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   ) : (
                     <>
                       <Copy size={14} />
-                      <span>Copiar cÃ³digo</span>
+                      <span>Copiar código</span>
                     </>
                   )}
                 </button>
@@ -1210,14 +1210,14 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
 
             {/* Simulation test action */}
             <div className="flex items-center justify-between pt-3 border-t border-[#f0f4f1]">
-              <span className="text-[11px] text-[#64786d]">Teste de compensaÃ§Ã£o Asaas:</span>
+              <span className="text-[11px] text-[#64786d]">Teste de compensação Asaas:</span>
               <button
                 onClick={handleSimulateConfirmation}
                 disabled={isLoading}
                 className="text-xs font-bold text-[#109353] hover:underline flex items-center gap-1 cursor-pointer"
               >
                 {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                <span>Simular compensaÃ§Ã£o bancÃ¡ria</span>
+                <span>Simular compensação bancária</span>
               </button>
             </div>
           </div>
@@ -1241,7 +1241,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <span className="text-sm font-extrabold text-[#11241c]">Plano {selectedPlan.name}</span>
                   <div className="flex items-baseline gap-1 text-[#11241c] font-black text-xl">
                     <span>R$ {planPriceFormatted}</span>
-                    <span className="text-xs font-semibold text-[#64786d]">/mÃªs</span>
+                    <span className="text-xs font-semibold text-[#64786d]">/mês</span>
                   </div>
                 </div>
               </div>
@@ -1252,7 +1252,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>{selectedPlan.maxGroups} grupos em automaÃ§Ãµes</span>
+                  <span>{selectedPlan.maxGroups} grupos em automações</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
@@ -1264,25 +1264,25 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>AtÃ© {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mÃªs</span>
+                  <span>Até {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mês</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>{selectedPlan.maxActiveCampaigns} divulgaÃ§Ãµes ativas</span>
+                  <span>{selectedPlan.maxActiveCampaigns} divulgações ativas</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>HistÃ³rico de {selectedPlan.historyDays} dias</span>
+                  <span>Histórico de {selectedPlan.historyDays} dias</span>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                     <Check size={11} className="stroke-[3.5]" />
                   </div>
-                  <span>Suporte prioritÃ¡rio</span>
+                  <span>Suporte prioritário</span>
                 </div>
               </div>
 
@@ -1300,7 +1300,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-[#11241c]">Pagamento 100% seguro</span>
                 <span className="text-[11px] text-[#55695f] leading-relaxed">
-                  Seus dados sÃ£o protegidos e o processamento Ã© realizado por parceiros financeiros autorizados.
+                  Seus dados são protegidos e o processamento é realizado por parceiros financeiros autorizados.
                 </span>
               </div>
             </div>
@@ -1317,7 +1317,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </span>
               <div className="flex flex-col">
                 <span className="font-bold text-[#11241c]">Abra o app do seu banco</span>
-                <span className="text-[#64786d] text-[11px]">ou vÃ¡ atÃ© uma agÃªncia ou lotÃ©rica.</span>
+                <span className="text-[#64786d] text-[11px]">ou vá até uma agência ou lotérica.</span>
               </div>
             </div>
 
@@ -1326,8 +1326,8 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 2
               </span>
               <div className="flex flex-col">
-                <span className="font-bold text-[#11241c]">Escolha a opÃ§Ã£o pagar boleto</span>
-                <span className="text-[#64786d] text-[11px]">e escaneie o cÃ³digo de barras ou cole o cÃ³digo.</span>
+                <span className="font-bold text-[#11241c]">Escolha a opção pagar boleto</span>
+                <span className="text-[#64786d] text-[11px]">e escaneie o código de barras ou cole o código.</span>
               </div>
             </div>
 
@@ -1346,8 +1346,8 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 4
               </span>
               <div className="flex flex-col">
-                <span className="font-bold text-[#11241c]">Aguarde a confirmaÃ§Ã£o</span>
-                <span className="text-[#64786d] text-[11px]">O pagamento pode levar atÃ© 2 dias Ãºteis para ser identificado.</span>
+                <span className="font-bold text-[#11241c]">Aguarde a confirmação</span>
+                <span className="text-[#64786d] text-[11px]">O pagamento pode levar até 2 dias úteis para ser identificado.</span>
               </div>
             </div>
           </div>
@@ -1375,7 +1375,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
           <ShieldCheck size={16} className="text-[#109353]" />
           <div className="flex flex-col leading-tight text-left">
             <span className="font-bold text-[#11241c] text-[11px]">Pagamento 100% seguro</span>
-            <span className="text-[10px] text-[#64786d]">Seus dados estÃ£o protegidos.</span>
+            <span className="text-[10px] text-[#64786d]">Seus dados estão protegidos.</span>
           </div>
         </div>
       </div>
@@ -1383,7 +1383,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
       {errorMessage && (
         <div className="p-4 bg-red-50 text-red-700 rounded-2xl border border-red-200 text-xs sm:text-sm font-bold flex items-center justify-between">
           <span>{errorMessage}</span>
-          <button onClick={() => setErrorMessage(null)} className="cursor-pointer">âœ•</button>
+          <button onClick={() => setErrorMessage(null)} className="cursor-pointer">�S"</button>
         </div>
       )}
 
@@ -1417,14 +1417,14 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="flex items-baseline gap-0.5 text-[#11241c] font-black text-sm">
                     <span className="text-xs">R$</span>
                     <span className="text-base">39,90</span>
-                    <span className="text-[10px] text-[#64786d] font-normal">/mÃªs</span>
+                    <span className="text-[10px] text-[#64786d] font-normal">/mês</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5 pt-1 text-[11px] text-[#33463d]">
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>20 grupos em automaÃ§Ãµes</span>
+                    <span>20 grupos em automações</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
@@ -1432,7 +1432,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>AtÃ© 600 envios por mÃªs</span>
+                    <span>Até 600 envios por mês</span>
                   </div>
                 </div>
               </div>
@@ -1467,14 +1467,14 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="flex items-baseline gap-0.5 text-[#11241c] font-black text-sm">
                     <span className="text-xs">R$</span>
                     <span className="text-base">69,90</span>
-                    <span className="text-[10px] text-[#64786d] font-normal">/mÃªs</span>
+                    <span className="text-[10px] text-[#64786d] font-normal">/mês</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5 pt-1 text-[11px] text-[#33463d]">
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>45 grupos em automaÃ§Ãµes</span>
+                    <span>45 grupos em automações</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
@@ -1482,7 +1482,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>AtÃ© 2.700 envios por mÃªs</span>
+                    <span>Até 2.700 envios por mês</span>
                   </div>
                 </div>
               </div>
@@ -1512,14 +1512,14 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   <div className="flex items-baseline gap-0.5 text-[#11241c] font-black text-sm">
                     <span className="text-xs">R$</span>
                     <span className="text-base">119,90</span>
-                    <span className="text-[10px] text-[#64786d] font-normal">/mÃªs</span>
+                    <span className="text-[10px] text-[#64786d] font-normal">/mês</span>
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-1.5 pt-1 text-[11px] text-[#33463d]">
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>90 grupos em automaÃ§Ãµes</span>
+                    <span>90 grupos em automações</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
@@ -1527,7 +1527,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Check size={12} className="text-[#109353] shrink-0 stroke-[3]" />
-                    <span>AtÃ© 8.100 envios por mÃªs</span>
+                    <span>Até 8.100 envios por mês</span>
                   </div>
                 </div>
               </div>
@@ -1575,7 +1575,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                     </div>
                     <div className="flex flex-col">
                       <span className="text-sm font-extrabold text-[#11241c]">Pix</span>
-                      <span className="text-[11px] text-[#64786d]">AprovaÃ§Ã£o em poucos segundos.</span>
+                      <span className="text-[11px] text-[#64786d]">Aprovação em poucos segundos.</span>
                     </div>
                   </div>
 
@@ -1590,7 +1590,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                 </div>
 
-                {/* 2. CartÃ£o de CrÃ©dito */}
+                {/* 2. Cartão de Crédito */}
                 <div
                   onClick={() => setSelectedMethod('card')}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
@@ -1604,8 +1604,8 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                       <CreditCard size={17} />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-extrabold text-[#11241c]">CartÃ£o de crÃ©dito</span>
-                      <span className="text-[11px] text-[#64786d]">Pagamento Ã  vista (1x) com aprovaÃ§Ã£o imediata.</span>
+                      <span className="text-sm font-extrabold text-[#11241c]">Cartão de crédito</span>
+                      <span className="text-[11px] text-[#64786d]">Pagamento à vista (1x) com aprovação imediata.</span>
                     </div>
                   </div>
 
@@ -1620,7 +1620,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                 </div>
 
-                {/* 3. Boleto BancÃ¡rio */}
+                {/* 3. Boleto Bancário */}
                 <div
                   onClick={() => setSelectedMethod('boleto')}
                   className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
@@ -1634,8 +1634,8 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                       <Barcode size={17} />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-sm font-extrabold text-[#11241c]">Boleto bancÃ¡rio</span>
-                      <span className="text-[11px] text-[#64786d]">AtÃ© 2 dias Ãºteis para compensaÃ§Ã£o.</span>
+                      <span className="text-sm font-extrabold text-[#11241c]">Boleto bancário</span>
+                      <span className="text-[11px] text-[#64786d]">Até 2 dias úteis para compensação.</span>
                     </div>
                   </div>
 
@@ -1659,7 +1659,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 <div className="flex flex-col gap-2 text-xs text-[#20362c]">
                   <div className="flex items-center gap-2">
                     <Check size={13} className="text-[#109353] stroke-[3]" />
-                    <span>Pagamento rÃ¡pido</span>
+                    <span>Pagamento rápido</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Check size={13} className="text-[#109353] stroke-[3]" />
@@ -1667,7 +1667,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                   </div>
                   <div className="flex items-center gap-2">
                     <Check size={13} className="text-[#109353] stroke-[3]" />
-                    <span>LiberaÃ§Ã£o automÃ¡tica</span>
+                    <span>Liberação automática</span>
                   </div>
                 </div>
               </div>
@@ -1677,9 +1677,9 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             <div className="flex items-center gap-2 text-[11px] text-[#64786d] pt-2 border-t border-[#f0f4f1]">
               <Lock size={13} className="text-[#889b90] shrink-0" />
               <span>
-                Ao continuar, vocÃª concorda com nossos{' '}
+                Ao continuar, você concorda com nossos{' '}
                 <a href="#termos" className="underline hover:text-[#11241c]">Termos de Uso</a> e{' '}
-                <a href="#privacidade" className="underline hover:text-[#11241c]">PolÃ­tica de Privacidade</a>.
+                <a href="#privacidade" className="underline hover:text-[#11241c]">Política de Privacidade</a>.
               </span>
             </div>
           </div>
@@ -1703,7 +1703,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-extrabold text-[#11241c]">Plano {selectedPlan.name}</span>
-                <span className="text-xs text-[#64786d]">Mais resultados para o seu negÃ³cio.</span>
+                <span className="text-xs text-[#64786d]">Mais resultados para o seu negócio.</span>
               </div>
             </div>
 
@@ -1711,17 +1711,17 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             <div className="flex items-baseline gap-1 text-[#11241c] font-black">
               <span className="text-sm font-extrabold">R$</span>
               <span className="text-3xl sm:text-4xl tracking-tight">{planPriceFormatted}</span>
-              <span className="text-xs font-semibold text-[#64786d]">/mÃªs</span>
+              <span className="text-xs font-semibold text-[#64786d]">/mês</span>
             </div>
 
             {/* Features list */}
             <div className="flex flex-col gap-2.5 text-xs text-[#20362c]">
-              <span className="text-xs font-bold text-[#11241c]">O que vocÃª vai receber:</span>
+              <span className="text-xs font-bold text-[#11241c]">O que você vai receber:</span>
               <div className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                   <Check size={11} className="stroke-[3.5]" />
                 </div>
-                <span>{selectedPlan.maxGroups} grupos em automaÃ§Ãµes</span>
+                <span>{selectedPlan.maxGroups} grupos em automações</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
@@ -1733,19 +1733,19 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                   <Check size={11} className="stroke-[3.5]" />
                 </div>
-                <span>AtÃ© {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mÃªs</span>
+                <span>Até {selectedPlan.maxMonthlySends.toLocaleString('pt-BR')} envios por mês</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                   <Check size={11} className="stroke-[3.5]" />
                 </div>
-                <span>{selectedPlan.maxActiveCampaigns} divulgaÃ§Ãµes ativas</span>
+                <span>{selectedPlan.maxActiveCampaigns} divulgações ativas</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                   <Check size={11} className="stroke-[3.5]" />
                 </div>
-                <span>HistÃ³rico de {selectedPlan.historyDays} dias</span>
+                <span>Histórico de {selectedPlan.historyDays} dias</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
@@ -1757,7 +1757,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 <div className="w-4 h-4 rounded-full bg-[#109353] text-white flex items-center justify-center shrink-0">
                   <Check size={11} className="stroke-[3.5]" />
                 </div>
-                <span>Suporte {selectedPlanId === 'max' ? 'VIP' : 'prioritÃ¡rio'}</span>
+                <span>Suporte {selectedPlanId === 'max' ? 'VIP' : 'prioritário'}</span>
               </div>
             </div>
 
@@ -1778,7 +1778,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                 {isLoading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>Gerando cobranÃ§a Asaas...</span>
+                    <span>Gerando cobrança Asaas...</span>
                   </>
                 ) : (
                   <>
@@ -1787,7 +1787,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
                       {selectedMethod === 'pix'
                         ? 'Confirmar e gerar Pix'
                         : selectedMethod === 'card'
-                        ? 'Continuar para pagamento com cartÃ£o'
+                        ? 'Continuar para pagamento com cartão'
                         : 'Confirmar e gerar Boleto'}
                     </span>
                   </>
@@ -1795,7 +1795,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </button>
 
               <span className="text-[11px] text-[#64786d] text-center">
-                VocÃª serÃ¡ redirecionado para gerar o pagamento.
+                Você será redirecionado para gerar o pagamento.
               </span>
             </div>
           </div>
@@ -1810,7 +1810,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
           </div>
           <div className="flex flex-col">
             <h3 className="text-base sm:text-lg font-black text-[#11241c]">
-              Mais resultados para o seu negÃ³cio.
+              Mais resultados para o seu negócio.
             </h3>
             <p className="text-xs sm:text-sm text-[#465a50]">
               Automatize, economize tempo e alcance mais pessoas com o Groply.
@@ -1825,7 +1825,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
           </div>
           <div className="flex flex-col">
             <span className="text-xs font-black text-[#11241c]">Grupos que geram resultados.</span>
-            <span className="text-[10px] text-[#64786d]">ConexÃ£o WhatsApp oficial e estÃ¡vel</span>
+            <span className="text-[10px] text-[#64786d]">Conexão WhatsApp oficial e estável</span>
           </div>
         </div>
       </div>

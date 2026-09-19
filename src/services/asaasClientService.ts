@@ -1,4 +1,4 @@
-﻿import { PlanId } from './planService';
+import { PlanId } from './planService';
 
 export type AsaasBillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
 
@@ -73,11 +73,11 @@ class AsaasClientService {
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        return { success: false, error: data.error || 'Erro ao gerar cobranÃ§a Asaas' };
+        return { success: false, error: data.error || 'Erro ao gerar cobrança Asaas' };
       }
       return { success: true, payment: data.payment };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Erro de conexÃ£o com o servidor' };
+      return { success: false, error: err.message || 'Erro de conexão com o servidor' };
     }
   }
 

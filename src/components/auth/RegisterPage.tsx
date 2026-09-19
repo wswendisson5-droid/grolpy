@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Eye, EyeOff, ArrowRight, CheckCircle2, ShieldCheck, Zap, Sparkles } from 'lucide-react';
 
 interface RegisterPageProps {
@@ -53,13 +53,13 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
     try {
       const response = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:fullName,email,phone,password}) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'NÃ£o foi possÃ­vel criar a conta.');
+      if (!response.ok) throw new Error(data.error || 'Não foi possível criar a conta.');
       const loginResponse = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
       const loginData = await loginResponse.json();
       if(!loginResponse.ok || !loginData.success) throw new Error(loginData.error || 'Conta criada. Entre para continuar.');
 
       onRegisterSuccess();
-    } catch (err:any) { setErrorMessage(err.message || 'NÃ£o foi possÃ­vel criar a conta.'); }
+    } catch (err:any) { setErrorMessage(err.message || 'Não foi possível criar a conta.'); }
     finally { setIsLoading(false); }
   };
 
@@ -90,7 +90,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
         {/* Top Right Switch to Login Link */}
         <div className="flex items-center gap-1.5 text-xs sm:text-sm">
-          <span className="text-[#596f63] hidden sm:inline">JÃ¡ tem uma conta?</span>
+          <span className="text-[#596f63] hidden sm:inline">Já tem uma conta?</span>
           <button
             onClick={onNavigateLogin}
             className="font-bold text-[#00c968] hover:text-[#00a855] hover:underline transition-all cursor-pointer"
@@ -110,8 +110,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
             <h1 className="text-4xl xl:text-5xl font-black text-[#0e261f] tracking-tight leading-[1.12] mb-5">
               Transforme <br />
-              a comunicaÃ§Ã£o <br />
-              do seu <span className="text-[#00c968]">negÃ³cio.</span>
+              a comunicação <br />
+              do seu <span className="text-[#00c968]">negócio.</span>
             </h1>
 
             <p className="text-base xl:text-lg text-[#556b5f] font-normal leading-relaxed max-w-lg mb-8">
@@ -125,7 +125,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   <Zap size={17} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-[#0e261f]">ConfiguraÃ§Ã£o em Menos de 2 Minutos</p>
+                  <p className="text-xs font-bold text-[#0e261f]">Configuração em Menos de 2 Minutos</p>
                   <p className="text-[11px] text-[#697e72]">Conecte seu WhatsApp por QR Code e comece agora</p>
                 </div>
               </div>
@@ -135,8 +135,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                   <ShieldCheck size={17} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-[#0e261f]">SeguranÃ§a e ProteÃ§Ã£o Total</p>
-                  <p className="text-[11px] text-[#697e72]">Tecnologia com delays humanizados e rotaÃ§Ãµes</p>
+                  <p className="text-xs font-bold text-[#0e261f]">Segurança e Proteção Total</p>
+                  <p className="text-[11px] text-[#697e72]">Tecnologia com delays humanizados e rotações</p>
                 </div>
               </div>
 
@@ -146,7 +146,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
                 </div>
                 <div>
                   <p className="text-xs font-bold text-[#0e261f]">Painel Intuitivo e Completo</p>
-                  <p className="text-[11px] text-[#697e72]">Agendamentos, relatÃ³rios, mÃ©tricas e histÃ³rico detalhado</p>
+                  <p className="text-[11px] text-[#697e72]">Agendamentos, relatórios, métricas e histórico detalhado</p>
                 </div>
               </div>
             </div>
@@ -261,13 +261,13 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
               {/* Terms disclaimer */}
               <p className="text-[11px] text-[#718579] text-center mt-3.5 leading-relaxed">
-                Ao criar sua conta, vocÃª concorda com nossos{' '}
+                Ao criar sua conta, você concorda com nossos{' '}
                 <span className="text-[#00c968] font-semibold hover:underline cursor-pointer">
                   Termos de uso
                 </span>{' '}
                 e{' '}
                 <span className="text-[#00c968] font-semibold hover:underline cursor-pointer">
-                  PolÃ­tica de privacidade.
+                  Política de privacidade.
                 </span>
               </p>
 
@@ -310,7 +310,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
               </button>
 
               <div className="mt-5 text-center lg:hidden">
-                <span className="text-xs text-[#596f63]">JÃ¡ possui conta? </span>
+                <span className="text-xs text-[#596f63]">Já possui conta? </span>
                 <button
                   onClick={onNavigateLogin}
                   className="text-xs font-bold text-[#00c968] hover:underline"
@@ -329,12 +329,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 border-t border-[#e5ebe7] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#71867b]">
         <div className="flex items-center gap-2">
           <span className="font-bold text-[#142d23] uppercase tracking-wider text-[10px]">GRUPLY</span>
-          <span>â€¢</span>
+          <span>⬢</span>
           <span>Grupos que geram resultados.</span>
         </div>
         <div className="flex items-center gap-4 text-[11px]">
           <span className="hover:text-[#142d23] cursor-pointer">Termos de uso</span>
-          <span className="hover:text-[#142d23] cursor-pointer">PolÃ­tica de privacidade</span>
+          <span className="hover:text-[#142d23] cursor-pointer">Política de privacidade</span>
           <span className="hover:text-[#142d23] cursor-pointer">Suporte</span>
         </div>
       </div>

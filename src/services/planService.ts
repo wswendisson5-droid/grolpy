@@ -11,7 +11,7 @@ export interface PlanConfig {
   maxMonthlySends: number;     // Start: 600, Pro: 2.700, Max: 8.100
   maxActiveCampaigns: number;  // Start: 2, Pro: 5, Max: 10
   historyDays: number;         // Start: 7, Pro: 30, Max: 90
-  supportType: 'E-mail' | 'PrioritÃ¡rio' | 'VIP';
+  supportType: 'E-mail' | 'Prioritário' | 'VIP';
 }
 
 export const PLANS: Record<PlanId, PlanConfig> = {
@@ -39,7 +39,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxMonthlySends: 2700,
     maxActiveCampaigns: 5,
     historyDays: 30,
-    supportType: 'PrioritÃ¡rio',
+    supportType: 'Prioritário',
   },
   max: {
     id: 'max',

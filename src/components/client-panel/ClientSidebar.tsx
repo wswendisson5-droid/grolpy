@@ -65,15 +65,15 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
     return unsub;
   }, []);
 
-  // ONLY: InÃ­cio, DivulgaÃ§Ãµes, HistÃ³rico, RelatÃ³rios, ConexÃ£o WhatsApp, Central de Ajuda e ConfiguraÃ§Ãµes
+  // ONLY: Início, Divulgações, Histórico, Relatórios, Conexão WhatsApp, Central de Ajuda e Configurações
   const navItems: { id: ClientTab; label: string; icon: React.FC<{ size?: number; className?: string }>; badge?: number }[] = [
-    { id: 'inicio', label: 'InÃ­cio', icon: Home },
-    { id: 'divulgacoes', label: 'DivulgaÃ§Ãµes', icon: Megaphone, badge: campaignsCount > 0 ? campaignsCount : undefined },
-    { id: 'historico', label: 'HistÃ³rico', icon: History },
-    { id: 'relatorios', label: 'RelatÃ³rios', icon: BarChart3 },
-    { id: 'conexao', label: 'ConexÃ£o WhatsApp', icon: MessageSquare },
+    { id: 'inicio', label: 'Início', icon: Home },
+    { id: 'divulgacoes', label: 'Divulgações', icon: Megaphone, badge: campaignsCount > 0 ? campaignsCount : undefined },
+    { id: 'historico', label: 'Histórico', icon: History },
+    { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
+    { id: 'conexao', label: 'Conexão WhatsApp', icon: MessageSquare },
     { id: 'ajuda', label: 'Central de Ajuda', icon: HelpCircle },
-    { id: 'configuracoes', label: 'ConfiguraÃ§Ãµes', icon: Settings },
+    { id: 'configuracoes', label: 'Configurações', icon: Settings },
   ];
 
   const handleNavClick = (tab: ClientTab) => {
@@ -213,7 +213,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                     }`}
                   >
                     {subscription.status === 'active' && subscription.planId
-                      ? (subscription.validUntil ? `Ativo atÃ© ${subscription.validUntil}` : 'Assinatura ativa')
+                      ? (subscription.validUntil ? `Ativo até ${subscription.validUntil}` : 'Assinatura ativa')
                       : 'Assine para liberar os envios'}
                   </span>
                 </div>
@@ -298,7 +298,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
 
                   <button
                     className="p-1 text-[#83968d] hover:text-[#11241c] shrink-0"
-                    aria-label="OpÃ§Ãµes"
+                    aria-label="Opções"
                   >
                     <MoreVertical size={16} />
                   </button>
@@ -341,7 +341,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                             }}
                             className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-[#eaf6ef] text-[#109353] font-bold cursor-pointer transition-colors"
                           >
-                            <span>âš¡ Painel Admin (Radar)</span>
+                            <span>�a� Painel Admin (Radar)</span>
                           </button>
                         )}
                         <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold cursor-pointer"><LogOut size={15}/>Sair da conta</button>
@@ -355,7 +355,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                           }}
                           className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#3c5044] font-medium transition-colors cursor-pointer"
                         >
-                          âš™ï¸ ConfiguraÃ§Ãµes da Conta
+                          �a"️ Configurações da Conta
                         </button>
                       </div>
                     </div>
