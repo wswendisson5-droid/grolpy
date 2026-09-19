@@ -118,36 +118,6 @@ export const ClientConexaoView: React.FC = () => {
 
   const refreshQrCode = requestQrCode;
 
-  const fetchStatus = async () => {
-    try {
-      const res = await fetch('/api/evolution/status',{headers:authHeaders()});
-      if (res.ok) {
-        const data = await res.json();
-        const appState = data.state;
-        
-        if (appState === 'connected' || appState === 'open') {
-          qrActiveRef.current = false;
-          setStatus('connected');
-          setProfile(data.connectedProfile);
-        } else if (!qrActiveRef.current) {
-          setQrCode(null);
-          setProfile(null);
-          setStatus('disconnected');
-        }
-      } else if (!qrActiveRef.current) {
-         setQrCode(null); setProfile(null); setStatus('disconnected');
-      }
-    } catch (e) {
-      console.error(e);
-      // Falha ao consultar a Evolution não deve transformar uma conta sem conexão em erro.
-      if (!qrActiveRef.current) {
-        setQrCode(null);
-        setProfile(null);
-        setStatus('disconnected');
-      }
-    }
-  };
-
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 5000);
