@@ -664,9 +664,19 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
     return { isConnected: false, activeInstance: "", stateRes, instanceData: null };
   }
 
-  // 1. Fetch all instances via /instance/fetchInstances to check target user instance state
+  // 1. Direct fast check: check connectionState directly for THIS instance (instant response, ~30ms)
   try {
-    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 5000, 0);
+    stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3000, 0);
+    if (stateRes.ok && isEvolutionStateConnected(stateRes.data)) {
+      isConnected = true;
+      instanceData = stateRes.data;
+      return { isConnected: true, activeInstance: instance, stateRes, instanceData };
+    }
+  } catch {}
+
+  // 2. Fallback: Query /instance/fetchInstances if direct connectionState was inconclusive
+  try {
+    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 4000, 0);
     const list: any[] = Array.isArray(fetchRes.data)
       ? fetchRes.data
       : Array.isArray(fetchRes.data?.instances)
@@ -690,14 +700,6 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
       }
     }
   } catch {}
-
-  // 2. Direct fallback: If fetchInstances didn't locate state, check connectionState directly for THIS instance
-  if (!isConnected && instance) {
-    try {
-      stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 4000, 0);
-      isConnected = isEvolutionStateConnected(stateRes.data);
-    } catch {}
-  }
 
   return { isConnected, activeInstance: instance, stateRes, instanceData };
 }
@@ -1450,12 +1452,50 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
         memoryState.state = "connected";
         memoryState.webhookStatus = "active";
       }
+
+      // Automatically trigger real-time profile update & group sync for this tenant
+      (async () => {
+        try {
+          const db: any = await getDatabase().catch(() => null);
+          if (!db) return;
+          const user = await db.getUserByInstance(instanceName).catch(() => null);
+          const userId = user?.id || (instanceName.match(/^grolpy-u(\d+)-/) ? parseInt(instanceName.match(/^grolpy-u(\d+)-/)![1], 10) : null);
+          if (userId) {
+            const prof = await fetchInstanceProfile(instanceName).catch(() => null);
+            if (prof) {
+              await db.setUserInstanceStatus(userId, "connected", prof.number, prof.name, prof.pictureUrl).catch(() => {});
+            }
+            await syncAllWhatsAppGroups(true, instanceName, { id: userId, db }).catch(() => {});
+            console.log(`[Webhook] ✅ Real-time groups & profile synced on connect for user ${userId} (${instanceName})`);
+          }
+        } catch (err: any) {
+          console.warn(`[Webhook] Error auto-syncing on connect:`, err?.message || err);
+        }
+      })();
     } else if (rawState === "close") {
       targetCache.state = "disconnected";
       if (instanceName === DEFAULT_INSTANCE_NAME) {
         memoryState.state = "disconnected";
       }
     }
+  }
+
+  // Handle real-time groups events from Evolution API
+  if (eventType === "groups.upsert" || eventType === "GROUPS_UPSERT" || eventType === "group.update" || eventType === "GROUP_UPDATE" || eventType === "chats.set" || eventType === "CHATS_SET") {
+    (async () => {
+      try {
+        const db: any = await getDatabase().catch(() => null);
+        if (!db) return;
+        const user = await db.getUserByInstance(instanceName).catch(() => null);
+        const userId = user?.id || (instanceName.match(/^grolpy-u(\d+)-/) ? parseInt(instanceName.match(/^grolpy-u(\d+)-/)![1], 10) : null);
+        if (userId) {
+          await syncAllWhatsAppGroups(true, instanceName, { id: userId, db }).catch(() => {});
+          console.log(`[Webhook] ✅ Real-time groups updated on ${eventType} for user ${userId} (${instanceName})`);
+        }
+      } catch (err: any) {
+        console.warn(`[Webhook] Warning on group event ${eventType}:`, err?.message || err);
+      }
+    })();
   }
 
   if (eventType === "qrcode.updated" || eventType === "QRCODE_UPDATED") {
@@ -3373,6 +3413,30 @@ async function executeGroupDispatch(
   let successfulCount = 0;
   let failedCount = 0;
 
+  // Pre-register pending history items in MySQL so they immediately reflect on Dashboard and History panel
+  const targetHistoryIds = new Map<string, number>();
+  if (userId && db?.addHistoryForUser) {
+    for (const rawTarget of targets) {
+      const targetJid = String(rawTarget || "").trim();
+      const normJid = targetJid.includes("@") ? targetJid : `${targetJid}@g.us`;
+      if (!normJid.endsWith("@g.us") || normJid.includes("@broadcast") || normJid.includes("@newsletter") || normJid.includes("@s.whatsapp.net") || normJid.includes("@lid")) continue;
+      const gName = lookupGroupName(normJid, instance);
+      try {
+        const histId = await db.addHistoryForUser(userId, {
+          campaignId: campaignId || "manual",
+          campaignTitle: campaignTitle || "Divulgação",
+          groupJid: normJid,
+          groupName: gName,
+          messageText: textToSend,
+          imageUrl: imgToSend || null,
+          mediaType: imgToSend ? "imagem" : "texto",
+          status: "pending",
+        });
+        if (histId) targetHistoryIds.set(normJid, histId);
+      } catch {}
+    }
+  }
+
   for (let i = 0; i < targets.length; i++) {
     const rawJid = String(targets[i] || "").trim();
     const jid = rawJid.includes("@") ? rawJid : `${rawJid}@g.us`;
@@ -3562,7 +3626,17 @@ async function executeGroupDispatch(
       });
       saveJsonSafe(HISTORY_FILE, clientHistoryStore);
 
-      if (userId && db?.addHistoryForUser) {
+      if (userId && db?.updateHistoryItem && targetHistoryIds.has(jid)) {
+        try {
+          await db.updateHistoryItem(userId, targetHistoryIds.get(jid)!, {
+            status: isOk ? "delivered" : "failed",
+            error: errorDetails || null,
+            duration: `${durationSeconds} segundos`,
+          });
+        } catch (dbErr) {
+          console.warn("[DB] Erro ao atualizar historico de envio:", dbErr);
+        }
+      } else if (userId && db?.addHistoryForUser) {
         try {
           await db.addHistoryForUser(userId, {
             campaignId: campaignId || "manual",
@@ -3581,10 +3655,19 @@ async function executeGroupDispatch(
         }
       }
     } catch (err: any) {
+      const errDuration = ((Date.now() - startRequestTime) / 1000).toFixed(1);
       console.log(`[FAILED] Erro catastrofico ao enviar para ${jid}: ${err.message}`);
       failedCount++;
       dispatchResults.push({ jid, success: false, error: err.message });
-      if (userId && db?.addHistoryForUser) {
+      if (userId && db?.updateHistoryItem && targetHistoryIds.has(jid)) {
+        try {
+          await db.updateHistoryItem(userId, targetHistoryIds.get(jid)!, {
+            status: "failed",
+            error: err.message,
+            duration: `${errDuration} segundos`,
+          });
+        } catch {}
+      } else if (userId && db?.addHistoryForUser) {
         try {
           await db.addHistoryForUser(userId, {
             campaignId: campaignId || "manual",
@@ -3596,6 +3679,7 @@ async function executeGroupDispatch(
             mediaType: imgToSend ? "imagem" : "texto",
             status: "failed",
             error: err.message,
+            duration: `${errDuration} segundos`,
           });
         } catch {}
       }
@@ -3766,6 +3850,11 @@ setInterval(async () => {
     if (!db) return;
 
     const { brTimeStr, brDateStr, brDayName } = getBrazilTimeData();
+
+    // Watchdog: Auto-recover any campaigns stuck in 'enviando' for > 3 minutes with no active runner
+    if (db.recoverStuckCampaigns && Math.random() < 0.25) {
+      db.recoverStuckCampaigns(3).catch(() => {});
+    }
 
     // 1. Fetch all active/scheduled campaigns directly from MySQL (Shared Single Source of Truth)
     const dbCampaigns = await db.listActiveScheduledCampaigns().catch(() => []);
@@ -3980,18 +4069,26 @@ app.get("/api/client/stats", async (req, res) => {
   }
 
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
-  const deliveredHistory = clientHistoryStore.filter((h) => h.status === "delivered").length;
+  const deliveredHistory = clientHistoryStore.filter((h) => h.status === "delivered" || h.status === "sent").length;
   const totalMessagesSent = Math.max(totalSentFromCampaigns, deliveredHistory);
 
   const todayIso = new Date().toISOString().split('T')[0];
-  const sentToday = clientHistoryStore.filter((h) => h.timestamp && h.timestamp.startsWith(todayIso) && h.status === "delivered").length;
+  const nowBr = new Date();
+  const todayBr = nowBr.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }); // YYYY-MM-DD
+  const sentToday = clientHistoryStore.filter((h) => {
+    if (h.status !== "delivered" && h.status !== "sent") return false;
+    const tStr = String(h.timestamp || "");
+    return tStr.startsWith(todayBr) || tStr.startsWith(todayIso);
+  }).length;
 
   const failedHistory = clientHistoryStore.filter((h) => h.status === "failed").length;
+  const pendingHistory = clientHistoryStore.filter((h) => h.status === "pending").length;
   const activeCampaignsCount = clientCampaignsStore.filter((c) => c.active && c.status !== 'concluida').length;
   const scheduledCount = clientCampaignsStore.filter((c) => c.status === 'agendada' || (c.active && c.scheduleMode === 'agendar')).length;
-  const pendingCount = clientCampaignsStore
+  const pendingFromCampaigns = clientCampaignsStore
     .filter((c) => c.status === 'agendada' || c.status === 'ativa' || c.status === 'enviando')
     .reduce((acc, c) => acc + Math.max(0, (c.groupsCount || 1) - (c.totalSent || 0)), 0);
+  const pendingCount = Math.max(pendingHistory, pendingFromCampaigns);
 
   const currentPlanLimits = CLIENT_PLAN_LIMITS[userPlanId];
   const uniqueGroups = getUniqueGroupsInAutomations(clientCampaignsStore);
@@ -4015,6 +4112,8 @@ app.get("/api/client/stats", async (req, res) => {
       successRate,
       activeCampaigns: activeCampaignsCount,
       scheduledToday: scheduledCount,
+      pending: pendingCount,
+      failed: failedHistory,
     },
     usage: {
       sent: totalMessagesSent,

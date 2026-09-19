@@ -11,7 +11,7 @@ export interface ClientHistoryItem {
   messageText: string;
   imageUrl?: string;
   mediaType?: 'imagem' | 'texto' | 'video' | 'documento';
-  status: 'delivered' | 'sent' | 'failed';
+  status: 'delivered' | 'sent' | 'failed' | 'pending';
   error?: string;
   timeFormatted: string;
   timestamp: string;

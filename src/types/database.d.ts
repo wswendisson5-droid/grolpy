@@ -21,7 +21,10 @@ declare module "*database.cjs" {
   export function saveGroupsForUser(userId: number, groups: any[]): Promise<any>;
   export function clearGroupsForUser(userId: number): Promise<any>;
   export function listHistoryForUser(userId: number, limit?: number): Promise<any[]>;
-  export function addHistoryForUser(userId: number, entry: any): Promise<any>;
+  export function addHistoryForUser(userId: number, entry: any): Promise<number | null>;
+  export function updateHistoryItem(userId: number, historyId: number | string, data: any): Promise<boolean>;
+  export function recoverStuckCampaigns(maxMinutes?: number): Promise<number>;
+  export function getUserByInstance(instanceName: string): Promise<any>;
   const content: any;
   export default content;
 }

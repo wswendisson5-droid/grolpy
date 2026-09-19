@@ -523,6 +523,9 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       if (!histSet.has("error_text")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN error_text TEXT NULL").catch(() => {});
       }
+      if (!histSet.has("updated_at")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP").catch(() => {});
+      }
     } catch {}
 
     // 3. user_groups table
@@ -695,22 +698,140 @@ export async function deleteCampaignForUser(userId:number,key:string){
     return false;
   }
 }
-export async function addHistoryForUser(userId:number,data:any){
+export async function addHistoryForUser(userId: number, data: any): Promise<number | null> {
   await ensureCampaignsTable().catch(() => {});
   try {
-    await pool.execute(`INSERT INTO user_history(user_id,client_id,campaign_key,campaign_title,group_jid,group_name,message_text,media_url,media_type,status,error_text,duration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,[userId,"client-"+userId,data.campaignId||null,data.campaignTitle||null,data.groupJid||null,data.groupName||null,data.messageText||"",data.imageUrl||data.mediaUrl||null,data.mediaType||null,data.status||"unknown",data.error||null,data.duration||null]);
-  } catch(err) {
+    const [result]: any = await pool.execute(
+      `INSERT INTO user_history(user_id,client_id,campaign_key,campaign_title,group_jid,group_name,message_text,media_url,media_type,status,error_text,duration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        userId,
+        "client-" + userId,
+        data.campaignId || null,
+        data.campaignTitle || null,
+        data.groupJid || null,
+        data.groupName || null,
+        data.messageText || "",
+        data.imageUrl || data.mediaUrl || null,
+        data.mediaType || (data.imageUrl || data.mediaUrl ? "imagem" : "texto"),
+        data.status || "pending",
+        data.error || null,
+        data.duration || null,
+      ]
+    );
+    return result?.insertId || null;
+  } catch (err) {
     console.warn("[DB] Erro ao adicionar historico user=" + userId, err);
+    return null;
   }
 }
-export async function listHistoryForUser(userId:number,days=90){
+
+export async function updateHistoryItem(
+  userId: number,
+  historyId: number | string,
+  data: { status: string; error?: string | null; duration?: string | null }
+): Promise<boolean> {
   await ensureCampaignsTable().catch(() => {});
   try {
-    const [r]:any=await pool.execute("SELECT CAST(id AS CHAR) id,campaign_key AS campaignId,COALESCE(campaign_title,'Divulgação') campaignTitle,group_jid AS groupJid,COALESCE(group_name,'Grupo') groupName,COALESCE(message_text,'') messageText,media_url AS imageUrl,media_type AS mediaType,status,error_text AS error,duration,DATE_FORMAT(created_at,'%H:%i') timeFormatted,created_at AS timestamp FROM user_history WHERE user_id=? AND created_at>=DATE_SUB(NOW(),INTERVAL ? DAY) ORDER BY created_at DESC",[userId,days]);
+    const [res]: any = await pool.execute(
+      `UPDATE user_history 
+       SET status = ?, 
+           error_text = COALESCE(?, error_text), 
+           duration = COALESCE(?, duration) 
+       WHERE id = ? AND user_id = ?`,
+      [data.status, data.error !== undefined ? data.error : null, data.duration || null, historyId, userId]
+    );
+    return res.affectedRows > 0;
+  } catch (err) {
+    console.warn("[DB] Erro ao atualizar historico id=" + historyId, err);
+    return false;
+  }
+}
+
+export async function listHistoryForUser(userId: number, days = 90) {
+  await ensureCampaignsTable().catch(() => {});
+  try {
+    const [r]: any = await pool.execute(
+      `SELECT CAST(id AS CHAR) AS id,
+              campaign_key AS campaignId,
+              COALESCE(campaign_title, 'Divulgação') AS campaignTitle,
+              group_jid AS groupJid,
+              COALESCE(group_name, 'Grupo') AS groupName,
+              COALESCE(message_text, '') AS messageText,
+              media_url AS imageUrl,
+              media_type AS mediaType,
+              status,
+              error_text AS error,
+              duration,
+              DATE_FORMAT(created_at, '%H:%i') AS timeFormatted,
+              DATE_FORMAT(created_at, '%Y-%m-%dT%H:%i:%s.000Z') AS timestamp
+       FROM user_history 
+       WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) 
+       ORDER BY id DESC`,
+      [userId, days]
+    );
     return r;
-  } catch(err) {
+  } catch (err) {
     console.warn("[DB] Erro ao listar historico user=" + userId, err);
     return [];
+  }
+}
+
+export async function recoverStuckCampaigns(maxMinutes = 4): Promise<number> {
+  await ensureCampaignsTable().catch(() => {});
+  try {
+    const [stuck]: any = await pool.query(
+      `SELECT id, user_id, campaign_key, total_sent, total_failed, config_json, updated_at 
+       FROM user_campaigns 
+       WHERE status = 'enviando' AND updated_at < DATE_SUB(NOW(), INTERVAL ? MINUTE)`,
+      [maxMinutes]
+    );
+
+    let recovered = 0;
+    for (const c of stuck || []) {
+      try {
+        let config: any = {};
+        try { config = JSON.parse(c.config_json || "{}"); } catch {}
+        const totalSent = Number(c.total_sent || config.totalSent || 0);
+        const totalTarget = Number(config.totalTarget || config.selectedGroupJids?.length || 1);
+
+        let newStatus = "falha";
+        if (totalSent >= totalTarget && totalTarget > 0) {
+          newStatus = "concluida";
+        } else if (totalSent > 0) {
+          newStatus = "parcial";
+        } else {
+          newStatus = "falha";
+        }
+
+        config.status = newStatus;
+        config.active = false;
+        await pool.execute(
+          `UPDATE user_campaigns SET status = ?, config_json = ? WHERE id = ?`,
+          [newStatus, JSON.stringify(config), c.id]
+        );
+        recovered++;
+        console.log(`[DB] 🛠️ Campanha travada id=${c.id} (user=${c.user_id}) recuperada para status='${newStatus}'`);
+      } catch {}
+    }
+    return recovered;
+  } catch (err) {
+    console.warn("[DB] Erro ao recuperar campanhas travadas:", err);
+    return 0;
+  }
+}
+
+export async function getUserByInstance(instanceName: string): Promise<any> {
+  try {
+    const [rows]: any = await pool.execute(
+      `SELECT u.id, u.name, u.email, u.phone, u.plan, u.role, u.status 
+       FROM users u 
+       INNER JOIN evolution_instances ei ON ei.user_id = u.id 
+       WHERE ei.instance_name = ? LIMIT 1`,
+      [instanceName]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
   }
 }
 export async function saveGroupsForUser(userId:number,groups:any[]){

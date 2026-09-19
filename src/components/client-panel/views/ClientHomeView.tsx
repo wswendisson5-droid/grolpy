@@ -14,6 +14,16 @@ interface ClientHomeViewProps {
   campaigns: DivulgacaoCard[];
   planUsage: ClientPlanUsage;
   groupsCount?: number;
+  stats?: {
+    messagesSent?: number;
+    sentToday?: number;
+    activeGroups?: number;
+    successRate?: number | string;
+    activeCampaigns?: number;
+    scheduledToday?: number;
+    pending?: number;
+    failed?: number;
+  };
   onNavigateTab: (tab: ClientTab) => void;
   onNewCampaign: () => void;
   onToggleCampaignActive: (id: string) => void;
@@ -29,6 +39,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   campaigns,
   planUsage,
   groupsCount = 0,
+  stats,
   onNavigateTab,
   onNewCampaign,
   onToggleCampaignActive,
@@ -39,8 +50,12 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   whatsappIsConnected,
 }) => {
   const activeCampaigns = campaigns.filter((c) => c.active);
-  const totalSentMessages = campaigns.reduce((acc, c) => acc + (c.totalSent || 0), 0);
-  const successRate = totalSentMessages > 0 ? '100%' : '0%';
+  const totalSentMessages = stats?.messagesSent !== undefined
+    ? stats.messagesSent
+    : (planUsage.usedMessages || campaigns.reduce((acc, c) => acc + (c.totalSent || 0), 0));
+  const activeGroups = groupsCount || stats?.activeGroups || 0;
+  const successRate = stats?.successRate !== undefined ? `${stats.successRate}%` : (totalSentMessages > 0 ? '100%' : '0%');
+  const activeCampaignsCount = stats?.activeCampaigns !== undefined ? stats.activeCampaigns : activeCampaigns.length;
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
@@ -58,9 +73,9 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
       {/* 1. 4 METRIC INDICATORS ROW */}
       <ClientMetricsRow
         totalSentMessages={totalSentMessages}
-        activeGroupsCount={groupsCount}
+        activeGroupsCount={activeGroups}
         successRate={successRate}
-        activeCampaignsCount={activeCampaigns.length}
+        activeCampaignsCount={activeCampaignsCount}
       />
 
       {/* 2. MAIN CONTENT GRID */}

@@ -81,6 +81,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     };
   });
 
+  const [dashboardStats, setDashboardStats] = useState<any>(null);
+
   // Fetch real data from backend
   const refreshGroups = async (force: boolean = false) => {
     try {
@@ -124,16 +126,19 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
             itemStatusLabel = 'Ativa';
           }
 
+          const rawDate = c.scheduleDate || (c as any).scheduleAt?.split(' ')[0] || new Date().toISOString().split('T')[0];
+          const rawTime = c.scheduleTime || (c as any).scheduleAt?.split(' ')[1] || '12:00';
+
           return {
-            id: `agenda-${c.id}`,
-            time: c.scheduleTime || '14:00',
+            id: c.id,
+            time: rawTime,
             status: itemStatus,
             statusLabel: itemStatusLabel,
-            campaignTitle: c.title,
+            campaignTitle: c.title || 'Divulgação',
             groupName: `${c.groupsCount || c.selectedGroupJids?.length || 0} Grupos Selecionados`,
+            previewText: c.previewText || '',
             imageThumbnail: c.imageUrl,
-            previewText: c.previewText,
-            scheduledDate: c.scheduleDateText || 'Hoje',
+            scheduledDate: c.scheduleDateText || rawDate,
             sentCount: c.totalSent || 0,
             totalCount: c.groupsCount || c.totalTarget || 1,
             intervalMinutes: c.intervalMinutes,
@@ -185,6 +190,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           pendingMessages: statsRes.usage.pending || 0,
           failedMessages: statsRes.usage.failed || 0,
         });
+      }
+      if (statsRes?.success && statsRes.stats) {
+        setDashboardStats(statsRes.stats);
       }
       if (statsRes?.success && statsRes.stats?.activeGroups > 0 && groups.length === 0) {
         refreshGroups();
@@ -443,6 +451,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               campaigns={campaigns}
               planUsage={planUsage}
               groupsCount={groups.length}
+              stats={dashboardStats}
               onNavigateTab={setCurrentTab}
               onNewCampaign={() => setCurrentTab('nova-divulgacao')}
               onToggleCampaignActive={handleToggleCampaignActive}

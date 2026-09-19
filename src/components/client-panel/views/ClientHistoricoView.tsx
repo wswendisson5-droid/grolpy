@@ -38,7 +38,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
   // Filters
   const [periodFilter, setPeriodFilter] = useState<'todos' | 'hoje' | 'ontem' | '7dias' | '30dias'>('todos');
   const [campaignFilter, setCampaignFilter] = useState<string>('todas');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'delivered' | 'failed'>('todos');
+  const [statusFilter, setStatusFilter] = useState<'todos' | 'delivered' | 'failed' | 'pending'>('todos');
   const [sortOrder, setSortOrder] = useState<'recentes' | 'antigos'>('recentes');
 
   // Mobile Filter Drawer/Sheet state
@@ -118,6 +118,9 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
             return false;
           }
           if (statusFilter === 'failed' && item.status !== 'failed') {
+            return false;
+          }
+          if (statusFilter === 'pending' && item.status !== 'pending') {
             return false;
           }
         }
@@ -314,6 +317,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
               >
                 <option value="todos">Todos os status</option>
                 <option value="delivered">Enviados com sucesso</option>
+                <option value="pending">Pendentes / Na fila</option>
                 <option value="failed">Falhas no envio</option>
               </select>
               <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#7d9185] pointer-events-none" />
@@ -395,6 +399,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
               >
                 <option value="todos">Todos os status</option>
                 <option value="delivered">Enviados com sucesso</option>
+                <option value="pending">Pendentes / Na fila</option>
                 <option value="failed">Falhas no envio</option>
               </select>
             </div>
@@ -487,6 +492,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
                 <div className="divide-y divide-[#f2f6f3]">
                   {section.items.map((item) => {
                     const isSuccess = item.status === 'delivered' || item.status === 'sent';
+                    const isPending = item.status === 'pending';
                     const isSelected = selectedItem?.id === item.id;
                     const hasImage = !!item.imageUrl;
 
@@ -505,7 +511,7 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
                           {/* Colored indicator dot */}
                           <span
                             className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                              isSuccess ? 'bg-[#109353]' : 'bg-[#ef4444]'
+                              isSuccess ? 'bg-[#109353]' : isPending ? 'bg-amber-500 animate-pulse' : 'bg-[#ef4444]'
                             }`}
                           />
 
@@ -549,10 +555,12 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
                             className={`px-3 py-1 rounded-full text-[11px] font-extrabold tracking-wide ${
                               isSuccess
                                 ? 'bg-[#e8f7ee] text-[#109353] border border-[#c4e6ce]'
+                                : isPending
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                 : 'bg-[#fee2e2] text-[#dc2626] border border-[#fecaca]'
                             }`}
                           >
-                            {isSuccess ? 'Enviado' : 'Falhou'}
+                            {isSuccess ? 'Enviado' : isPending ? 'Pendente' : 'Falhou'}
                           </span>
 
                           <button
@@ -615,11 +623,15 @@ export const ClientHistoricoView: React.FC<ClientHistoricoViewProps> = ({ onNewC
                 className={`px-3 py-1 rounded-full text-xs font-extrabold shrink-0 ${
                   selectedItem.status === 'delivered' || selectedItem.status === 'sent'
                     ? 'bg-[#e8f7ee] text-[#109353] border border-[#c4e6ce]'
+                    : selectedItem.status === 'pending'
+                    ? 'bg-amber-50 text-amber-700 border border-amber-200'
                     : 'bg-[#fee2e2] text-[#dc2626] border border-[#fecaca]'
                 }`}
               >
                 {selectedItem.status === 'delivered' || selectedItem.status === 'sent'
                   ? 'Enviado'
+                  : selectedItem.status === 'pending'
+                  ? 'Pendente'
                   : 'Falhou'}
               </span>
             </div>
