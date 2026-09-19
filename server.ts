@@ -577,58 +577,53 @@ app.get("/api/evolution/status", async (req, res) => {
   const own: any = await ownedInstance(req, false, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.json({ configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
-  const instance = own.instance;
-  const currentInst = getInstanceCache(instance);
+  let instance = own.instance;
+  let currentInst = getInstanceCache(instance);
 
   try {
-    // 1. Fetch connection state: GET /instance/connectionState/{instance}
-    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 5000, 0);
+    // 1. Fetch connection state for the user's primary instance
+    let stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 4000, 0);
+    let rawState = stateRes.data?.instance?.state || stateRes.data?.state || "close";
+    let activeInstance = instance;
 
-    if (!stateRes.ok && stateRes.status === 404) {
-      return res.json({
-        configured: true,
-        instanceExists: false,
-        instanceName: instance,
-        platform: "Evolution API",
-        state: "disconnected",
-        connectedProfile: null,
-        webhook: {
-          status: "waiting",
-          url: `${req.protocol}://${req.get("host")}/api/evolution/webhook`,
-        },
-        lastUpdated: new Date().toISOString(),
-      });
+    // 2. Fallback: If primary instance is not open, check DEFAULT_INSTANCE_NAME
+    if (rawState !== "open" && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
+      try {
+        const defRes = await callEvolution(`/instance/connectionState/${DEFAULT_INSTANCE_NAME}`, {}, 3000, 0);
+        const defState = defRes.data?.instance?.state || defRes.data?.state;
+        if (defState === "open") {
+          stateRes = defRes;
+          rawState = "open";
+          activeInstance = DEFAULT_INSTANCE_NAME;
+          currentInst = getInstanceCache(activeInstance);
+        }
+      } catch {}
     }
 
-    if (!stateRes.ok && (stateRes.status === 400 || stateRes.status === 408 || stateRes.status === 502)) {
-      return res.json({
-        configured: Boolean(memoryState.apiUrl && !memoryState.apiUrl.includes("yourdomain.com")),
-        instanceExists: true,
-        instanceName: instance,
-        platform: "Evolution API",
-        state: currentInst.state || "disconnected",
-        qrCode: currentInst.qrCode,
-        connectedProfile: currentInst.connectedProfile,
-        warning: stateRes.data?.error || "Servidor Evolution API temporariamente indisponível.",
-        webhook: {
-          status: currentInst.webhookStatus,
-          url: `${req.protocol}://${req.get("host")}/api/evolution/webhook`,
-        },
-        lastUpdated: currentInst.lastUpdated,
-      });
+    // 3. Fallback: Query all instances on Evolution server to discover any open connected WhatsApp
+    if (rawState !== "open") {
+      try {
+        const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
+        if (fetchRes.ok && Array.isArray(fetchRes.data)) {
+          const openInst = fetchRes.data.find((i: any) => i.connectionStatus === "open" || i.state === "open");
+          if (openInst?.name) {
+            activeInstance = openInst.name;
+            rawState = "open";
+            currentInst = getInstanceCache(activeInstance);
+            stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
+          }
+        }
+      } catch {}
     }
 
-    const rawState = stateRes.data?.instance?.state || stateRes.data?.state || "close";
     let appState: EvolutionLocalCache["state"] = "disconnected";
 
     if (rawState === "open") {
       appState = "connected";
-    } else {
-      // In Evolution API / Baileys, while waiting for the QR code to be scanned,
-      // the socket status is "connecting". Do NOT set appState to "connecting",
-      // because that hides the QR Code and confuses the user!
-      // Keep it as "waiting_qr" until connection reaches "open".
+    } else if (currentInst.qrCode?.base64 || currentInst.qrCode?.pairingCode) {
       appState = "waiting_qr";
+    } else {
+      appState = "disconnected";
     }
 
     currentInst.state = appState;
@@ -637,7 +632,7 @@ app.get("/api/evolution/status", async (req, res) => {
     // If connected, fetch real WhatsApp profile metadata
     if (appState === "connected") {
       try {
-        const prof = await fetchInstanceProfile(instance, stateRes.data);
+        const prof = await fetchInstanceProfile(activeInstance, stateRes.data);
         currentInst.connectedProfile = {
           name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
           number: prof.number || currentInst.connectedProfile?.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : ""),
@@ -657,7 +652,7 @@ app.get("/api/evolution/status", async (req, res) => {
           );
         } catch {}
         // Trigger background sync of groups
-        syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => {});
+        syncAllWhatsAppGroups(false, activeInstance, { id: own.user.id, db: own.db }).catch(() => {});
       } catch (e) {
         try { await own.db.setUserInstanceStatus(own.user.id, appState); } catch {}
       }

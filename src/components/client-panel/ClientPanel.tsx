@@ -173,15 +173,18 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const statusData = await clientService.getWhatsAppStatus();
       setWhatsappProfile({
-        name: statusData.isConnected ? (statusData.profile?.name || 'WhatsApp Conectado') : undefined,
-        number: statusData.isConnected ? statusData.profile?.number : undefined,
-        pictureUrl: statusData.profile?.pictureUrl || undefined,
+        name: statusData.profile?.name || (statusData.isConnected ? 'WhatsApp Conectado' : undefined),
+        number: statusData.profile?.number,
+        pictureUrl: statusData.profile?.pictureUrl,
         connectedAt: statusData.profile?.connectedAt,
         isConnected: statusData.isConnected,
         isLoading: false,
       });
+      if (statusData.isConnected && groups.length === 0) {
+        refreshGroups();
+      }
     } catch {
-      setWhatsappProfile({ isConnected: false, isLoading: false });
+      setWhatsappProfile((prev) => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -191,7 +194,17 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     refreshStats();
     refreshWhatsAppStatus();
 
-    const handleStatusChanged = () => {
+    const handleStatusChanged = (e: any) => {
+      if (e?.detail?.profile) {
+        setWhatsappProfile({
+          name: e.detail.profile.name || 'WhatsApp Conectado',
+          number: e.detail.profile.number,
+          pictureUrl: e.detail.profile.pictureUrl,
+          connectedAt: e.detail.profile.connectedAt,
+          isConnected: true,
+          isLoading: false,
+        });
+      }
       refreshWhatsAppStatus();
       refreshGroups();
       refreshStats();
@@ -199,11 +212,12 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
     window.addEventListener('whatsapp-status-changed', handleStatusChanged);
 
-    // Periodic check to keep campaign and WhatsApp status in sync
+    // Periodic check to keep campaign, groups and WhatsApp status in sync
     const interval = setInterval(() => {
       refreshCampaigns();
       refreshStats();
       refreshWhatsAppStatus();
+      refreshGroups();
     }, 4000);
 
     return () => {
@@ -350,10 +364,10 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         campaignsCount={campaigns.length}
         groupsCount={groups.length}
         uniqueGroupsCount={uniqueGroupsCount}
-        whatsappProfilePic={whatsappProfile.isConnected ? whatsappProfile.pictureUrl : undefined}
-        whatsappProfileName={whatsappProfile.isConnected ? whatsappProfile.name : undefined}
-        whatsappPhoneNumber={whatsappProfile.isConnected ? whatsappProfile.number : undefined}
-        whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
+        whatsappProfilePic={whatsappProfile.pictureUrl}
+        whatsappProfileName={whatsappProfile.name}
+        whatsappPhoneNumber={whatsappProfile.number}
+        whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
       />
 
       {/* Main Client Content Container */}
@@ -366,10 +380,10 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           onImportGroups={() => setIsImportarGruposOpen(true)}
           onSwitchPanel={onSwitchPanel}
           onOpenPlanModal={() => setCurrentTab('planos')}
-          whatsappProfilePic={whatsappProfile.isConnected ? whatsappProfile.pictureUrl : undefined}
-          whatsappProfileName={whatsappProfile.isConnected ? whatsappProfile.name : undefined}
-          whatsappPhoneNumber={whatsappProfile.isConnected ? whatsappProfile.number : undefined}
-          whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
+          whatsappProfilePic={whatsappProfile.pictureUrl}
+          whatsappProfileName={whatsappProfile.name}
+          whatsappPhoneNumber={whatsappProfile.number}
+          whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
           isLoadingProfile={whatsappProfile.isLoading}
           planUsage={planUsage}
         />
@@ -406,10 +420,10 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               onNewCampaign={() => setCurrentTab('nova-divulgacao')}
               onToggleCampaignActive={handleToggleCampaignActive}
               onSendNow={handleSendNow}
-              whatsappProfilePic={whatsappProfile.isConnected ? whatsappProfile.pictureUrl : undefined}
-              whatsappProfileName={whatsappProfile.isConnected ? whatsappProfile.name : undefined}
-              whatsappPhoneNumber={whatsappProfile.isConnected ? whatsappProfile.number : undefined}
-              whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
+              whatsappProfilePic={whatsappProfile.pictureUrl}
+              whatsappProfileName={whatsappProfile.name}
+              whatsappPhoneNumber={whatsappProfile.number}
+              whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
             />
           )}
 
@@ -433,7 +447,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               onNavigateToPlanos={() => setCurrentTab('planos')}
               campaigns={campaigns}
               groups={groups}
-              isWhatsappConnected={whatsappProfile.isConnected}
+              isWhatsappConnected={whatsappProfile.isConnected || groups.length > 0}
             />
           )}
 
