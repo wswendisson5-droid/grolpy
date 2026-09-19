@@ -1837,12 +1837,9 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 }
 
 // Background scheduler for group syncing (run only once on start or every hour to keep Evolution DB pool clean)
-setInterval(() => {
-  syncAllWhatsAppGroups().catch(() => {});
-}, 3600000);
-setTimeout(() => {
-  syncAllWhatsAppGroups(false).catch(() => {});
-}, 3000);
+// Do not start Evolution/group synchronization from the Passenger process.
+// Tenant group data is loaded on authenticated demand. Background Evolution calls here
+// were able to monopolize the single cPanel/Passenger worker and freeze even /api/health.
 
 // Load persisted campaigns and history
 const clientCampaignsStore: ClientCampaign[] = loadJsonSafe(CAMPAIGNS_FILE, []);
