@@ -73,7 +73,14 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
     setIsLoadingQr(true);
     const instToUse = targetInst || info.instanceName || undefined;
     try {
-      const result = await connectionService.requestNewQrCode(instToUse);
+      let result = await connectionService.requestNewQrCode(instToUse);
+      // A brand-new Evolution instance can take a moment to expose the QR.
+      // Retry transient failures automatically so the customer does not have to
+      // press "Tentar novamente" just to get the first QR.
+      for (let attempt = 1; !result.success && attempt <= 2; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, attempt * 900));
+        result = await connectionService.requestNewQrCode(instToUse);
+      }
       if (result.success && result.qrCode) {
         setInfo(prev => ({
           ...prev,
