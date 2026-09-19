@@ -5,6 +5,11 @@ import { safeEncodeURIComponent } from '../utils/safeUri';
 class ConnectionService {
   private currentSelectedInstance: string = '';
 
+  private authHeaders(extra: Record<string,string> = {}) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') || '' : '';
+    return { ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  }
+
   /**
    * Get the locally selected instance name
    */
@@ -17,7 +22,7 @@ class ConnectionService {
    */
   async getStatus(instanceName?: string): Promise<ConnectionInfo> {
     const url=instanceName?`/api/evolution/status?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/status';
-    const res=await fetch(url); if(!res.ok) throw new Error(`Erro na resposta do servidor (${res.status})`);
+    const res=await fetch(url,{headers:this.authHeaders()}); if(!res.ok) throw new Error(`Erro na resposta do servidor (${res.status})`);
     const data=await res.json(); let qrCode=data.qrCode;
     if(qrCode?.code&&!qrCode?.base64){try{qrCode.base64=await QRCode.toDataURL(qrCode.code,{margin:2,width:320,color:{dark:'#12382c',light:'#ffffff'}})}catch{}}
     return {instanceName:data.instanceName||instanceName||'',platform:data.platform||'Evolution API',status:data.state||data.status||'disconnected',webhookStatus:data.webhook?.status||'waiting',qrCode,profile:data.connectedProfile,apiStatus:'online',messagesToday:0,lastActivity:data.lastUpdated||''} as ConnectionInfo;
@@ -34,7 +39,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/create-instance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       const data = await res.json();
@@ -72,7 +77,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/restart', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       const data = await res.json();
@@ -89,7 +94,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/logout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       const data = await res.json();
@@ -137,7 +142,7 @@ class ConnectionService {
     }>;
   }> {
     try {
-      const res = await fetch('/api/evolution/instances');
+      const res = await fetch('/api/evolution/instances',{headers:this.authHeaders()});
       const data = await res.json();
       return data;
     } catch {
