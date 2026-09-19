@@ -210,7 +210,6 @@ class ConnectionService {
   async saveCredentials(config: { apiUrl: string; apiKey: string; instanceName: string }): Promise<boolean> {
     try {
       const res = await fetch('/api/evolution/credentials', {
-        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(config),
