@@ -133,6 +133,110 @@ export async function initDatabase() {
       }
       await c.query("INSERT INTO migrations(name) VALUES (?)",["008_provision_admin_credentials"]);
     }
+    if (!done.has("009_plans_and_invoices")) {
+      await c.beginTransaction();
+      await c.query(`CREATE TABLE IF NOT EXISTS plans (
+        id VARCHAR(30) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        tagline VARCHAR(190) NULL,
+        price_formatted VARCHAR(30) NOT NULL,
+        monthly_price DECIMAL(10,2) NOT NULL,
+        max_groups INT NOT NULL DEFAULT 20,
+        max_rounds_per_day INT NOT NULL DEFAULT 1,
+        max_monthly_sends INT NOT NULL DEFAULT 600,
+        max_active_campaigns INT NOT NULL DEFAULT 2,
+        history_days INT NOT NULL DEFAULT 7,
+        support_type VARCHAR(50) NOT NULL DEFAULT 'E-mail',
+        features_json LONGTEXT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await c.query(`INSERT INTO plans (id, name, tagline, price_formatted, monthly_price, max_groups, max_rounds_per_day, max_monthly_sends, max_active_campaigns, history_days, support_type, is_active)
+      VALUES
+        ('start', 'Start', 'Comece a divulgar', '39,90', 39.90, 20, 1, 600, 2, 7, 'E-mail', 1),
+        ('pro', 'Pro', 'Mais resultados', '69,90', 69.90, 45, 2, 2700, 5, 30, 'Prioritário', 1),
+        ('max', 'Max', 'Sem limites para crescer', '119,90', 119.90, 90, 3, 8100, 10, 90, 'VIP', 1)
+      ON DUPLICATE KEY UPDATE
+        name=VALUES(name), tagline=VALUES(tagline), price_formatted=VALUES(price_formatted),
+        monthly_price=VALUES(monthly_price), max_groups=VALUES(max_groups),
+        max_rounds_per_day=VALUES(max_rounds_per_day), max_monthly_sends=VALUES(max_monthly_sends),
+        max_active_campaigns=VALUES(max_active_campaigns), history_days=VALUES(history_days),
+        support_type=VALUES(support_type)`);
+
+      await c.query(`CREATE TABLE IF NOT EXISTS invoices (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL,
+        payment_id VARCHAR(80) NOT NULL UNIQUE,
+        plan_id VARCHAR(30) NOT NULL,
+        billing_type VARCHAR(30) NOT NULL DEFAULT 'PIX',
+        value DECIMAL(10,2) NOT NULL,
+        net_value DECIMAL(10,2) NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+        due_date DATE NULL,
+        paid_at DATETIME NULL,
+        pix_payload TEXT NULL,
+        pix_image_url LONGTEXT NULL,
+        boleto_url VARCHAR(255) NULL,
+        gateway VARCHAR(30) NOT NULL DEFAULT 'ASAAS',
+        payload_json LONGTEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX(user_id), INDEX(status), INDEX(payment_id),
+        CONSTRAINT fk_invoices_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN profile_name VARCHAR(150) NULL").catch(()=>{});
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN profile_pic_url LONGTEXT NULL").catch(()=>{});
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN last_connected_at DATETIME NULL").catch(()=>{});
+
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["009_plans_and_invoices"]);
+      await c.commit();
+    }
+    if (!done.has("010_crm_leads_opportunities")) {
+      await c.beginTransaction();
+      await c.query(`CREATE TABLE IF NOT EXISTS crm_leads (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL,
+        remote_jid VARCHAR(190) NOT NULL,
+        phone VARCHAR(30) NULL,
+        name VARCHAR(190) NULL,
+        avatar_url LONGTEXT NULL,
+        tags_json LONGTEXT NULL,
+        notes TEXT NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'new',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_lead(user_id, remote_jid),
+        INDEX(user_id), INDEX(phone),
+        CONSTRAINT fk_leads_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await c.query(`CREATE TABLE IF NOT EXISTS radar_opportunities (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL,
+        opp_key VARCHAR(120) NOT NULL,
+        group_jid VARCHAR(190) NULL,
+        group_name VARCHAR(190) NULL,
+        sender_jid VARCHAR(190) NULL,
+        sender_phone VARCHAR(30) NULL,
+        sender_name VARCHAR(190) NULL,
+        message_text TEXT NULL,
+        confidence_score INT NOT NULL DEFAULT 0,
+        category VARCHAR(80) NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'new',
+        ai_analysis_json LONGTEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_user_opp(user_id, opp_key),
+        INDEX(user_id), INDEX(status),
+        CONSTRAINT fk_opp_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["010_crm_leads_opportunities"]);
+      await c.commit();
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -255,3 +359,185 @@ export async function createPendingTestSubscriber(data:any){
  ON DUPLICATE KEY UPDATE plan_id=VALUES(plan_id),status='pending',next_due_date=CURDATE()`,[user.id,data.planId||"start"]);
  return {id:user.id,name:data.name,email,status:"pending_payment",planId:data.planId||"start"};
 }
+
+// ----------------------------------------------------
+// PLANS & INVOICES PERSISTENCE (100% REAL MYSQL)
+// ----------------------------------------------------
+
+export async function listPlans() {
+  const [rows]: any = await pool.query(
+    "SELECT id, name, tagline, price_formatted AS priceFormatted, monthly_price AS monthlyPrice, max_groups AS maxGroups, max_rounds_per_day AS maxRoundsPerDay, max_monthly_sends AS maxMonthlySends, max_active_campaigns AS maxActiveCampaigns, history_days AS historyDays, support_type AS supportType, is_active AS isActive FROM plans WHERE is_active = 1 ORDER BY monthly_price ASC"
+  );
+  return rows;
+}
+
+export async function getPlanById(planId: string) {
+  const [rows]: any = await pool.execute(
+    "SELECT id, name, tagline, price_formatted AS priceFormatted, monthly_price AS monthlyPrice, max_groups AS maxGroups, max_rounds_per_day AS maxRoundsPerDay, max_monthly_sends AS maxMonthlySends, max_active_campaigns AS maxActiveCampaigns, history_days AS historyDays, support_type AS supportType, is_active AS isActive FROM plans WHERE id = ? LIMIT 1",
+    [planId]
+  );
+  return rows[0] || null;
+}
+
+export async function createInvoice(userId: number, data: {
+  paymentId: string;
+  planId: string;
+  billingType?: string;
+  value: number;
+  netValue?: number;
+  status?: string;
+  dueDate?: string;
+  pixPayload?: string;
+  pixImageUrl?: string;
+  boletoUrl?: string;
+  gateway?: string;
+  payloadJson?: any;
+}) {
+  await pool.execute(
+    `INSERT INTO invoices (
+      user_id, payment_id, plan_id, billing_type, value, net_value,
+      status, due_date, pix_payload, pix_image_url, boleto_url, gateway, payload_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      plan_id = VALUES(plan_id),
+      billing_type = VALUES(billing_type),
+      value = VALUES(value),
+      net_value = VALUES(net_value),
+      status = VALUES(status),
+      due_date = VALUES(due_date),
+      pix_payload = VALUES(pix_payload),
+      pix_image_url = VALUES(pix_image_url),
+      boleto_url = VALUES(boleto_url),
+      payload_json = VALUES(payload_json)`,
+    [
+      userId,
+      data.paymentId,
+      data.planId,
+      data.billingType || "PIX",
+      data.value,
+      data.netValue || null,
+      data.status || "PENDING",
+      data.dueDate || null,
+      data.pixPayload || null,
+      data.pixImageUrl || null,
+      data.boletoUrl || null,
+      data.gateway || "ASAAS",
+      data.payloadJson ? JSON.stringify(data.payloadJson) : null,
+    ]
+  );
+  return data.paymentId;
+}
+
+export async function getInvoiceByPaymentId(paymentId: string) {
+  const [rows]: any = await pool.execute(
+    `SELECT i.*, u.name AS userName, u.email AS userEmail, u.phone AS userPhone
+     FROM invoices i JOIN users u ON u.id = i.user_id
+     WHERE i.payment_id = ? LIMIT 1`,
+    [paymentId]
+  );
+  return rows[0] || null;
+}
+
+export async function getUserInvoices(userId: number) {
+  const [rows]: any = await pool.execute(
+    `SELECT id, payment_id AS paymentId, plan_id AS planId, billing_type AS billingType,
+            value, net_value AS netValue, status, due_date AS dueDate, paid_at AS paidAt,
+            pix_payload AS pixPayload, pix_image_url AS pixImageUrl, boleto_url AS boletoUrl,
+            gateway, created_at AS createdAt
+     FROM invoices WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+    [userId]
+  );
+  return rows;
+}
+
+export async function confirmInvoicePayment(paymentId: string, eventType = "PAYMENT_CONFIRMED", paymentPayload?: any) {
+  const [invoices]: any = await pool.execute(
+    "SELECT id, user_id, plan_id, value FROM invoices WHERE payment_id = ? LIMIT 1",
+    [paymentId]
+  );
+  const inv = invoices[0];
+  if (!inv) return false;
+
+  await pool.execute(
+    "UPDATE invoices SET status = 'CONFIRMED', paid_at = NOW() WHERE payment_id = ?",
+    [paymentId]
+  );
+
+  // Update Subscription
+  await pool.execute(
+    `INSERT INTO subscriptions (user_id, plan_id, status, current_payment_id, next_due_date)
+     VALUES (?, ?, 'active', ?, DATE_ADD(CURDATE(), INTERVAL 1 MONTH))
+     ON DUPLICATE KEY UPDATE
+       plan_id = VALUES(plan_id),
+       status = 'active',
+       current_payment_id = VALUES(current_payment_id),
+       next_due_date = DATE_ADD(COALESCE(GREATEST(next_due_date, CURDATE()), CURDATE()), INTERVAL 1 MONTH)`,
+    [inv.user_id, inv.plan_id, paymentId]
+  );
+
+  // Update User account to active and plan
+  await pool.execute(
+    "UPDATE users SET status = 'active', plan = ? WHERE id = ?",
+    [inv.plan_id, inv.user_id]
+  );
+
+  if (paymentPayload) {
+    try {
+      await pool.execute(
+        "INSERT INTO payment_events(event_key, event_type, payment_id, payload_json) VALUES (?, ?, ?, ?)",
+        [`confirm:${paymentId}:${Date.now()}`, eventType, paymentId, JSON.stringify(paymentPayload)]
+      );
+    } catch {}
+  }
+
+  return true;
+}
+
+// ----------------------------------------------------
+// CRM & RADAR PERSISTENCE
+// ----------------------------------------------------
+
+export async function saveLeadForUser(userId: number, lead: {
+  remoteJid: string;
+  phone?: string;
+  name?: string;
+  avatarUrl?: string;
+  tags?: string[];
+  notes?: string;
+  status?: string;
+}) {
+  await pool.execute(
+    `INSERT INTO crm_leads (user_id, remote_jid, phone, name, avatar_url, tags_json, notes, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       name = COALESCE(VALUES(name), name),
+       phone = COALESCE(VALUES(phone), phone),
+       avatar_url = COALESCE(VALUES(avatar_url), avatar_url),
+       tags_json = COALESCE(VALUES(tags_json), tags_json),
+       notes = COALESCE(VALUES(notes), notes),
+       status = COALESCE(VALUES(status), status)`,
+    [
+      userId,
+      lead.remoteJid,
+      lead.phone || null,
+      lead.name || null,
+      lead.avatarUrl || null,
+      lead.tags ? JSON.stringify(lead.tags) : null,
+      lead.notes || null,
+      lead.status || "new",
+    ]
+  );
+}
+
+export async function listLeadsForUser(userId: number) {
+  const [rows]: any = await pool.execute(
+    "SELECT id, remote_jid AS remoteJid, phone, name, avatar_url AS avatarUrl, tags_json AS tagsJson, notes, status, created_at AS createdAt FROM crm_leads WHERE user_id = ? ORDER BY updated_at DESC LIMIT 200",
+    [userId]
+  );
+  return rows.map((r: any) => {
+    let tags = [];
+    try { tags = r.tagsJson ? JSON.parse(r.tagsJson) : []; } catch {}
+    return { ...r, tags };
+  });
+}
+

@@ -2109,12 +2109,6 @@ const CLIENT_PLAN_LIMITS: Record<'start' | 'pro' | 'max', PlanEntitlementLimits>
   },
 };
 
-const clientPlanState = {
-  planId: 'pro' as 'start' | 'pro' | 'max',
-  validUntil: '20/10/2026',
-  status: 'active' as 'active' | 'expired' | 'canceled',
-};
-
 function getUniqueGroupsInAutomations(campaigns: ClientCampaign[], excludeId?: string): Set<string> {
   const set = new Set<string>();
   for (const c of campaigns) {
@@ -2130,50 +2124,147 @@ function getUniqueGroupsInAutomations(campaigns: ClientCampaign[], excludeId?: s
   return set;
 }
 
-// Plan endpoints
-app.get("/api/client/plan", async (req,res)=>{
- const own:any=await ownedInstance(req,false); if(own.error)return res.status(401).json({error:"UNAUTHORIZED"});
- const sub=await own.db.getSubscriptionForUser(own.user.id); const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max'; const limits=CLIENT_PLAN_LIMITS[planId];
- const campaigns=await own.db.listCampaignsForUser(own.user.id); const history=await own.db.listHistoryForUser(own.user.id,31);
- res.json({success:true,subscription:{planId,status:sub?.status||"pending",validUntil:sub?.next_due_date||null},limits,usage:{uniqueGroupsCount:getUniqueGroupsInAutomations(campaigns).size,activeCampaignsCount:campaigns.filter((c:any)=>c.active&&c.status!=="concluida").length,monthlySendsCount:history.filter((h:any)=>h.status==="delivered").length}});
-});
-app.post("/api/client/plan", async (req,res)=>res.status(405).json({error:"O plano é alterado somente pelo fluxo de assinatura."}));
-
-app.get("/api/onboarding/payment-status", async (req,res)=>{
- try{
-  const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Sessão inválida."});
-  const db:any=await import("./database.cjs"); const sub=await db.getSubscriptionForUser(user.id); if(!sub?.current_payment_id)return res.json({success:true,status:"pending",access:false});
-  const pay:any=await asaasEngine.getPayment(sub.current_payment_id); const st=String(pay?.status||"").toUpperCase(); const paid=["RECEIVED","CONFIRMED","RECEIVED_IN_CASH"].includes(st);
-  if(paid){await db.applyPaymentEvent(`poll:${sub.current_payment_id}:${st}`,"PAYMENT_CONFIRMED",{id:sub.current_payment_id});}
-  const refreshed=await db.getUserByToken(String(req.headers.authorization||"").replace(/^Bearer\s+/i,"").trim());
-  res.json({success:true,status:st||sub.status,access:refreshed?.status==="active"});
- }catch(e:any){res.status(500).json({success:false,error:"Não foi possível confirmar o pagamento."});}
+// Plan endpoints (100% MySQL backed)
+app.get("/api/client/plans", async (_req, res) => {
+  try {
+    const db: any = await import("./database.cjs");
+    const plans = await db.listPlans();
+    res.json({ success: true, plans });
+  } catch (err: any) {
+    res.json({
+      success: true,
+      plans: [
+        { id: "start", name: "Start", priceFormatted: "39,90", monthlyPrice: 39.90, maxGroups: 20, maxRoundsPerDay: 1, maxMonthlySends: 600, maxActiveCampaigns: 2, historyDays: 7, supportType: "E-mail" },
+        { id: "pro", name: "Pro", priceFormatted: "69,90", monthlyPrice: 69.90, maxGroups: 45, maxRoundsPerDay: 2, maxMonthlySends: 2700, maxActiveCampaigns: 5, historyDays: 30, supportType: "Prioritário" },
+        { id: "max", name: "Max", priceFormatted: "119,90", monthlyPrice: 119.90, maxGroups: 90, maxRoundsPerDay: 3, maxMonthlySends: 8100, maxActiveCampaigns: 10, historyDays: 90, supportType: "VIP" },
+      ],
+    });
+  }
 });
 
-app.get("/api/account/status", async (req,res)=>{
-  try{
-    const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Sessão inválida."});
-    const db:any=await import("./database.cjs"); const subscription=await db.getSubscriptionForUser(user.id); const instance=await db.getUserInstance(user.id);
-    res.json({success:true,user,subscription:subscription?{planId:subscription.plan_id,status:subscription.status,nextDueDate:subscription.next_due_date}:null,whatsapp:instance?{status:instance.status,connected:instance.status==="connected"}:null,access:user.status==="active"});
-  }catch(e:any){res.status(500).json({success:false,error:"Não foi possível consultar a conta."});}
+app.get("/api/client/plan", async (req, res) => {
+  const own: any = await ownedInstance(req, false);
+  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const sub = await own.db.getSubscriptionForUser(own.user.id);
+  const planId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
+  const planDetails = await own.db.getPlanById(planId);
+  const limits: PlanEntitlementLimits = planDetails ? {
+    maxGroups: planDetails.maxGroups,
+    maxRoundsPerDay: planDetails.maxRoundsPerDay,
+    maxMonthlySends: planDetails.maxMonthlySends,
+    maxActiveCampaigns: planDetails.maxActiveCampaigns,
+    historyDays: planDetails.historyDays,
+  } : (CLIENT_PLAN_LIMITS[planId] || CLIENT_PLAN_LIMITS.start);
+
+  const campaigns = await own.db.listCampaignsForUser(own.user.id);
+  const history = await own.db.listHistoryForUser(own.user.id, limits.historyDays || 31);
+  res.json({
+    success: true,
+    subscription: {
+      planId,
+      status: sub?.status || own.user.status || "pending",
+      validUntil: sub?.next_due_date || null,
+    },
+    limits,
+    usage: {
+      uniqueGroupsCount: getUniqueGroupsInAutomations(campaigns).size,
+      activeCampaignsCount: campaigns.filter((c: any) => c.active && c.status !== "concluida").length,
+      monthlySendsCount: history.filter((h: any) => h.status === "delivered").length,
+    },
+  });
+});
+
+app.post("/api/client/plan", async (_req, res) => res.status(405).json({ error: "O plano é alterado somente pelo fluxo de assinatura." }));
+
+app.get("/api/onboarding/payment-status", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
+    const db: any = await import("./database.cjs");
+    const sub = await db.getSubscriptionForUser(user.id);
+    if (!sub?.current_payment_id) return res.json({ success: true, status: "pending", access: false });
+    const pay: any = await asaasEngine.getPayment(sub.current_payment_id);
+    const st = String(pay?.status || "").toUpperCase();
+    const paid = ["RECEIVED", "CONFIRMED", "RECEIVED_IN_CASH"].includes(st);
+    if (paid) {
+      await db.confirmInvoicePayment(sub.current_payment_id, "POLL_CONFIRMED");
+      await db.applyPaymentEvent(`poll:${sub.current_payment_id}:${st}`, "PAYMENT_CONFIRMED", { id: sub.current_payment_id });
+    }
+    const refreshed = await db.getUserByToken(String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim());
+    res.json({ success: true, status: st || sub.status, access: refreshed?.status === "active" });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: "Não foi possível confirmar o pagamento." });
+  }
+});
+
+app.get("/api/account/status", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
+    const db: any = await import("./database.cjs");
+    const subscription = await db.getSubscriptionForUser(user.id);
+    const instance = await db.getUserInstance(user.id);
+    res.json({
+      success: true,
+      user,
+      subscription: subscription ? { planId: subscription.plan_id, status: subscription.status, nextDueDate: subscription.next_due_date } : null,
+      whatsapp: instance ? { status: instance.status, connected: instance.status === "connected" } : null,
+      access: user.status === "active",
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: "Não foi possível consultar a conta." });
+  }
 });
 
 // Public onboarding: authenticated account chooses a plan and receives the first real recurring Pix charge.
-app.post("/api/onboarding/subscribe", async (req,res)=>{
-  try{
-    const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"Faça login para continuar."});
-    const {planId,cpfCnpj}=req.body||{}; const prices:any={start:39.9,pro:69.9,max:119.9}; const names:any={start:"Start",pro:"Pro",max:"Max"};
-    if(!prices[planId]||!cpfCnpj)return res.status(400).json({success:false,error:"Plano e CPF são obrigatórios."});
-    const db:any=await import("./database.cjs"); await db.setUserBillingIdentity(user.id,String(cpfCnpj));
-    const sub:any=await asaasEngine.createMonthlyPixSubscription({planId,planName:names[planId],value:prices[planId],customer:{name:user.name,email:user.email,cpfCnpj:String(cpfCnpj),phone:user.phone},externalReference:`grolpy:user:${user.id}:plan:${planId}`});
-    await db.upsertSubscription(user.id,planId,{status:"pending",customerId:sub.customerId,subscriptionId:sub.subscriptionId,paymentId:sub.paymentId,nextDueDate:sub.nextDueDate});
-    res.json({success:true,subscription:{planId,status:"pending",asaasSubscriptionId:sub.subscriptionId},payment:{id:sub.paymentId,status:sub.status,pix:sub.pix}});
-  }catch(err:any){console.error("[Onboarding]",err?.message||err);res.status(500).json({success:false,error:err?.message||"Falha ao iniciar assinatura."});}
+app.post("/api/onboarding/subscribe", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Faça login para continuar." });
+    const { planId, cpfCnpj } = req.body || {};
+    const prices: Record<string, number> = { start: 39.9, pro: 69.9, max: 119.9 };
+    const names: Record<string, string> = { start: "Start", pro: "Pro", max: "Max" };
+    if (!prices[planId] || !cpfCnpj) return res.status(400).json({ success: false, error: "Plano e CPF são obrigatórios." });
+    const db: any = await import("./database.cjs");
+    await db.setUserBillingIdentity(user.id, String(cpfCnpj));
+    const sub: any = await asaasEngine.createMonthlyPixSubscription({
+      planId,
+      planName: names[planId],
+      value: prices[planId],
+      customer: { name: user.name, email: user.email, cpfCnpj: String(cpfCnpj), phone: user.phone },
+      externalReference: `grolpy:user:${user.id}:plan:${planId}`,
+    });
+    await db.upsertSubscription(user.id, planId, {
+      status: "pending",
+      customerId: sub.customerId,
+      subscriptionId: sub.subscriptionId,
+      paymentId: sub.paymentId,
+      nextDueDate: sub.nextDueDate,
+    });
+    await db.createInvoice(user.id, {
+      paymentId: sub.paymentId,
+      planId,
+      billingType: "PIX",
+      value: prices[planId],
+      status: "PENDING",
+      dueDate: sub.nextDueDate,
+      pixPayload: sub.pix?.payload,
+      pixImageUrl: sub.pix?.encodedImage,
+      gateway: "ASAAS",
+      payloadJson: sub,
+    });
+    res.json({ success: true, subscription: { planId, status: "pending", asaasSubscriptionId: sub.subscriptionId }, payment: { id: sub.paymentId, status: sub.status, pix: sub.pix } });
+  } catch (err: any) {
+    console.error("[Onboarding]", err?.message || err);
+    res.status(500).json({ success: false, error: err?.message || "Falha ao iniciar assinatura." });
+  }
 });
 
-// Asaas Checkout API: Create Payment (Pix, Credit Card, or Boleto)
+// Asaas Checkout API: Create Payment (Pix, Credit Card, or Boleto) & Persist to MySQL
 app.post("/api/client/checkout/create", async (req, res) => {
   try {
+    const user: any = await authenticatedUser(req);
+    const db: any = await import("./database.cjs");
     const { planId, billingType, customer, creditCard } = req.body;
     const planPrices: Record<string, number> = {
       start: 39.9,
@@ -2186,22 +2277,45 @@ app.post("/api/client/checkout/create", async (req, res) => {
       max: "Max",
     };
 
-    const targetPlan = planId === "start" || planId === "max" ? planId : "pro";
+    const targetPlan = (planId === "start" || planId === "max" ? planId : "pro") as "start" | "pro" | "max";
     const payment = await asaasEngine.createPayment({
       planId: targetPlan,
       planName: planNames[targetPlan] || "Pro",
       value: planPrices[targetPlan] || 69.9,
       billingType: billingType || "PIX",
       customer: customer || {
-        name: "Wendisson Santos",
-        email: "wendisson@email.com",
+        name: user?.name || "Wendisson Santos",
+        email: user?.email || "wendisson@email.com",
+        cpfCnpj: user?.cpf_cnpj || undefined,
+        phone: user?.phone || undefined,
       },
       creditCard,
     });
 
-    if (payment.status === "CONFIRMED") {
-      clientPlanState.planId = targetPlan;
-      clientPlanState.status = "active";
+    if (user?.id) {
+      await db.createInvoice(user.id, {
+        paymentId: payment.id,
+        planId: targetPlan,
+        billingType: payment.billingType,
+        value: payment.value,
+        netValue: payment.netValue,
+        status: payment.status,
+        dueDate: payment.dueDate,
+        pixPayload: payment.pix?.payload,
+        pixImageUrl: payment.pix?.encodedImage,
+        gateway: "ASAAS",
+        payloadJson: payment,
+      });
+
+      await db.upsertSubscription(user.id, targetPlan, {
+        status: payment.status === "CONFIRMED" ? "active" : "pending",
+        paymentId: payment.id,
+        nextDueDate: payment.dueDate,
+      });
+
+      if (payment.status === "CONFIRMED") {
+        await db.confirmInvoicePayment(payment.id, "INSTANT_CONFIRM", payment);
+      }
     }
 
     res.json({ success: true, payment });
@@ -2211,62 +2325,134 @@ app.post("/api/client/checkout/create", async (req, res) => {
   }
 });
 
-// Asaas Checkout API: Check payment status
-app.get("/api/client/checkout/status/:id", (req, res) => {
-  const { id } = req.params;
-  const payment = asaasEngine.getPayment(id);
-  if (!payment) {
-    return res.status(404).json({ success: false, error: "Pagamento não encontrado" });
+// Asaas Checkout API: Check payment status in MySQL & memory
+app.get("/api/client/checkout/status/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db: any = await import("./database.cjs");
+    const inv = await db.getInvoiceByPaymentId(id);
+    const payment = asaasEngine.getPayment(id);
+
+    if (!inv && !payment) {
+      return res.status(404).json({ success: false, error: "Pagamento não encontrado" });
+    }
+
+    res.json({
+      success: true,
+      payment: payment || {
+        id: inv.payment_id,
+        status: inv.status,
+        billingType: inv.billing_type,
+        value: Number(inv.value),
+        netValue: inv.net_value ? Number(inv.net_value) : undefined,
+        planId: inv.plan_id,
+        planName: inv.plan_id === "max" ? "Max" : (inv.plan_id === "start" ? "Start" : "Pro"),
+        customer: {
+          name: inv.userName || "Cliente",
+          email: inv.userEmail || "",
+        },
+        dueDate: inv.due_date,
+        pix: inv.pix_payload ? {
+          encodedImage: inv.pix_image_url || "",
+          payload: inv.pix_payload,
+          expirationDate: inv.due_date || "",
+        } : undefined,
+        createdAt: inv.created_at,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
-  res.json({ success: true, payment });
 });
 
-// Asaas Checkout API: Simulate instant confirmation (Webhook simulation / Test button)
-app.post("/api/client/checkout/simulate-confirm/:id", (req, res) => {
-  const { id } = req.params;
-  const payment = asaasEngine.confirmPayment(id);
-  if (!payment) {
-    return res.status(404).json({ success: false, error: "Pagamento não encontrado" });
+// Asaas Checkout API: Simulate instant confirmation (Persisted to MySQL)
+app.post("/api/client/checkout/simulate-confirm/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db: any = await import("./database.cjs");
+    await db.confirmInvoicePayment(id, "SIMULATED_CONFIRM");
+    const payment = asaasEngine.confirmPayment(id);
+
+    const inv = await db.getInvoiceByPaymentId(id);
+    const planId = (inv?.plan_id || payment?.planId || "pro") as 'start' | 'pro' | 'max';
+    const limits = CLIENT_PLAN_LIMITS[planId] || CLIENT_PLAN_LIMITS.pro;
+
+    res.json({
+      success: true,
+      payment: payment || inv,
+      subscription: {
+        planId,
+        status: "active",
+        validUntil: inv?.due_date || null,
+      },
+      limits,
+    });
+  } catch (err: any) {
+    console.error("[Simulate Confirm] Error:", err);
+    res.status(500).json({ success: false, error: err.message });
   }
-
-  // Update subscription in database
-  clientPlanState.planId = payment.planId;
-  clientPlanState.status = "active";
-
-  res.json({
-    success: true,
-    payment,
-    subscription: clientPlanState,
-    limits: CLIENT_PLAN_LIMITS[clientPlanState.planId],
-  });
 });
 
-// Asaas Webhook: Receives official Asaas webhooks (PAYMENT_RECEIVED, PAYMENT_CONFIRMED)
+// Asaas Webhook: Receives official Asaas webhooks and persists to MySQL
 app.post("/api/webhook/asaas", async (req, res) => {
   try {
-    const db:any = await import("./database.cjs");
-    const eventKey = String(req.body?.id || req.body?.payment?.id + ":" + req.body?.event);
-    await db.applyPaymentEvent(eventKey, req.body?.event, req.body?.payment);
-    const { event, payment } = req.body;
-    console.log(`[Asaas Webhook] Event received: ${event}`, payment?.id);
+    const db: any = await import("./database.cjs");
+    const { event, payment } = req.body || {};
+    const paymentId = payment?.id;
+    console.log(`[Asaas Webhook] Event received: ${event}`, paymentId);
 
-    if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED") {
-      if (payment?.id) {
-        asaasEngine.confirmPayment(payment.id);
+    if (paymentId) {
+      const eventKey = String(req.body?.id || `${paymentId}:${event}:${Date.now()}`);
+      await db.applyPaymentEvent(eventKey, event, payment);
+
+      if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED") {
+        asaasEngine.confirmPayment(paymentId);
+        await db.confirmInvoicePayment(paymentId, event, payment);
       }
-      if (payment?.description?.includes("Start")) {
-        clientPlanState.planId = "start";
-      } else if (payment?.description?.includes("Max")) {
-        clientPlanState.planId = "max";
-      } else {
-        clientPlanState.planId = "pro";
-      }
-      clientPlanState.status = "active";
     }
 
     res.json({ success: true, received: true });
   } catch (err: any) {
     console.error("[Asaas Webhook] Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// User Invoices API
+app.get("/api/client/invoices", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const db: any = await import("./database.cjs");
+    const invoices = await db.getUserInvoices(user.id);
+    res.json({ success: true, invoices });
+  } catch (err: any) {
+    console.error("[Client Invoices] Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// User CRM Leads API (100% MySQL backed)
+app.get("/api/client/leads", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const db: any = await import("./database.cjs");
+    const leads = await db.listLeadsForUser(user.id);
+    res.json({ success: true, leads });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/client/leads", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const db: any = await import("./database.cjs");
+    await db.saveLeadForUser(user.id, req.body);
+    res.json({ success: true });
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -2329,11 +2515,23 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     return res.status(400).json({ error: "Não foi possível verificar a conexão do seu WhatsApp." });
   }
 
-  const currentLimits = CLIENT_PLAN_LIMITS[clientPlanState.planId] || CLIENT_PLAN_LIMITS.pro;
+  const sub = await own.db.getSubscriptionForUser(own.user.id);
+  const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
+  const planDetails = await own.db.getPlanById(userPlanId);
+  const currentLimits: PlanEntitlementLimits = planDetails ? {
+    maxGroups: planDetails.maxGroups,
+    maxRoundsPerDay: planDetails.maxRoundsPerDay,
+    maxMonthlySends: planDetails.maxMonthlySends,
+    maxActiveCampaigns: planDetails.maxActiveCampaigns,
+    historyDays: planDetails.historyDays,
+  } : (CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start);
+
+  const userCampaigns: any[] = await own.db.listCampaignsForUser(own.user.id);
+  const userHistory: any[] = await own.db.listHistoryForUser(own.user.id, currentLimits.historyDays || 31);
 
   // 1. Validate Active Campaigns Limit
   if (active !== false) {
-    const activeCount = clientCampaignsStore.filter((c) => c.active && c.status !== 'concluida').length;
+    const activeCount = userCampaigns.filter((c: any) => c.active && c.status !== 'concluida').length;
     if (activeCount >= currentLimits.maxActiveCampaigns) {
       console.log(`[VALIDATION] Falha: Limite de campanhas ativas excedido.`);
       return res.status(403).json({
@@ -2346,12 +2544,12 @@ app.post("/api/client/campaigns/create", async (req, res) => {
   }
 
   // 2. Validate Unique Groups Limit
-  const reservedGroups = getUniqueGroupsInAutomations(clientCampaignsStore);
+  const reservedGroups = getUniqueGroupsInAutomations(userCampaigns);
   const candidateUnique = new Set([...reservedGroups, ...incomingJids]);
   if (candidateUnique.size > currentLimits.maxGroups) {
     console.log(`[VALIDATION] Falha: Limite de grupos mensais excedido.`);
     return res.status(403).json({
-      error: `Limite de grupos únicos atingido (${currentLimits.maxGroups} grupos permitidos no plano ${clientPlanState.planId.toUpperCase()}).`,
+      error: `Limite de grupos únicos atingido (${currentLimits.maxGroups} grupos permitidos no plano ${userPlanId.toUpperCase()}).`,
       code: 'LIMIT_GROUPS',
       limit: currentLimits.maxGroups,
       used: candidateUnique.size,
@@ -2360,7 +2558,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
   
   // 3. Validate Monthly Limit
   const currentMonth = new Date().getMonth();
-  const sentThisMonth = clientHistoryStore.filter(h => h.status === 'delivered' && new Date(h.timestamp).getMonth() === currentMonth).length;
+  const sentThisMonth = userHistory.filter((h: any) => h.status === 'delivered' && new Date(h.timestamp).getMonth() === currentMonth).length;
   if (sentThisMonth + incomingJids.length > currentLimits.maxMonthlySends) {
     console.log(`[VALIDATION] Falha: Limite mensal de envios excedido.`);
     return res.status(403).json({

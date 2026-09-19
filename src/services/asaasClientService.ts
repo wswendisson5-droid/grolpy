@@ -36,6 +36,17 @@ export interface AsaasPaymentData {
 }
 
 class AsaasClientService {
+  private getAuthHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('groply_token');
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+    return headers;
+  }
+
   async createPayment(params: {
     planId: PlanId;
     billingType: AsaasBillingType;
@@ -57,7 +68,7 @@ class AsaasClientService {
     try {
       const res = await fetch('/api/client/checkout/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getAuthHeaders(),
         body: JSON.stringify(params),
       });
       const data = await res.json();
@@ -72,7 +83,9 @@ class AsaasClientService {
 
   async checkStatus(paymentId: string): Promise<{ success: boolean; payment?: AsaasPaymentData; error?: string }> {
     try {
-      const res = await fetch(`/api/client/checkout/status/${paymentId}`);
+      const res = await fetch(`/api/client/checkout/status/${paymentId}`, {
+        headers: this.getAuthHeaders(),
+      });
       const data = await res.json();
       return { success: res.ok && data.success, payment: data.payment, error: data.error };
     } catch (err: any) {
@@ -84,6 +97,7 @@ class AsaasClientService {
     try {
       const res = await fetch(`/api/client/checkout/simulate-confirm/${paymentId}`, {
         method: 'POST',
+        headers: this.getAuthHeaders(),
       });
       const data = await res.json();
       return { success: res.ok && data.success, payment: data.payment, error: data.error };
