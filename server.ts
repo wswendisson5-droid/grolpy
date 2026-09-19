@@ -370,8 +370,27 @@ app.get("/api/database/health", async (_req, res) => {
 });
 
 
+function sessionTokenFromRequest(req: any): string {
+  const cookieHeader = String(req.headers.cookie || "");
+  const cookie = cookieHeader.split(";").map((part: string) => part.trim()).find((part: string) => part.startsWith("grolpy_session="));
+  if (cookie) {
+    try { return decodeURIComponent(cookie.slice("grolpy_session=".length)); } catch { return ""; }
+  }
+  return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+}
+
+function setSessionCookie(res: any, token: string) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `grolpy_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
+}
+
+function clearSessionCookie(res: any) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.setHeader("Set-Cookie", `grolpy_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
+}
+
 async function authenticatedUser(req: any) {
-  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  const token = sessionTokenFromRequest(req);
   if (!token) return null;
   const db: any = await getDatabase();
   return db.getUserByToken(token);
@@ -432,11 +451,24 @@ app.post("/api/auth/login", async (req, res) => {
     if (!email || !password) return res.status(400).json({ success: false, error: "Informe e-mail e senha." });
     const auth = await loginUser(String(email), String(password));
     if (!auth) return res.status(401).json({ success: false, error: "E-mail ou senha incorretos." });
-    res.json({ success: true, token: auth.token, user: auth.user });
+    setSessionCookie(res, auth.token);
+    res.json({ success: true, user: auth.user });
   } catch (err: any) {
     console.error("[AUTH] login:", err?.code || err?.message || err);
     res.status(500).json({ success: false, error: "Não foi possível entrar agora." });
   }
+});
+
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const token = sessionTokenFromRequest(req);
+    if (token) {
+      const db: any = await getDatabase();
+      await db.deleteSessionByToken(token);
+    }
+  } catch {}
+  clearSessionCookie(res);
+  res.json({ success: true });
 });
 
 app.post("/api/auth/self-test", async (_req, res) => {
@@ -2330,33 +2362,6 @@ let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
 let lastSyncGroupsTimestamp = 0;
 
-// Disk persistence file paths
-const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_data.json");
-const HISTORY_FILE = path.join(process.cwd(), "history_data.json");
-
-// Helper to safely load JSON from disk
-function loadJsonSafe(filePath: string, fallback: any) {
-  try {
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, "utf-8");
-      return JSON.parse(data);
-    }
-  } catch (e) {
-    console.warn(`[Persistence] Error reading ${filePath}:`, e);
-  }
-  return fallback;
-}
-
-// Helper to safely save JSON to disk
-function saveJsonSafe(filePath: string, data: any) {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-  } catch (e) {
-    console.warn(`[Persistence] Error writing ${filePath}:`, e);
-  }
-}
-
-// Initialize global cache from disk immediately
 // Helper to dynamically resolve the best active/connected instance fast
 async function getActiveConnectedInstance(preferred?: string): Promise<string> {
   const targetInstance = preferred || "minhabagg-leads";
@@ -2533,9 +2538,6 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 // Tenant group data is loaded on authenticated demand. Background Evolution calls here
 // were able to monopolize the single cPanel/Passenger worker and freeze even /api/health.
 
-// Load persisted campaigns and history
-const clientCampaignsStore: ClientCampaign[] = loadJsonSafe(CAMPAIGNS_FILE, []);
-const clientHistoryStore: ClientHistoryLog[] = loadJsonSafe(HISTORY_FILE, []);
 
 // Store for the current authenticated instance only.
 // Do not hydrate this cache from a global disk snapshot: that can leak stale groups
@@ -2800,7 +2802,7 @@ app.get("/api/onboarding/payment-status", async (req, res) => {
       await db.confirmInvoicePayment(sub.current_payment_id, "POLL_CONFIRMED");
       await db.applyPaymentEvent(`poll:${sub.current_payment_id}:${st}`, "PAYMENT_CONFIRMED", { id: sub.current_payment_id });
     }
-    const refreshed = await db.getUserByToken(String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim());
+    const refreshed = await db.getUserByToken(sessionTokenFromRequest(req));
     res.json({ success: true, status: st || sub.status, access: refreshed?.status === "active" });
   } catch (e: any) {
     res.status(500).json({ success: false, error: "Não foi possível confirmar o pagamento." });
@@ -3261,9 +3263,6 @@ app.post("/api/client/campaigns/create", async (req, res) => {
       console.error("[CAMPAIGNS] Erro ao salvar campanha no MySQL:", err);
       return res.status(500).json({ error: "Erro ao gravar divulgação no banco de dados: " + (err.message || err) });
     }
-
-    clientCampaignsStore.unshift(newCampaign);
-    saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
     return res.json({ success: true, campaign: newCampaign });
   } catch (err: any) {
     console.error("[CAMPAIGNS] Erro fatal em /api/client/campaigns/create:", err);
@@ -3583,23 +3582,6 @@ async function executeGroupDispatch(
       // Detailed history logging
       const errorDetails = !isOk ? `HTTP ${httpStatus} (${endpointUsed}): ${lastErr} (Tentativas: ${attemptCount})` : undefined;
       const groId = `#GRO-${Math.floor(100000 + Math.random() * 900000)}`;
-      clientHistoryStore.unshift({
-        id: groId,
-        campaignId,
-        campaignTitle,
-        groupJid: jid,
-        groupName,
-        groupMembersCount: undefined,
-        messageText: textToSend,
-        imageUrl: imgToSend || undefined,
-        mediaType: imgToSend ? "imagem" : "texto",
-        status: isOk ? "delivered" : "failed",
-        error: errorDetails,
-        timestamp: new Date().toISOString(),
-        timeFormatted: `${new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`,
-        duration: `${durationSeconds} segundos`,
-      });
-      saveJsonSafe(HISTORY_FILE, clientHistoryStore);
 
       if (userId && db?.updateHistoryItem && targetHistoryIds.has(jid)) {
         try {

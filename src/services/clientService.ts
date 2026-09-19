@@ -44,6 +44,7 @@ class ClientService {
   private defaultInstance: string = '';
   private cachedGroups: ClientGroup[] = [];
   private cachedCampaigns: DivulgacaoCard[] = [];
+  private cachedProfile: any = null;
   private lastFetchTime: number = 0;
 
   constructor() {
@@ -51,181 +52,37 @@ class ClientService {
   }
 
   getDefaultInstance(): string { return this.defaultInstance; }
-  private authHeaders(extra:Record<string,string>={}) { const token=typeof window!=='undefined'?localStorage.getItem('groply_token')||'':''; return {...extra,...(token?{Authorization:`Bearer ${token}`}:{})}; }
+  private authHeaders(extra:Record<string,string>={}) { return extra; }
+  getGroupsStorageKey(): string { return ''; }
+  getCachedGroups(): ClientGroup[] { return this.cachedGroups; }
+  getProfileStorageKey(): string { return ''; }
+  isWhatsAppConnected(): boolean { return Boolean(this.cachedProfile?.isConnected); }
+  getCachedProfile(): any { return this.cachedProfile; }
 
-  getGroupsStorageKey(): string {
-    if (typeof window === 'undefined') return 'groply_cached_groups';
-    try {
-      const u = JSON.parse(localStorage.getItem('groply_user') || '{}');
-      return u.id ? `groply_cached_groups_${u.id}` : 'groply_cached_groups';
-    } catch {
-      return 'groply_cached_groups';
-    }
-  }
-
-  getCachedGroups(): ClientGroup[] {
-    if (!this.isWhatsAppConnected()) {
-      this.cachedGroups = [];
-      return [];
-    }
-    if (this.cachedGroups.length === 0 && typeof window !== 'undefined') {
-      try {
-        const key = this.getGroupsStorageKey();
-        const g = localStorage.getItem(key);
-        if (g) this.cachedGroups = JSON.parse(g);
-      } catch {}
-    }
-    return this.cachedGroups;
-  }
-
-  getProfileStorageKey(): string {
-    if (typeof window === 'undefined') return 'groply_whatsapp_profile';
-    try {
-      const u = JSON.parse(localStorage.getItem('groply_user') || '{}');
-      return u.id ? `groply_whatsapp_profile_${u.id}` : 'groply_whatsapp_profile';
-    } catch {
-      return 'groply_whatsapp_profile';
-    }
-  }
-
-  isWhatsAppConnected(): boolean {
-    if (typeof window === 'undefined') return false;
-    try {
-      const key = this.getProfileStorageKey();
-      const p = localStorage.getItem(key);
-      if (p) {
-        const parsed = JSON.parse(p);
-        if (parsed.isConnected || parsed.number || parsed.pictureUrl) return true;
-      }
-    } catch {}
-    return false;
-  }
-
-  getCachedProfile(): any {
-    if (typeof window === 'undefined') return null;
-    try {
-      const key = this.getProfileStorageKey();
-      const p = localStorage.getItem(key);
-      return p ? JSON.parse(p) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<{
-    isConnected: boolean;
-    state: string;
-    profile: {
-      name?: string;
-      number?: string;
-      pictureUrl?: string;
-      instanceName?: string;
-      connectedAt?: string;
-    } | null;
-  }> {
-    try {
-      const res = await fetch('/api/evolution/status', { headers: this.authHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const isConn =
-          data.state === 'connected' ||
-          data.state === 'open' ||
-          data.status === 'CONNECTED' ||
-          Boolean(data.connectedProfile?.number || data.connectedProfile?.pictureUrl);
-
-        if (data.instanceName) {
-          this.defaultInstance = data.instanceName;
-        }
-
-        let profile = data.connectedProfile;
-        if (isConn && !profile) {
-          profile = {
-            name: 'WhatsApp Conectado',
-            number: '',
-            pictureUrl: `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`,
-            instanceName: data.instanceName || instance,
-          };
-        } else if (isConn && profile) {
-          if (!profile.name) {
-            profile.name = 'WhatsApp Conectado';
-          }
-          if (!profile.pictureUrl) {
-            profile.pictureUrl = `/api/whatsapp/avatar?instance=${encodeURIComponent(data.instanceName || instance)}`;
-          } else if (profile.pictureUrl.startsWith('http') && !profile.pictureUrl.includes('/api/whatsapp/avatar')) {
-            profile.pictureUrl = `/api/whatsapp/avatar?url=${encodeURIComponent(profile.pictureUrl)}&instance=${encodeURIComponent(data.instanceName || instance)}`;
-          }
-        }
-
-        const key = this.getProfileStorageKey();
-        if (isConn && profile && typeof window !== 'undefined') {
-          localStorage.setItem(key, JSON.stringify({ ...profile, isConnected: true }));
-        } else if (!isConn && typeof window !== 'undefined') {
-          localStorage.removeItem(key);
-        }
-
-        return {
-          isConnected: isConn,
-          state: data.state || (isConn ? 'connected' : 'disconnected'),
-          profile,
-        };
-      }
-    } catch {}
-
-    // Resilient fallback to cached profile in localStorage if network blips
-    if (typeof window !== 'undefined') {
-      try {
-        const key = this.getProfileStorageKey();
-        const saved = localStorage.getItem(key);
-        if (saved) {
-          const profile = JSON.parse(saved);
-          return {
-            isConnected: true,
-            state: 'connected',
-            profile,
-          };
-        }
-      } catch {}
-    }
-
-    return {
-      isConnected: false,
-      state: 'disconnected',
-      profile: null,
-    };
+  async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<any> {
+    const res = await fetch('/api/client/whatsapp/status', { headers: this.authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível consultar o WhatsApp.');
+    if (data.instanceName) this.defaultInstance = data.instanceName;
+    const isConnected = Boolean(data.isConnected);
+    const profile = data.profile || data.connectedProfile || null;
+    this.cachedProfile = profile ? { ...profile, isConnected } : { isConnected };
+    return { isConnected, state: data.state || (isConnected ? 'connected' : 'disconnected'), profile };
   }
 
   async getRealGroups(instance: string = this.defaultInstance, forceRefresh: boolean = false): Promise<ClientGroup[]> {
-    const key = this.getGroupsStorageKey();
-    try {
-      const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
-      const res = await fetch(url, { headers: this.authHeaders() });
-      const data = await res.json();
-      if (data.isConnected === false) {
-        this.cachedGroups = [];
-        if (typeof window !== 'undefined') localStorage.removeItem(key);
-        return [];
-      }
-      const rawGroups = Array.isArray(data.groups) ? data.groups : [];
-      // Keep only real WhatsApp groups (@g.us), strictly excluding broadcasts and channels
-      const groups = rawGroups.filter((g: any) => {
-        const jid = String(g.jid || g.id || '');
-        return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
-      });
-      this.cachedGroups = groups;
-      if (typeof window !== 'undefined') {
-        if (groups.length > 0) {
-          localStorage.setItem(key, JSON.stringify(groups));
-        } else {
-          localStorage.removeItem(key);
-        }
-      }
-      return groups;
-    } catch {
-      // Não mascarar falhas de sincronização com um snapshot local possivelmente antigo.
-      this.cachedGroups = [];
-      if (typeof window !== 'undefined') localStorage.removeItem(key);
-      return [];
-    }
+    const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
+    const res = await fetch(url, { headers: this.authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível carregar os grupos do WhatsApp.');
+    if (data.isConnected === false) { this.cachedGroups = []; return []; }
+    const rawGroups = Array.isArray(data.groups) ? data.groups : [];
+    const groups = rawGroups.filter((g: any) => {
+      const jid = String(g.jid || g.id || '');
+      return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+    });
+    this.cachedGroups = groups;
+    return groups;
   }
 
   async refreshGroupsNow(instance: string = this.defaultInstance): Promise<ClientGroup[]> {
@@ -233,97 +90,34 @@ class ClientService {
   }
 
   private async syncGroupsInBackground(instance: string) {
-    const now = Date.now();
-    if (now - this.lastFetchTime < 10000) return;
-    this.lastFetchTime = now;
-    if (!this.isWhatsAppConnected()) return;
-    try {
-      const res = await fetch('/api/client/groups', { headers: this.authHeaders() });
-      const data = await res.json();
-      if (data.isConnected === false) {
-        this.cachedGroups = [];
-        const key = this.getGroupsStorageKey();
-        if (typeof window !== 'undefined') localStorage.removeItem(key);
-        return;
-      }
-      if (data.success && Array.isArray(data.groups)) {
-        this.cachedGroups = data.groups;
-        const key = this.getGroupsStorageKey();
-        if (typeof window !== 'undefined') {
-          if (data.groups.length > 0) {
-            localStorage.setItem(key, JSON.stringify(data.groups));
-          } else {
-            localStorage.removeItem(key);
-          }
-        }
-      }
-    } catch {}
+    const now = Date.now(); if (now - this.lastFetchTime < 10000) return; this.lastFetchTime = now;
+    try { await this.getRealGroups(instance, false); } catch (err) { console.error('[clientService] group sync:', err); }
   }
 
   async getImportedGroups(instance: string = this.defaultInstance): Promise<ClientGroup[]> {
-    if (!this.isWhatsAppConnected()) return [];
-    if (this.cachedGroups.length > 0) {
-      return this.cachedGroups;
-    }
-    try {
-      const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`, { headers: this.authHeaders() });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
-        this.cachedGroups = data.groups;
-        const key = this.getGroupsStorageKey();
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(key, JSON.stringify(data.groups));
-        }
-        return data.groups;
-      }
-      return this.cachedGroups;
-    } catch {
-      return this.cachedGroups;
-    }
+    const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`, { headers: this.authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Não foi possível carregar os grupos importados.');
+    this.cachedGroups = Array.isArray(data.groups) ? data.groups : [];
+    return this.cachedGroups;
   }
 
   async saveImportedGroups(groups: ClientGroup[], instance: string = this.defaultInstance): Promise<ClientGroup[]> {
-    this.cachedGroups = groups;
-    const key = this.getGroupsStorageKey();
-    if (typeof window !== 'undefined') {
-      if (groups.length > 0) {
-        localStorage.setItem(key, JSON.stringify(groups));
-      } else {
-        localStorage.removeItem(key);
-      }
-    }
-    try {
-      const res = await fetch('/api/client/imported-groups', {
-        method: 'POST',
-        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ groups }),
-      });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.groups)) {
-        this.cachedGroups = data.groups;
-        return data.groups;
-      }
-      return groups;
-    } catch {
-      return groups;
-    }
+    const res = await fetch('/api/client/imported-groups', {
+      method: 'POST', headers: this.authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ groups, instance })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'Não foi possível salvar os grupos no banco de dados.');
+    this.cachedGroups = Array.isArray(data.groups) ? data.groups : groups;
+    return this.cachedGroups;
   }
 
   async getCampaigns(): Promise<DivulgacaoCard[]> {
-    try {
-      const res = await fetch('/api/client/campaigns',{headers:this.authHeaders()});
-      const data = await res.json();
-      if (data.success && Array.isArray(data.campaigns)) {
-        this.cachedCampaigns = data.campaigns;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('groply_cached_campaigns', JSON.stringify(data.campaigns));
-        }
-        return data.campaigns;
-      }
-      return this.cachedCampaigns;
-    } catch {
-      return this.cachedCampaigns;
-    }
+    const res = await fetch('/api/client/campaigns',{headers:this.authHeaders()});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.error || 'Não foi possível carregar as divulgações.');
+    this.cachedCampaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
+    return this.cachedCampaigns;
   }
 
   async createCampaign(campaign: Partial<DivulgacaoCard>): Promise<DivulgacaoCard | null> {
@@ -336,12 +130,12 @@ class ClientService {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         if (res.status === 402 || data.error === 'PAYMENT_REQUIRED') {
-          throw new Error('Sua assinatura não está ativa ou requer renovação de pagamento.');
+          throw new Error('Sua assinatura nÃ£o estÃ¡ ativa ou requer renovaÃ§Ã£o de pagamento.');
         }
         if (res.status === 413) {
-          throw new Error('A mídia anexada é muito grande. Escolha uma imagem ou vídeo menor.');
+          throw new Error('A mÃ­dia anexada Ã© muito grande. Escolha uma imagem ou vÃ­deo menor.');
         }
-        throw new Error(data.error || 'Não foi possível salvar a divulgação no banco de dados.');
+        throw new Error(data.error || 'NÃ£o foi possÃ­vel salvar a divulgaÃ§Ã£o no banco de dados.');
       }
       if (data.campaign) {
         this.cachedCampaigns = [data.campaign, ...this.cachedCampaigns.filter((c) => c.id !== data.campaign.id)];

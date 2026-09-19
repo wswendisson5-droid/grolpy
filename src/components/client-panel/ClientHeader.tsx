@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, UserPlus, Bell, ChevronDown, Menu, Check, Building, Shield, LogOut, ArrowLeftRight, User, Loader2, Zap, Crown, Flame, AlertCircle } from 'lucide-react';
 import { AppPanelMode } from './types';
 import { planService } from '../../services/planService';
+import { sessionService } from '../../services/sessionService';
 import { SafeAvatar } from '../common/SafeAvatar';
 
 interface ClientHeaderProps {
@@ -43,11 +44,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const [isPlanUsageDropdownOpen, setIsPlanUsageDropdownOpen] = useState(false);
   const [hasUnreadNotification, setHasUnreadNotification] = useState(true);
 
-  let loggedUser = { name: 'Minha Empresa', email: '' };
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('groply_user') : null;
-    if (raw) loggedUser = JSON.parse(raw);
-  } catch {}
+  const loggedUser = sessionService.getUser() || { name: 'Minha Empresa', email: '' };
 
   const displayName = whatsappProfileName || loggedUser.name || 'Minha Conta';
 
@@ -89,7 +86,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
         </div>
       </div>
 
-      {/* Search Bar with ⌘ K shortcut */}
+      {/* Search Bar with âŒ˜ K shortcut */}
       <div className="hidden sm:flex items-center flex-1 min-w-0 max-w-[200px] md:max-w-xs lg:max-w-sm relative">
         <div className="absolute left-3 text-[#73857b] pointer-events-none flex items-center">
           <Search size={14} />
@@ -103,7 +100,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
         />
         <div className="absolute right-2.5 hidden md:flex items-center pointer-events-none">
           <kbd className="px-1 py-0.5 text-[9px] font-semibold text-[#73857b] bg-white border border-[#d9e3dd] rounded shadow-2xs">
-            ⌘K
+            âŒ˜K
           </kbd>
         </div>
       </div>
@@ -189,7 +186,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                         Plano {currentPlan.name}
                       </h4>
                       <p className="text-[10px] text-[#6d8177]">
-                        Válido até {sub.validUntil}
+                        VÃ¡lido atÃ© {sub.validUntil}
                       </p>
                     </div>
                   </div>
@@ -203,7 +200,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#44584e] flex items-center gap-1.5">
                       <Flame size={14} className="text-[#109353]" />
-                      Envios no Mês
+                      Envios no MÃªs
                     </span>
                     <span className="font-bold text-[#11241c]">
                       {usedMonthly.toLocaleString('pt-BR')} de {maxMonthly.toLocaleString('pt-BR')} ({percentage}%)
@@ -221,30 +218,30 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
                   <div className="flex items-center justify-between text-[11px] text-[#71857a]">
                     <span>Restantes: <strong className="text-[#152e22] font-bold">{remainingMonthly.toLocaleString('pt-BR')}</strong> envios</span>
-                    <span>Renova todo mês</span>
+                    <span>Renova todo mÃªs</span>
                   </div>
                 </div>
 
                 {/* Additional Limits Checklist */}
                 <div className="py-3 border-b border-[#edf3ef] space-y-2.5 text-[11px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-[#55695f] font-medium">⚡ Limite de Rodadas / Dia:</span>
+                    <span className="text-[#55695f] font-medium">âš¡ Limite de Rodadas / Dia:</span>
                     <span className="font-bold text-[#152e22] px-2 py-0.5 bg-[#f3f7f4] rounded-md">
-                      Até {currentPlan.maxRoundsPerDay} rodadas/dia por grupo
+                      AtÃ© {currentPlan.maxRoundsPerDay} rodadas/dia por grupo
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-[#55695f] font-medium">👥 Grupos Únicos do Plano:</span>
+                    <span className="text-[#55695f] font-medium">ðŸ‘¥ Grupos Ãšnicos do Plano:</span>
                     <span className="font-bold text-[#152e22] px-2 py-0.5 bg-[#f3f7f4] rounded-md">
-                      Até {currentPlan.maxGroups} grupos simultâneos
+                      AtÃ© {currentPlan.maxGroups} grupos simultÃ¢neos
                     </span>
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <span className="text-[#55695f] font-medium">📢 Divulgações Ativas:</span>
+                    <span className="text-[#55695f] font-medium">ðŸ“¢ DivulgaÃ§Ãµes Ativas:</span>
                     <span className="font-bold text-[#152e22] px-2 py-0.5 bg-[#f3f7f4] rounded-md">
-                      Até {currentPlan.maxActiveCampaigns} campanhas
+                      AtÃ© {currentPlan.maxActiveCampaigns} campanhas
                     </span>
                   </div>
                 </div>
@@ -281,7 +278,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
         <button
           onClick={() => setHasUnreadNotification(!hasUnreadNotification)}
           className="relative p-1.5 rounded-xl text-[#52655b] hover:text-[#11241c] hover:bg-[#f0f5f2] border border-transparent hover:border-[#e2eae5] transition-all cursor-pointer shrink-0"
-          aria-label="Notificações"
+          aria-label="NotificaÃ§Ãµes"
         >
           <Bell size={17} />
           {hasUnreadNotification && (
@@ -387,7 +384,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                     }}
                     className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#3c5044] font-medium transition-colors cursor-pointer"
                   >
-                    👑 Gerenciar Plano & Assinatura
+                    ðŸ‘‘ Gerenciar Plano & Assinatura
                   </button>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-﻿import React, { ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, LogOut } from 'lucide-react';
 
 interface Props {
@@ -42,11 +42,6 @@ export class ErrorBoundary extends (React.Component as any) {
 
   private handleResetSession = () => {
     try {
-      localStorage.removeItem('groply_token');
-      localStorage.removeItem('groply_user');
-      localStorage.removeItem('groply_whatsapp_profile');
-      localStorage.removeItem('groply_cached_groups');
-      localStorage.removeItem('groply_preferred_panel');
     } catch {}
     window.location.href = '/';
   };

@@ -41,16 +41,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   // Core Client Data State
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>([]);
-  const [groups, setGroups] = useState<ClientGroup[]>(() => {
-    try {
-      if (typeof window !== 'undefined' && clientService.isWhatsAppConnected()) {
-        const key = clientService.getGroupsStorageKey();
-        const saved = localStorage.getItem(key);
-        if (saved) return JSON.parse(saved);
-      }
-    } catch {}
-    return [];
-  });
+  const [groups, setGroups] = useState<ClientGroup[]>([]);
   const [planUsage, setPlanUsage] = useState(INITIAL_PLAN_USAGE);
 
   // WhatsApp Profile State (Connected photo & real phone number)
@@ -105,7 +96,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
           if (c.status === 'concluida') {
             itemStatus = 'enviado';
-            itemStatusLabel = `Concluído (${c.totalSent}/${c.groupsCount || c.totalTarget || 1})`;
+            itemStatusLabel = `ConcluÃ­do (${c.totalSent}/${c.groupsCount || c.totalTarget || 1})`;
           } else if (c.status === 'parcial') {
             itemStatus = 'parcial';
             itemStatusLabel = `Envio Parcial (${c.totalSent}/${c.groupsCount || c.totalTarget || 1})`;
@@ -134,7 +125,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
             time: rawTime,
             status: itemStatus,
             statusLabel: itemStatusLabel,
-            campaignTitle: c.title || 'Divulgação',
+            campaignTitle: c.title || 'DivulgaÃ§Ã£o',
             groupName: `${c.groupsCount || c.selectedGroupJids?.length || 0} Grupos Selecionados`,
             previewText: c.previewText || '',
             imageThumbnail: c.imageUrl,
@@ -274,12 +265,12 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       if (res.success) {
         setBannerAlert({
           type: 'success',
-          message: `Disparo concluído: ${res.successful} de ${res.totalDispatched || 1} mensagens entregues com sucesso!`,
+          message: `Disparo concluÃ­do: ${res.successful} de ${res.totalDispatched || 1} mensagens entregues com sucesso!`,
         });
       } else {
         setBannerAlert({
           type: 'error',
-          message: res.error || 'Não foi possível disparar para todos os grupos.',
+          message: res.error || 'NÃ£o foi possÃ­vel disparar para todos os grupos.',
         });
       }
       await refreshCampaigns();
@@ -303,7 +294,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       if (!activeCheck.allowed) {
         setBannerAlert({
           type: 'error',
-          message: `Limite de ${activeCheck.limit} divulgações ativas atingido para seu plano. Pause outra divulgação ou faça um upgrade.`,
+          message: `Limite de ${activeCheck.limit} divulgaÃ§Ãµes ativas atingido para seu plano. Pause outra divulgaÃ§Ã£o ou faÃ§a um upgrade.`,
         });
         setTimeout(() => setBannerAlert(null), 6000);
         return;
@@ -316,7 +307,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       if (combined.size > currentPlan.maxGroups) {
         setBannerAlert({
           type: 'error',
-          message: `Ativar esta divulgação excede o limite de ${currentPlan.maxGroups} grupos únicos do plano.`,
+          message: `Ativar esta divulgaÃ§Ã£o excede o limite de ${currentPlan.maxGroups} grupos Ãºnicos do plano.`,
         });
         setTimeout(() => setBannerAlert(null), 6000);
         return;
@@ -339,7 +330,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const res = await clientService.toggleCampaign(id);
       if (!res) {
-        setBannerAlert({ type: 'error', message: 'Não foi possível alterar o status da divulgação.' });
+        setBannerAlert({ type: 'error', message: 'NÃ£o foi possÃ­vel alterar o status da divulgaÃ§Ã£o.' });
       }
     } catch (e: any) {
       setBannerAlert({ type: 'error', message: e.message || 'Erro ao alterar status.' });
@@ -361,7 +352,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     const duplicated: DivulgacaoCard = {
       ...card,
       id: `div-${Date.now()}`,
-      title: `${card.title} (Cópia)`,
+      title: `${card.title} (CÃ³pia)`,
       totalSent: 0,
       createdAt: new Date().toISOString(),
     };
@@ -440,7 +431,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
                 onClick={() => setBannerAlert(null)}
                 className="ml-3 text-xs opacity-70 hover:opacity-100 cursor-pointer font-bold"
               >
-                ✕
+                âœ•
               </button>
             </div>
           )}
@@ -584,7 +575,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           }`}
         >
           <Home size={18} className="shrink-0" />
-          <span className="text-[10px] leading-tight truncate">Início</span>
+          <span className="text-[10px] leading-tight truncate">InÃ­cio</span>
         </button>
 
         <button
@@ -604,7 +595,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           }`}
         >
           <History size={18} className="shrink-0" />
-          <span className="text-[10px] leading-tight truncate">Histórico</span>
+          <span className="text-[10px] leading-tight truncate">HistÃ³rico</span>
         </button>
 
         <button
@@ -614,7 +605,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           }`}
         >
           <BarChart3 size={18} className="shrink-0" />
-          <span className="text-[10px] leading-tight truncate">Relatórios</span>
+          <span className="text-[10px] leading-tight truncate">RelatÃ³rios</span>
         </button>
 
         <button

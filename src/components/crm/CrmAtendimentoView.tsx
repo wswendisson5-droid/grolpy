@@ -61,14 +61,13 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
   // Contatos do CRM de Atendimento
   const [contacts, setContacts] = useState<CRMContact[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string>(() => {
-    return sessionStorage.getItem('nexus_crm_selected_id') || '';
+    return '';
   });
   const selectedContactIdRef = useRef<string>(selectedContactId);
 
   useEffect(() => {
     selectedContactIdRef.current = selectedContactId;
     if (selectedContactId) {
-      sessionStorage.setItem('nexus_crm_selected_id', selectedContactId);
     }
   }, [selectedContactId]);
 
@@ -130,10 +129,10 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
           subtitle: lead.demandSummary,
           avatar: lead.contactAvatar || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
           phone: lead.contactPhone,
-          location: 'Vitória - ES',
+          location: 'VitÃ³ria - ES',
           segment: 'Oportunidade Comercial',
           typeCategory: 'Atendimento',
-          tags: ['Radar IA', lead.recommendedService || 'Oportunidade', lead.aiActiveForContact ? 'IA Ativa 🤖' : 'Humano 👤'],
+          tags: ['Radar IA', lead.recommendedService || 'Oportunidade', lead.aiActiveForContact ? 'IA Ativa ðŸ¤–' : 'Humano ðŸ‘¤'],
           score: lead.score,
           status:
             lead.status === 'convertido'
@@ -145,7 +144,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
               : 'em_atendimento',
           statusLabel:
             lead.status === 'convertido'
-              ? 'Concluído'
+              ? 'ConcluÃ­do'
               : lead.status === 'descartado'
               ? 'Descartado'
               : lead.status === 'aberto'
@@ -180,17 +179,16 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
 
       setContacts(mappedContacts);
 
-      // PRESERVAÇÃO ESTRITA DA CONVERSA SELECIONADA:
-      // Nunca pula para outra conversa se o usuário já estiver em uma conversa válida!
+      // PRESERVAÃ‡ÃƒO ESTRITA DA CONVERSA SELECIONADA:
+      // Nunca pula para outra conversa se o usuÃ¡rio jÃ¡ estiver em uma conversa vÃ¡lida!
       setSelectedContactId((current) => {
-        const targetId = current || selectedContactIdRef.current || sessionStorage.getItem('nexus_crm_selected_id') || '';
+        const targetId = current || selectedContactIdRef.current || '';
         if (targetId && mappedContacts.some((c) => c.id === targetId || c.remoteJid === targetId)) {
           return targetId;
         }
         const defaultFirst = mappedContacts[0]?.id || '';
         if (defaultFirst) {
           selectedContactIdRef.current = defaultFirst;
-          sessionStorage.setItem('nexus_crm_selected_id', defaultFirst);
         }
         return defaultFirst;
       });
@@ -274,10 +272,10 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
         return isRadarLead || Boolean(leadMatch);
       }
       if (atendimentoFilter === 'ia_ativa') {
-        return leadMatch ? leadMatch.aiActiveForContact : contact.tags?.includes('IA Ativa 🤖');
+        return leadMatch ? leadMatch.aiActiveForContact : contact.tags?.includes('IA Ativa ðŸ¤–');
       }
       if (atendimentoFilter === 'humano') {
-        return leadMatch ? !leadMatch.aiActiveForContact : contact.tags?.includes('Humano 👤');
+        return leadMatch ? !leadMatch.aiActiveForContact : contact.tags?.includes('Humano ðŸ‘¤');
       }
 
       return true;
@@ -343,7 +341,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
       novo: 'Novo',
       em_atendimento: 'Em atendimento',
       proposta_enviada: 'Proposta enviada',
-      concluido: 'Concluído',
+      concluido: 'ConcluÃ­do',
       descartado: 'Descartado',
     };
 
@@ -433,7 +431,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
       contactId: activeContact.id,
       title: task.title,
       dueDate: task.dueDate,
-      priority: task.priority || 'Média',
+      priority: task.priority || 'MÃ©dia',
       assignedTo: task.assignedTo,
       completed: false,
       timestamp: Date.now(),
@@ -447,7 +445,6 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
   const handleSelectContact = (contact: CRMContact) => {
     setSelectedContactId(contact.id);
     selectedContactIdRef.current = contact.id;
-    sessionStorage.setItem('nexus_crm_selected_id', contact.id);
     setContacts((prev) =>
       prev.map((c) => (c.id === contact.id ? { ...c, unreadCount: 0 } : c))
     );
@@ -458,17 +455,17 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
   const getStepDescription = (step?: string) => {
     switch (step) {
       case 'greeting_sent':
-        return 'Passo 1: Saudação enviada ("Boa tarde!")';
+        return 'Passo 1: SaudaÃ§Ã£o enviada ("Boa tarde!")';
       case 'context_sent':
         return 'Passo 2: Contexto do grupo enviado';
       case 'pitch_sent':
         return 'Passo 3: Proposta consultiva enviada';
       case 'in_dialogue':
-        return 'Em diálogo consultivo contínuo';
+        return 'Em diÃ¡logo consultivo contÃ­nuo';
       case 'human_control':
         return 'Atendente humano no controle';
       default:
-        return 'Aguardando interação';
+        return 'Aguardando interaÃ§Ã£o';
     }
   };
 
@@ -604,11 +601,11 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                             </span>
                           )}
                           <span className="text-[11px] text-emerald-100/70 truncate">
-                            🏷️ {activeLead?.groupName || activeContact.originGroup?.name || 'Grupo WhatsApp'}
+                            ðŸ·ï¸ {activeLead?.groupName || activeContact.originGroup?.name || 'Grupo WhatsApp'}
                           </span>
                         </div>
                         <p className="text-xs font-semibold text-white truncate max-w-lg">
-                          🎯 {activeLead?.demandSummary || activeContact.subtitle || 'Demanda comercial detectada'}
+                          ðŸŽ¯ {activeLead?.demandSummary || activeContact.subtitle || 'Demanda comercial detectada'}
                         </p>
                       </div>
                     </div>
@@ -626,7 +623,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                         ) : (
                           <>
                             <span className="w-2 h-2 rounded-full bg-amber-400" />
-                            <span className="text-amber-200">👤 Atendimento Humano</span>
+                            <span className="text-amber-200">ðŸ‘¤ Atendimento Humano</span>
                           </>
                         )}
                       </div>
@@ -653,7 +650,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                       {activeLead && (
                         <button
                           onClick={() => setShowAiNotesModal(true)}
-                          title="Ver histórico de notas e memórias da IA"
+                          title="Ver histÃ³rico de notas e memÃ³rias da IA"
                           className="p-1.5 rounded-md text-emerald-200 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                         >
                           <FileText className="w-4 h-4" />
@@ -863,7 +860,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">
-                    Memória & Histórico de IA ({activeLead.contactName})
+                    MemÃ³ria & HistÃ³rico de IA ({activeLead.contactName})
                   </h3>
                   <p className="text-[11px] text-gray-500">
                     {getStepDescription(activeLead.conversationStep)}
@@ -882,7 +879,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
               {/* Oportunidade Original */}
               <div className="p-3 bg-emerald-50/60 rounded-xl border border-emerald-200">
                 <span className="font-bold text-emerald-900 block mb-1">
-                  📡 Mensagem Captada no Grupo ({activeLead.groupName}):
+                  ðŸ“¡ Mensagem Captada no Grupo ({activeLead.groupName}):
                 </span>
                 <p className="text-gray-700 italic bg-white p-2.5 rounded-lg border border-emerald-100">
                   "{activeLead.originalMessage}"
@@ -897,11 +894,11 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                 </div>
               </div>
 
-              {/* Memórias Coletadas */}
+              {/* MemÃ³rias Coletadas */}
               {activeLead.collectedInfo && Object.keys(activeLead.collectedInfo).length > 0 && (
                 <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-200">
                   <span className="font-bold text-purple-900 block mb-1">
-                    🧠 Memórias Extraídas da Conversa:
+                    ðŸ§  MemÃ³rias ExtraÃ­das da Conversa:
                   </span>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     {Object.entries(activeLead.collectedInfo).map(([key, val]) => (
@@ -914,10 +911,10 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                 </div>
               )}
 
-              {/* Linha do Tempo de Ações da IA */}
+              {/* Linha do Tempo de AÃ§Ãµes da IA */}
               <div>
                 <span className="font-bold text-gray-800 block mb-2">
-                  📜 Auditoria de Mensagens & Ações:
+                  ðŸ“œ Auditoria de Mensagens & AÃ§Ãµes:
                 </span>
                 <div className="space-y-2">
                   {activeLead.notes.map((note) => (

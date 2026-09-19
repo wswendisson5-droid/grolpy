@@ -1,4 +1,4 @@
-import QRCode from 'qrcode';
+﻿import QRCode from 'qrcode';
 import { ConnectionInfo, ConnectionStatus, QrCodeData } from '../types/connection';
 import { safeEncodeURIComponent } from '../utils/safeUri';
 
@@ -6,7 +6,7 @@ class ConnectionService {
   private currentSelectedInstance: string = '';
 
   private authHeaders(extra: Record<string,string> = {}) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') || '' : '';
+    const token = typeof window !== 'undefined' ? '' : '';
     return { ...extra, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   }
 
@@ -35,7 +35,7 @@ class ConnectionService {
       const res = await fetch(url, { headers: this.authHeaders() });
       const raw = await res.text();
       let data: any = {};
-      try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: 'O servidor retornou uma resposta inválida. Tente novamente.' }; }
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: 'O servidor retornou uma resposta invÃ¡lida. Tente novamente.' }; }
       if (!res.ok && res.status !== 502) return { success: false, error: data.error || `Falha ao gerar QR Code (${res.status}).` };
       
       let qrCode = data.qrCode;
@@ -46,7 +46,7 @@ class ConnectionService {
       }
       return { success: true, qrCode, instanceName: data.instanceName, pending: Boolean(data.pending) };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Não foi possível gerar o QR Code.' };
+      return { success: false, error: err.message || 'NÃ£o foi possÃ­vel gerar o QR Code.' };
     }
   }
 
@@ -63,7 +63,7 @@ class ConnectionService {
       const data = await res.json();
 
       if (!res.ok) {
-        return { success: false, error: data.error || 'Erro ao criar instância' };
+        return { success: false, error: data.error || 'Erro ao criar instÃ¢ncia' };
       }
 
       let qrCode = data.qrCode;
@@ -197,7 +197,7 @@ class ConnectionService {
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Falha ao reiniciar sessão.');
+        throw new Error(data.error || 'Falha ao reiniciar sessÃ£o.');
       }
       return {
         success: true,

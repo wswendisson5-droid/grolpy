@@ -48,116 +48,48 @@ import { ClientPlanosView } from './components/client-panel/views/ClientPlanosVi
 import { ClientCheckoutView } from './components/client-panel/views/ClientCheckoutView';
 import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
+import { sessionService } from './services/sessionService';
 
 export default function App() {
-  const [panelMode, setPanelMode] = useState<any>(() => {
-    if (typeof window === 'undefined') return 'loading';
-    const token = localStorage.getItem('groply_token');
-    if (!token) return 'landing';
-    try {
-      const rawUser = localStorage.getItem('groply_user');
-      const pref = localStorage.getItem('groply_preferred_panel');
-      if (rawUser) {
-        const u = JSON.parse(rawUser);
-        if (u?.role === 'admin') {
-          return pref === 'admin' ? 'admin' : 'client';
-        }
-        return 'client';
-      }
-    } catch {}
-    return 'loading';
-  });
+  const [panelMode, setPanelMode] = useState<any>('loading');
 
-  const logout = () => {
-    try {
-      localStorage.removeItem('groply_token');
-      localStorage.removeItem('groply_user');
-      localStorage.removeItem('groply_whatsapp_profile');
-      localStorage.removeItem('groply_preferred_panel');
-    } catch {}
+  const logout = async () => {
+    await sessionService.logout();
     setPanelMode('landing');
   };
 
   const handleSwitchPanel = (mode: any) => {
     if (mode === 'landing') {
-      logout();
-    } else {
-      try {
-        localStorage.setItem('groply_preferred_panel', mode);
-      } catch {}
-      if (mode === 'admin') {
-        setCurrentTab('radar');
-      }
-      setPanelMode(mode);
+      void logout();
+      return;
     }
+    if (mode === 'admin' || mode === 'client') sessionService.setPreferredPanel(mode);
+    if (mode === 'admin') setCurrentTab('radar');
+    setPanelMode(mode);
   };
 
   useEffect(() => {
     let alive = true;
-    const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') : null;
-    if (!token) {
-      setPanelMode('landing');
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
-
     (async () => {
       try {
-        const r = await fetch('/api/account/status', {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (r.status === 401) {
-          logout();
-          return;
-        }
-
-        if (!r.ok) throw new Error('Status check failed');
-
-        const d = await r.json();
+        const d = await sessionService.status();
         if (!alive) return;
-
-        if (d?.user) {
-          try {
-            localStorage.setItem('groply_user', JSON.stringify(d.user));
-          } catch {}
-        }
-
-        const pref = localStorage.getItem('groply_preferred_panel');
+        const pref = sessionService.getPreferredPanel();
         if (d?.user?.role === 'admin') {
           if (pref === 'admin') {
             setCurrentTab('radar');
             setPanelMode('admin');
-          } else {
-            setPanelMode('client');
-          }
-        } else if (d?.access) {
-          setPanelMode('client');
-        } else if (d?.subscription) {
-          setPanelMode('public-checkout');
-        } else {
-          setPanelMode('public-plans');
-        }
-      } catch {
-        clearTimeout(timeoutId);
+          } else setPanelMode('client');
+        } else if (d?.access) setPanelMode('client');
+        else if (d?.subscription) setPanelMode('public-checkout');
+        else setPanelMode('public-plans');
+      } catch (err: any) {
         if (!alive) return;
-        const hasCachedUser = Boolean(localStorage.getItem('groply_user'));
-        if (!hasCachedUser) {
-          logout();
-        }
+        sessionService.clear();
+        setPanelMode(err?.status === 401 ? 'landing' : 'login');
       }
     })();
-
-    return () => {
-      alive = false;
-      controller.abort();
-      clearTimeout(timeoutId);
-    };
+    return () => { alive = false; };
   }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
   const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
@@ -458,38 +390,16 @@ export default function App() {
       <LoginPage
         onLoginSuccess={async () => {
           try {
-            const token = localStorage.getItem('groply_token') || '';
-            const controller = new AbortController();
-            const tid = setTimeout(() => controller.abort(), 6000);
-            const r = await fetch('/api/account/status', {
-              headers: { Authorization: `Bearer ${token}` },
-              signal: controller.signal,
-            });
-            clearTimeout(tid);
-            const d = await r.json();
-            if (d?.user) {
-              try {
-                localStorage.setItem('groply_user', JSON.stringify(d.user));
-              } catch {}
-            }
-            const pref = localStorage.getItem('groply_preferred_panel');
-            if (d?.user?.role === 'admin') {
-              if (pref === 'admin') {
-                setCurrentTab('radar');
-                setPanelMode('admin');
-              } else {
-                setPanelMode('client');
-              }
+            const d = await sessionService.status();
+            if (d?.user?.role === 'admin' && sessionService.getPreferredPanel() === 'admin') {
+              setCurrentTab('radar');
+              setPanelMode('admin');
               return;
             }
             setPanelMode(d?.access ? 'client' : (d?.subscription ? 'public-checkout' : 'public-plans'));
           } catch {
-            const raw = localStorage.getItem('groply_user');
-            if (raw) {
-              setPanelMode('client');
-            } else {
-              setPanelMode('public-plans');
-            }
+            sessionService.clear();
+            setPanelMode('login');
           }
         }}
         onNavigateRegister={() => setPanelMode('public-plans')}

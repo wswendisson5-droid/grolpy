@@ -11,7 +11,7 @@ export interface PlanConfig {
   maxMonthlySends: number;     // Start: 600, Pro: 2.700, Max: 8.100
   maxActiveCampaigns: number;  // Start: 2, Pro: 5, Max: 10
   historyDays: number;         // Start: 7, Pro: 30, Max: 90
-  supportType: 'E-mail' | 'Prioritário' | 'VIP';
+  supportType: 'E-mail' | 'PrioritÃ¡rio' | 'VIP';
 }
 
 export const PLANS: Record<PlanId, PlanConfig> = {
@@ -39,7 +39,7 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     maxMonthlySends: 2700,
     maxActiveCampaigns: 5,
     historyDays: 30,
-    supportType: 'Prioritário',
+    supportType: 'PrioritÃ¡rio',
   },
   max: {
     id: 'max',
@@ -77,21 +77,7 @@ class PlanService {
   private listeners: Set<() => void> = new Set();
 
   constructor() {
-    // Attempt to load from localStorage if available
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('groply_subscription');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (parsed && (parsed.planId === null || PLANS[parsed.planId as PlanId])) {
-            this.currentSubscription = { ...this.currentSubscription, ...parsed };
-          }
-        }
-      } catch {
-        // ignore
-      }
-      this.syncWithBackend().catch(() => {});
-    }
+    if (typeof window !== 'undefined') this.syncWithBackend().catch(() => {});
   }
 
   subscribe(listener: () => void) {
@@ -123,61 +109,16 @@ class PlanService {
 
   async syncWithBackend(): Promise<SubscriptionState> {
     if (typeof window === 'undefined') return this.getSubscription();
-    const token = localStorage.getItem('groply_token');
-    if (!token) {
-      this.currentSubscription = { planId: null, validUntil: null, status: 'none' };
-      localStorage.removeItem('groply_subscription');
-      this.notify();
-      return this.getSubscription();
-    }
-
     try {
-      const res = await fetch('/api/account/status', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const sub = data.subscription;
-        const user = data.user;
-        const isUserActive = user?.status === 'active';
-        const isSubActive = sub?.status === 'active';
-
-        if (isSubActive && sub?.planId && PLANS[sub.planId as PlanId]) {
-          const validUntil = sub.nextDueDate
-            ? new Date(sub.nextDueDate).toLocaleDateString('pt-BR')
-            : null;
-          this.currentSubscription = {
-            planId: sub.planId as PlanId,
-            validUntil,
-            status: 'active',
-          };
-        } else if (isUserActive && user?.plan && PLANS[user.plan as PlanId] && sub?.status !== 'pending') {
-          this.currentSubscription = {
-            planId: user.plan as PlanId,
-            validUntil: null,
-            status: 'active',
-          };
-        } else if (sub) {
-          this.currentSubscription = {
-            planId: (sub.planId as PlanId) || null,
-            validUntil: null,
-            status: sub.status || 'pending',
-          };
-        } else {
-          this.currentSubscription = {
-            planId: null,
-            validUntil: null,
-            status: user?.status === 'pending_payment' ? 'pending' : 'none',
-          };
-        }
-
-        try {
-          localStorage.setItem('groply_subscription', JSON.stringify(this.currentSubscription));
-        } catch {}
-        this.notify();
-      }
-    } catch {}
-
+      const res = await fetch('/api/account/status');
+      if (!res.ok) { if (res.status === 401) this.currentSubscription = { planId: null, validUntil: null, status: 'none' }; this.notify(); return this.getSubscription(); }
+      const data = await res.json(); const sub = data.subscription; const user = data.user;
+      if (sub?.status === 'active' && sub?.planId && PLANS[sub.planId as PlanId]) this.currentSubscription = { planId: sub.planId as PlanId, validUntil: sub.nextDueDate ? new Date(sub.nextDueDate).toLocaleDateString('pt-BR') : null, status: 'active' };
+      else if (user?.status === 'active' && user?.plan && PLANS[user.plan as PlanId] && sub?.status !== 'pending') this.currentSubscription = { planId: user.plan as PlanId, validUntil: null, status: 'active' };
+      else if (sub) this.currentSubscription = { planId: (sub.planId as PlanId) || null, validUntil: null, status: sub.status || 'pending' };
+      else this.currentSubscription = { planId: null, validUntil: null, status: user?.status === 'pending_payment' ? 'pending' : 'none' };
+      this.notify();
+    } catch (err) { console.error('[planService] sync:', err); }
     return this.getSubscription();
   }
 
@@ -191,22 +132,10 @@ class PlanService {
       status: 'active',
       validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
     };
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem('groply_subscription', JSON.stringify(this.currentSubscription));
-      } catch {
-        // ignore
-      }
-    }
-
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') : null;
       await fetch('/api/client/plan', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ planId: newPlanId }),
       });
     } catch {

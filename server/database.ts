@@ -300,6 +300,12 @@ export async function getUserByToken(token:string){
     FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>NOW() LIMIT 1`,[h]);
   return rows[0]||null;
 }
+export async function deleteSessionByToken(token:string){
+  if(!token) return;
+  const h=crypto.createHash("sha256").update(token).digest("hex");
+  await pool.execute("DELETE FROM sessions WHERE token_hash=?",[h]);
+}
+
 export async function getUserInstance(userId:number){
   const [r]:any=await pool.execute("SELECT * FROM evolution_instances WHERE user_id=? LIMIT 1",[userId]); return r[0]||null;
 }
@@ -1104,4 +1110,3 @@ export async function listLeadsForUser(userId: number) {
     return { ...r, tags };
   });
 }
-

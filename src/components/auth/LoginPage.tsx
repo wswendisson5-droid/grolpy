@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Eye, EyeOff, ArrowRight, CheckCircle2, ShieldCheck, Zap, Sparkles } from 'lucide-react';
 
 interface LoginPageProps {
@@ -53,19 +53,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         throw new Error(data.error || 'E-mail ou senha incorretos.');
       }
 
-      localStorage.setItem('groply_token', data.token);
-      localStorage.setItem('groply_user', JSON.stringify(data.user));
-      if (!localStorage.getItem('groply_preferred_panel')) {
-        localStorage.setItem('groply_preferred_panel', 'client');
-      }
-
       await Promise.resolve(onLoginSuccess());
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
-        setErrorMessage('O servidor demorou para responder. Verifique sua conexão e tente novamente.');
+        setErrorMessage('O servidor demorou para responder. Verifique sua conexÃ£o e tente novamente.');
       } else {
-        setErrorMessage(err.message || 'Não foi possível entrar.');
+        setErrorMessage(err.message || 'NÃ£o foi possÃ­vel entrar.');
       }
     } finally {
       setIsLoading(false);
@@ -99,7 +93,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
         {/* Top Right Switch to Register Link */}
         <div className="flex items-center gap-1.5 text-xs sm:text-sm">
-          <span className="text-[#596f63] hidden sm:inline">Ainda não tem conta?</span>
+          <span className="text-[#596f63] hidden sm:inline">Ainda nÃ£o tem conta?</span>
           <button
             onClick={onNavigateRegister}
             className="font-bold text-[#00c968] hover:text-[#00a855] hover:underline transition-all cursor-pointer"
@@ -119,9 +113,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
             <h1 className="text-4xl xl:text-5xl font-black text-[#0e261f] tracking-tight leading-[1.12] mb-5">
               Mais <br />
-              conexões <br />
+              conexÃµes <br />
               para o seu <br />
-              <span className="text-[#00c968]">negócio.</span>
+              <span className="text-[#00c968]">negÃ³cio.</span>
             </h1>
 
             <p className="text-base xl:text-lg text-[#556b5f] font-normal leading-relaxed max-w-lg mb-8">
@@ -135,7 +129,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <Zap size={17} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-[#0e261f]">Disparos Rápidos e Automatizados</p>
+                  <p className="text-xs font-bold text-[#0e261f]">Disparos RÃ¡pidos e Automatizados</p>
                   <p className="text-[11px] text-[#697e72]">Divulgue em dezenas de grupos simultaneamente</p>
                 </div>
               </div>
@@ -155,7 +149,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <Sparkles size={17} />
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-[#0e261f]">Sincronização Direta de Grupos</p>
+                  <p className="text-xs font-bold text-[#0e261f]">SincronizaÃ§Ã£o Direta de Grupos</p>
                   <p className="text-[11px] text-[#697e72]">Seus grupos reais sempre atualizados no painel</p>
                 </div>
               </div>
@@ -226,7 +220,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 <div className="flex justify-end">
                   <button
                     type="button"
-                    onClick={() => alert('Instruções de recuperação foram enviadas para seu e-mail cadastrado.')}
+                    onClick={() => alert('InstruÃ§Ãµes de recuperaÃ§Ã£o foram enviadas para seu e-mail cadastrado.')}
                     className="text-xs font-bold text-[#00c968] hover:text-[#00a855] hover:underline transition-colors cursor-pointer"
                   >
                     Esqueceu sua senha?
@@ -286,7 +280,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </button>
 
               <div className="mt-6 text-center lg:hidden">
-                <span className="text-xs text-[#596f63]">Ainda não tem uma conta? </span>
+                <span className="text-xs text-[#596f63]">Ainda nÃ£o tem uma conta? </span>
                 <button
                   onClick={onNavigateRegister}
                   className="text-xs font-bold text-[#00c968] hover:underline"
@@ -305,12 +299,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 border-t border-[#e5ebe7] flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-[#71867b]">
         <div className="flex items-center gap-2">
           <span className="font-bold text-[#142d23] uppercase tracking-wider text-[10px]">GRUPLY</span>
-          <span>•</span>
+          <span>â€¢</span>
           <span>Grupos que geram resultados.</span>
         </div>
         <div className="flex items-center gap-4 text-[11px]">
           <span className="hover:text-[#142d23] cursor-pointer">Termos de uso</span>
-          <span className="hover:text-[#142d23] cursor-pointer">Política de privacidade</span>
+          <span className="hover:text-[#142d23] cursor-pointer">PolÃ­tica de privacidade</span>
           <span className="hover:text-[#142d23] cursor-pointer">Suporte</span>
         </div>
       </div>

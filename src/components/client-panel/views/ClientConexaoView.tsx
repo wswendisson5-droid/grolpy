@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
 import {
   Loader2,
@@ -45,7 +45,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   const isWaitingQrRef = useRef(false);
 
   const authHeaders = useCallback(() => ({
-    Authorization: `Bearer ${localStorage.getItem('groply_token') || ''}`,
+    Authorization: `Bearer ${''}`,
     'Content-Type': 'application/json',
   }), []);
 
@@ -172,7 +172,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   const generatePairingCode = async () => {
     const rawDigits = phoneNumber.replace(/\D/g, '');
     if (!rawDigits || rawDigits.length < 10) {
-      setPhoneError('Digite um número de WhatsApp válido com DDD (ex: 11 98888-7777).');
+      setPhoneError('Digite um nÃºmero de WhatsApp vÃ¡lido com DDD (ex: 11 98888-7777).');
       return;
     }
 
@@ -191,7 +191,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setErrorMessage(data.error || 'Não foi possível gerar o código. Verifique o número digitado.');
+        setErrorMessage(data.error || 'NÃ£o foi possÃ­vel gerar o cÃ³digo. Verifique o nÃºmero digitado.');
         setStatus('error');
         return;
       }
@@ -210,7 +210,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       }
     } catch (e: any) {
       console.error('[ClientConexao] Pairing code request:', e);
-      setErrorMessage(e.message || 'Falha de comunicação ao gerar o código.');
+      setErrorMessage(e.message || 'Falha de comunicaÃ§Ã£o ao gerar o cÃ³digo.');
       setStatus('error');
     } finally {
       setIsGenerating(false);
@@ -340,10 +340,10 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-[#11241c] tracking-tight">
-            WhatsApp Conexão
+            WhatsApp ConexÃ£o
           </h1>
           <p className="text-[#5b6e63] mt-1 text-sm sm:text-base">
-            Conecte seu WhatsApp por QR Code ou com seu número de telefone (Código de Pareamento).
+            Conecte seu WhatsApp por QR Code ou com seu nÃºmero de telefone (CÃ³digo de Pareamento).
           </p>
         </div>
 
@@ -358,7 +358,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           {status === 'waiting_qr' && (
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#fff8e6] text-[#b47d00] border border-[#fbe4a8]">
               <span className="w-2 h-2 rounded-full bg-[#e5a000] animate-ping" />
-              Aguardando Conexão
+              Aguardando ConexÃ£o
             </span>
           )}
           {(status === 'disconnected' || status === 'loading') && (
@@ -395,7 +395,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             }`}
           >
             <Phone size={16} className={activeMethod === 'number' ? 'text-[#109353]' : ''} />
-            <span>Conectar com Número</span>
+            <span>Conectar com NÃºmero</span>
           </button>
         </div>
       )}
@@ -407,7 +407,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Loader2 className="w-10 h-10 animate-spin text-[#109353] mb-4" />
             <p className="text-[#11241c] font-bold text-lg">Verificando status do WhatsApp...</p>
-            <p className="text-[#5b6e63] text-sm mt-1">Conectando à API em tempo real</p>
+            <p className="text-[#5b6e63] text-sm mt-1">Conectando Ã  API em tempo real</p>
           </div>
         )}
 
@@ -421,7 +421,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-[#11241c] mb-2">Conectar por QR Code</h2>
                 <p className="text-[#5b6e63] max-w-md mb-8 text-sm sm:text-base leading-relaxed">
-                  Gere o QR Code em tempo real e aponte a câmera do seu celular para vincular o WhatsApp ao seu painel.
+                  Gere o QR Code em tempo real e aponte a cÃ¢mera do seu celular para vincular o WhatsApp ao seu painel.
                 </p>
                 <button
                   onClick={() => generateQrCode(false)}
@@ -431,7 +431,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Preparando Conexão...</span>
+                      <span>Preparando ConexÃ£o...</span>
                     </>
                   ) : (
                     <>
@@ -446,18 +446,18 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 <div className="w-16 h-16 rounded-2xl bg-[#eef6f1] border border-[#dbe9e1] flex items-center justify-center mb-5 shadow-xs">
                   <Phone className="w-8 h-8 text-[#109353]" />
                 </div>
-                <h2 className="text-xl sm:text-2xl font-bold text-[#11241c] mb-2">Conectar com Número de Telefone</h2>
+                <h2 className="text-xl sm:text-2xl font-bold text-[#11241c] mb-2">Conectar com NÃºmero de Telefone</h2>
                 <p className="text-[#5b6e63] text-sm sm:text-base mb-6 leading-relaxed">
-                  Se não puder usar a câmera, gere um código de 8 dígitos para inserir diretamente no seu WhatsApp.
+                  Se nÃ£o puder usar a cÃ¢mera, gere um cÃ³digo de 8 dÃ­gitos para inserir diretamente no seu WhatsApp.
                 </p>
 
                 <div className="w-full text-left mb-6">
                   <label className="block text-xs font-bold text-[#11241c] mb-1.5">
-                    Número do WhatsApp (com DDD)
+                    NÃºmero do WhatsApp (com DDD)
                   </label>
                   <div className="relative flex items-center">
                     <div className="absolute left-3.5 flex items-center gap-1 text-xs font-bold text-[#109353] bg-[#e8f6ee] px-2 py-1 rounded-md border border-[#c4e8d3]">
-                      🇧🇷 +55
+                      ðŸ‡§ðŸ‡· +55
                     </div>
                     <input
                       type="text"
@@ -487,12 +487,12 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Gerando Código de Pareamento...</span>
+                      <span>Gerando CÃ³digo de Pareamento...</span>
                     </>
                   ) : (
                     <>
                       <Sparkles className="w-5 h-5" />
-                      <span>Gerar Código de Conexão</span>
+                      <span>Gerar CÃ³digo de ConexÃ£o</span>
                     </>
                   )}
                 </button>
@@ -556,7 +556,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                     Como conectar seu WhatsApp por QR Code:
                   </h2>
                   <p className="text-sm text-[#5b6e63] mb-6">
-                    Siga os 3 passos abaixo no seu smartphone para autenticar a conexão.
+                    Siga os 3 passos abaixo no seu smartphone para autenticar a conexÃ£o.
                   </p>
 
                   <div className="space-y-4">
@@ -577,7 +577,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       <div>
                         <p className="font-semibold text-sm text-[#11241c]">Acesse os Aparelhos Conectados</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque no menu <span className="font-bold text-[#11241c]">⋮</span> (Android) ou em <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) e selecione <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
+                          Toque no menu <span className="font-bold text-[#11241c]">â‹®</span> (Android) ou em <span className="font-bold text-[#11241c]">ConfiguraÃ§Ãµes</span> (iPhone) e selecione <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
                         </p>
                       </div>
                     </div>
@@ -589,7 +589,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       <div>
                         <p className="font-semibold text-sm text-[#11241c]">Conecte o Aparelho</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque em <span className="font-bold text-[#11241c]">Conectar um aparelho</span> e aponte a câmera para o QR Code ao lado.
+                          Toque em <span className="font-bold text-[#11241c]">Conectar um aparelho</span> e aponte a cÃ¢mera para o QR Code ao lado.
                         </p>
                       </div>
                     </div>
@@ -599,7 +599,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   <div className="mt-6 p-3.5 rounded-2xl bg-[#eef7f2] border border-[#d6ecdf] flex items-start gap-3 text-xs text-[#134e32]">
                     <ShieldCheck className="w-4 h-4 text-[#109353] shrink-0 mt-0.5" />
                     <span>
-                      Mantenha esta página aberta enquanto conecta seu WhatsApp. A sincronização ocorrerá automaticamente após a leitura.
+                      Mantenha esta pÃ¡gina aberta enquanto conecta seu WhatsApp. A sincronizaÃ§Ã£o ocorrerÃ¡ automaticamente apÃ³s a leitura.
                     </span>
                   </div>
                 </div>
@@ -611,7 +611,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 <div className="lg:col-span-6 flex flex-col items-center justify-center text-center">
                   <div className="w-full max-w-sm p-6 bg-[#fbfdfc] rounded-3xl border-2 border-[#109353]/25 shadow-[0_4px_24px_rgba(16,147,83,0.06)] flex flex-col items-center">
                     <span className="text-xs font-extrabold text-[#109353] uppercase tracking-wider mb-2">
-                      Código de Pareamento
+                      CÃ³digo de Pareamento
                     </span>
 
                     {pairingCode ? (
@@ -621,7 +621,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                     ) : (
                       <div className="my-6 flex flex-col items-center">
                         <Loader2 className="w-8 h-8 animate-spin text-[#109353] mb-2" />
-                        <p className="text-xs font-semibold text-[#5b6e63]">Gerando código...</p>
+                        <p className="text-xs font-semibold text-[#5b6e63]">Gerando cÃ³digo...</p>
                       </div>
                     )}
 
@@ -637,19 +637,19 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                         {isCopied ? (
                           <>
                             <Check size={16} />
-                            <span>Código Copiado!</span>
+                            <span>CÃ³digo Copiado!</span>
                           </>
                         ) : (
                           <>
                             <Copy size={16} className="text-[#109353]" />
-                            <span>Copiar Código</span>
+                            <span>Copiar CÃ³digo</span>
                           </>
                         )}
                       </button>
                     )}
 
                     <p className="text-[11px] text-[#708479] mt-3">
-                      Insira este código no WhatsApp do seu celular no prazo de 2 minutos.
+                      Insira este cÃ³digo no WhatsApp do seu celular no prazo de 2 minutos.
                     </p>
                   </div>
 
@@ -661,7 +661,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#f0f4f1] hover:bg-[#e4ede8] active:scale-[0.98] text-[#11241c] text-xs font-bold rounded-xl border border-[#d8e3dd] transition-all cursor-pointer disabled:opacity-60"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 text-[#109353] ${isGenerating ? 'animate-spin' : ''}`} />
-                      <span>Gerar Novo Código</span>
+                      <span>Gerar Novo CÃ³digo</span>
                     </button>
 
                     <button
@@ -673,7 +673,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       }}
                       className="px-4 py-2.5 bg-white hover:bg-[#f9faf9] text-[#5b6e63] hover:text-[#11241c] text-xs font-semibold rounded-xl border border-[#e5ebe7] transition-all cursor-pointer"
                     >
-                      Trocar Número
+                      Trocar NÃºmero
                     </button>
                   </div>
                 </div>
@@ -681,10 +681,10 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 {/* Right: Step-by-Step Instructions */}
                 <div className="lg:col-span-6 flex flex-col">
                   <h2 className="text-xl sm:text-2xl font-bold text-[#11241c] mb-2">
-                    Como inserir o código no WhatsApp:
+                    Como inserir o cÃ³digo no WhatsApp:
                   </h2>
                   <p className="text-sm text-[#5b6e63] mb-6">
-                    Siga o passo a passo abaixo no celular com o número <span className="font-bold text-[#11241c]">{phoneNumber || 'cadastrado'}</span>.
+                    Siga o passo a passo abaixo no celular com o nÃºmero <span className="font-bold text-[#11241c]">{phoneNumber || 'cadastrado'}</span>.
                   </p>
 
                   <div className="space-y-3.5">
@@ -705,7 +705,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       <div>
                         <p className="font-semibold text-sm text-[#11241c]">Acesse Aparelhos Conectados</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque no menu <span className="font-bold text-[#11241c]">⋮</span> (Android) ou <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) &gt; <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
+                          Toque no menu <span className="font-bold text-[#11241c]">â‹®</span> (Android) ou <span className="font-bold text-[#11241c]">ConfiguraÃ§Ãµes</span> (iPhone) &gt; <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
                         </p>
                       </div>
                     </div>
@@ -715,9 +715,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                         3
                       </div>
                       <div>
-                        <p className="font-semibold text-sm text-[#11241c]">Toque em "Conectar com número"</p>
+                        <p className="font-semibold text-sm text-[#11241c]">Toque em "Conectar com nÃºmero"</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque em <span className="font-bold text-[#11241c]">Conectar um aparelho</span> e selecione a opção <span className="font-bold text-[#109353]">"Conectar com número de telefone"</span> na parte inferior.
+                          Toque em <span className="font-bold text-[#11241c]">Conectar um aparelho</span> e selecione a opÃ§Ã£o <span className="font-bold text-[#109353]">"Conectar com nÃºmero de telefone"</span> na parte inferior.
                         </p>
                       </div>
                     </div>
@@ -727,9 +727,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                         4
                       </div>
                       <div>
-                        <p className="font-semibold text-sm text-[#11241c]">Digite o Código de 8 Dígitos</p>
+                        <p className="font-semibold text-sm text-[#11241c]">Digite o CÃ³digo de 8 DÃ­gitos</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Insira o código exibido ao lado no seu celular para autorizar a conexão.
+                          Insira o cÃ³digo exibido ao lado no seu celular para autorizar a conexÃ£o.
                         </p>
                       </div>
                     </div>
@@ -739,7 +739,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   <div className="mt-5 p-3.5 rounded-2xl bg-[#eef7f2] border border-[#d6ecdf] flex items-start gap-3 text-xs text-[#134e32]">
                     <ShieldCheck className="w-4 h-4 text-[#109353] shrink-0 mt-0.5" />
                     <span>
-                      Após digitar o código no seu celular, a tela será atualizada para Conectado automaticamente.
+                      ApÃ³s digitar o cÃ³digo no seu celular, a tela serÃ¡ atualizada para Conectado automaticamente.
                     </span>
                   </div>
                 </div>
@@ -758,7 +758,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
               WhatsApp Conectado!
             </h2>
             <p className="text-[#5b6e63] max-w-md mb-8 text-sm sm:text-base">
-              Seu WhatsApp está autenticado e pronto para realizar envios e divulgações automáticas.
+              Seu WhatsApp estÃ¡ autenticado e pronto para realizar envios e divulgaÃ§Ãµes automÃ¡ticas.
             </p>
 
             {/* Profile Info Card */}
@@ -829,9 +829,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-center mb-4">
               <AlertCircle className="w-8 h-8 text-red-500" />
             </div>
-            <h2 className="text-xl font-bold text-[#11241c] mb-2">Erro de Conexão</h2>
+            <h2 className="text-xl font-bold text-[#11241c] mb-2">Erro de ConexÃ£o</h2>
             <p className="text-[#5b6e63] text-sm max-w-md mb-6">
-              {errorMessage || 'Não foi possível estabelecer a conexão. Verifique os dados e tente novamente.'}
+              {errorMessage || 'NÃ£o foi possÃ­vel estabelecer a conexÃ£o. Verifique os dados e tente novamente.'}
             </p>
             <div className="flex items-center gap-3">
               <button
