@@ -421,7 +421,9 @@ app.get("/api/evolution/instances", async (req, res) => {
 });
 
 // 3. Select active instance
-app.post("/api/evolution/select-instance", (req, res) => {
+app.post("/api/evolution/select-instance", async (req, res) => {
+  const admin=await requireAdmin(req);
+  if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
   const { instanceName } = req.body;
   if (!instanceName) {
     return res.status(400).json({ error: "instanceName é obrigatório." });
@@ -646,67 +648,66 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 
 // 5.1 Clean Reset & Recreate Instance (Fixes corrupt Baileys session or stuck count)
 app.post("/api/evolution/reset-instance", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own:any=await ownedInstance(req);
+  if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
-    // 1. Delete old instance cleanly
-    try {
-      await callEvolution(`/instance/delete/${instance}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-    } catch (e) {
-      console.warn("Delete attempt during reset:", e);
+    // Refreshing the QR must never delete the tenant's Evolution instance.
+    // Deleting/recreating the Baileys session was the source of intermittent
+    // first-click failures and could also destroy an already-established session.
+    let lastFailure:any = null;
+
+    for(let attempt=0; attempt<6; attempt++){
+      const connectRes = await callEvolution(`/instance/connect/${instance}`, {
+        method: "GET",
+      }, 9000, 1);
+
+      if(connectRes.ok){
+        const q:any = connectRes.data?.qrcode || connectRes.data;
+        if(q?.base64 || q?.code){
+          currentInst.qrCode={
+            base64:q.base64,
+            code:q.code,
+            pairingCode:q.pairingCode,
+            updatedAt:Date.now(),
+          };
+          currentInst.state="waiting_qr";
+          currentInst.lastUpdated=new Date().toISOString();
+          await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
+          return res.json({
+            success:true,
+            instanceName:instance,
+            qrCode:currentInst.qrCode,
+            message:"Novo QR Code gerado sem recriar a sessão.",
+          });
+        }
+        lastFailure=connectRes.data;
+      }else{
+        lastFailure=connectRes.data;
+      }
+
+      if(attempt<5) await new Promise(resolve=>setTimeout(resolve,700+attempt*350));
     }
 
-    // 2. Wait 1 second for Baileys file cleanup
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // 3. Create fresh instance with Baileys and QR code enabled
-    const createRes = await callEvolution("/instance/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        instanceName: instance,
-        integration: "WHATSAPP-BAILEYS",
-        qrcode: true,
-      }),
+    const detail=lastFailure?.response?.message||lastFailure?.message||lastFailure?.error;
+    return res.status(502).json({
+      error:detail||"A Evolution ainda não disponibilizou o QR Code.",
+      retryable:true
     });
-
-    let q = createRes.data?.qrcode;
-    if (!q?.base64) {
-      // Connect to get QR if not in create response
-      const connectRes = await callEvolution(`/instance/connect/${instance}`);
-      q = connectRes.data;
-    }
-
-    if (q) {
-      currentInst.qrCode = {
-        base64: q.base64,
-        code: q.code,
-        pairingCode: q.pairingCode,
-        updatedAt: Date.now(),
-      };
-      currentInst.state = "waiting_qr";
-      currentInst.lastUpdated = new Date().toISOString();
-    }
-
-    await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
-    res.json({
-      success: true,
-      instanceName: instance,
-      qrCode: currentInst.qrCode,
-      message: "Instância reiniciada com sucesso. Novo QR Code limpo gerado.",
+  }catch(err:any){
+    console.error("[Evolution reset-instance]",instance,err?.message||err);
+    return res.status(502).json({
+      error:"Não foi possível atualizar o QR Code agora. A sessão foi preservada; tente novamente.",
+      retryable:true
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || "Erro ao resetar instância." });
   }
 });
 
 // 6. Create instance manually: POST /instance/create
+
 app.post("/api/evolution/create-instance", async (req, res) => {
   const user:any=await authenticatedUser(req);
   if(!user)return res.status(401).json({error:"Sessão inválida."});
@@ -719,24 +720,32 @@ app.post("/api/evolution/create-instance", async (req, res) => {
     // A instância pertence ao user_id e seu nome fica persistido no MySQL.
     // Se ela já existe na Evolution, connect devolve um QR novo; se não existe, criamos.
     let qr:any=null;
-    let connectRes=await callEvolution(`/instance/connect/${instance}`,{},8000,0);
-    if(connectRes.ok) qr=connectRes.data?.qrcode || connectRes.data;
 
-    if(!qr?.base64 && !qr?.code){
-      const createRes=await callEvolution("/instance/create",{
-        method:"POST",
-        body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
-      },10000,0);
-      if(!createRes.ok && createRes.status!==403 && createRes.status!==409)
-        throw new Error(createRes.data?.response?.message||createRes.data?.message||createRes.data?.error||"Falha ao criar instância na Evolution");
-      qr=createRes.data?.qrcode || null;
+    // First connection is asynchronous in Evolution. Give it a few attempts
+    // instead of making the customer click "Tentar novamente".
+    for(let attempt=0; attempt<4 && !qr?.base64 && !qr?.code; attempt++){
+      const connectRes=await callEvolution(`/instance/connect/${instance}`,{},8000,1);
+      if(connectRes.ok) qr=connectRes.data?.qrcode || connectRes.data;
+      if(qr?.base64 || qr?.code) break;
+
+      if(attempt===0){
+        const createRes=await callEvolution("/instance/create",{
+          method:"POST",
+          body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
+        },10000,1);
+        if(!createRes.ok && createRes.status!==403 && createRes.status!==409){
+          const msg=createRes.data?.response?.message||createRes.data?.message||createRes.data?.error;
+          if(createRes.status!==404) throw new Error(msg||"Falha ao criar instância na Evolution");
+        }
+        qr=createRes.data?.qrcode || qr;
+      }
+
       if(!qr?.base64 && !qr?.code){
-        await new Promise(r=>setTimeout(r,500));
-        connectRes=await callEvolution(`/instance/connect/${instance}`,{},8000,0);
-        if(connectRes.ok) qr=connectRes.data?.qrcode || connectRes.data;
+        await new Promise(resolve=>setTimeout(resolve,800+attempt*500));
       }
     }
-    if(!qr?.base64 && !qr?.code) throw new Error("A Evolution não retornou o QR Code.");
+
+    if(!qr?.base64 && !qr?.code) throw new Error("A Evolution ainda não disponibilizou o QR Code.");
     currentInst.qrCode={base64:qr.base64,code:qr.code,pairingCode:qr.pairingCode,updatedAt:Date.now()};
     currentInst.state="waiting_qr"; currentInst.lastUpdated=new Date().toISOString();
     await db.setUserInstanceStatus(user.id,"waiting_qr");
