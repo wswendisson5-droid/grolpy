@@ -223,15 +223,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           2. HERO SECTION
          ========================================================================= */}
-      <section id="inicio" className="relative pt-10 pb-16 md:pt-16 md:pb-24 overflow-hidden">
+      <section id="inicio" className="relative pt-6 pb-8 md:pt-10 md:pb-12 overflow-hidden">
         {/* Background glow behind phone */}
         <div className="absolute top-1/2 right-4 md:right-16 -translate-y-1/2 w-[340px] md:w-[620px] h-[340px] md:h-[620px] rounded-full bg-gradient-to-br from-[#8ff0c2]/60 via-[#4be39c]/40 to-[#10b981]/15 blur-3xl pointer-events-none -z-10" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-center">
             {/* Left Content */}
-            <div className="lg:col-span-6 flex flex-col gap-6 text-left">
-              <h1 className="text-4xl sm:text-5xl lg:text-[58px] font-extrabold text-[#0e261f] leading-[1.12] tracking-tight">
+            <div className="lg:col-span-6 flex flex-col gap-5 text-left">
+              <h1 className="text-4xl sm:text-5xl lg:text-[54px] font-extrabold text-[#0e261f] leading-[1.12] tracking-tight">
                 Mais conexões <br />
                 para o seu <br />
                 <span className="text-[#00c968]">negócio.</span>
@@ -243,10 +243,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </p>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-4 pt-1">
                 <button
                   onClick={onGetStarted}
-                  className="inline-flex items-center justify-center gap-2.5 px-8 py-4 rounded-full text-base font-bold text-white bg-[#0e261f] hover:bg-[#163a2f] transition-all duration-200 shadow-md hover:shadow-lg hover:-translate-y-0.5 cursor-pointer group"
+                  className="inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-full text-base font-bold text-white bg-[#0e261f] hover:bg-[#163a2f] transition-all duration-200 shadow-md hover:shadow-lg hover:-translate-y-0.5 cursor-pointer group"
                 >
                   <span>Começar agora</span>
                   <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
@@ -257,7 +257,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     const el = document.getElementById('como-funciona');
                     el?.scrollIntoView({ behavior: 'smooth' });
                   }}
-                  className="inline-flex items-center gap-3 px-5 py-3.5 rounded-full text-sm sm:text-base font-bold text-[#0e261f] hover:bg-black/5 transition-all cursor-pointer"
+                  className="inline-flex items-center gap-3 px-5 py-3 rounded-full text-sm sm:text-base font-bold text-[#0e261f] hover:bg-black/5 transition-all cursor-pointer"
                 >
                   <div className="w-8 h-8 rounded-full bg-[#0e261f] text-white flex items-center justify-center shadow-xs">
                     <Play size={13} className="fill-white translate-x-0.5" />
@@ -274,7 +274,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 src="https://i.imgur.com/pRMndRA.jpeg"
                 alt="Aplicativo Grolpy no Celular"
                 referrerPolicy="no-referrer"
-                className="w-full max-w-[340px] sm:max-w-[400px] max-h-[580px] object-contain rounded-[32px] shadow-[0_25px_60px_-15px_rgba(14,38,31,0.28)]"
+                className="w-full max-w-[340px] sm:max-w-[390px] max-h-[540px] object-contain rounded-[28px] shadow-[0_20px_50px_-15px_rgba(14,38,31,0.25)]"
               />
             </div>
           </div>
@@ -284,13 +284,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           3. FEATURE ICONS ROW (5 items exactly matching the image)
          ========================================================================= */}
-      <section className="py-10 border-y border-[#e6ece8] bg-white/70">
+      <section className="py-6 border-y border-[#e6ece8] bg-white/70">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6 sm:gap-8 items-start text-center">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 sm:gap-6 items-start text-center">
             {/* 1 */}
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
-                <CheckCircle2 size={24} />
+            <div className="flex flex-col items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
+                <CheckCircle2 size={22} />
               </div>
               <p className="text-xs sm:text-[13px] font-bold text-[#0e261f] leading-snug">
                 Envio em grupos <br />
@@ -299,9 +299,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* 2 */}
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
-                <Users size={24} />
+            <div className="flex flex-col items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
+                <Users size={22} />
               </div>
               <p className="text-xs sm:text-[13px] font-bold text-[#0e261f] leading-snug">
                 Gerencie vários <br />
@@ -310,9 +310,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* 3 */}
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
-                <TrendingUp size={24} />
+            <div className="flex flex-col items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
+                <TrendingUp size={22} />
               </div>
               <p className="text-xs sm:text-[13px] font-bold text-[#0e261f] leading-snug">
                 Relatórios em <br />
@@ -321,9 +321,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* 4 */}
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
-                <ShieldCheck size={24} />
+            <div className="flex flex-col items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
+                <ShieldCheck size={22} />
               </div>
               <p className="text-xs sm:text-[13px] font-bold text-[#0e261f] leading-snug">
                 Seguro e <br />
@@ -332,9 +332,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* 5 */}
-            <div className="col-span-2 sm:col-span-1 flex flex-col items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
-                <BarChart3 size={24} />
+            <div className="col-span-2 sm:col-span-1 flex flex-col items-center gap-2.5">
+              <div className="w-11 h-11 rounded-2xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shadow-xs">
+                <BarChart3 size={22} />
               </div>
               <p className="text-xs sm:text-[13px] font-bold text-[#0e261f] leading-snug">
                 Interface simples <br />
@@ -348,9 +348,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           4. "COMO FUNCIONA" (How it Works) SECTION
          ========================================================================= */}
-      <section id="como-funciona" className="py-20 md:py-28">
+      <section id="como-funciona" className="py-10 md:py-14">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
             {/* Left Column */}
             <div className="lg:col-span-5 flex flex-col gap-5 text-left">
               <div className="flex items-center gap-2">
@@ -461,16 +461,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* =========================================================================
-          5. DASHBOARD REAL (Versão Desktop Horizontal)
+          5. DASHBOARD REAL (Versão Desktop Horizontal - Cantos Quadrados Sem Corte)
          ========================================================================= */}
-      <section id="recursos" className="py-12 md:py-20">
+      <section id="recursos" className="py-4 md:py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative rounded-3xl overflow-hidden border border-[#dce5df] bg-white shadow-[0_20px_50px_-15px_rgba(14,38,31,0.12)] hover:shadow-[0_30px_60px_-15px_rgba(14,38,31,0.2)] transition-all">
+          <div className="relative border border-[#dce5df] bg-white shadow-[0_15px_40px_-15px_rgba(14,38,31,0.12)] hover:shadow-[0_25px_50px_-15px_rgba(14,38,31,0.18)] transition-all">
             <img
               src="https://i.imgur.com/QGVPcAW.png"
               alt="Painel Grolpy Desktop"
               referrerPolicy="no-referrer"
-              className="w-full h-auto object-cover rounded-3xl block shadow-xs"
+              className="w-full h-auto block"
             />
           </div>
         </div>
@@ -479,11 +479,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           6. "POR QUE ESCOLHER O GRUPLY?" SECTION
          ========================================================================= */}
-      <section className="py-20 md:py-28 bg-[#f5f8f6]/70">
+      <section className="py-10 md:py-14 bg-[#f5f8f6]/70">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-14 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
             {/* Left Column */}
-            <div className="lg:col-span-5 flex flex-col gap-5 text-left">
+            <div className="lg:col-span-5 flex flex-col gap-4 text-left">
               <div className="flex items-center gap-2">
                 <span className="w-4 h-[2px] bg-[#00c968]" />
                 <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#00c968]">
@@ -491,7 +491,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </span>
               </div>
 
-              <h2 className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold text-[#0e261f] leading-[1.18] tracking-tight">
+              <h2 className="text-3xl sm:text-4xl lg:text-[40px] font-extrabold text-[#0e261f] leading-[1.18] tracking-tight">
                 Mais resultados <br />
                 com menos esforço.
               </h2>
@@ -501,7 +501,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 comunidade.
               </p>
 
-              <div className="pt-2">
+              <div className="pt-1">
                 <button
                   onClick={onGetStarted}
                   className="inline-flex items-center gap-2.5 px-7 py-3.5 rounded-full text-sm font-bold text-white bg-[#0e261f] hover:bg-[#15382e] transition-all shadow-md hover:shadow-lg cursor-pointer"
@@ -513,9 +513,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Right Column (2x2 Feature Grid) */}
-            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Card 1 */}
-              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-6 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all group">
+              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 flex flex-col justify-between gap-5 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all group">
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center">
                     <Zap size={20} />
@@ -524,14 +524,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-[#0e261f] leading-tight">Automação inteligente</h3>
-                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1.5 leading-snug">
+                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1 leading-snug">
                     Programe suas campanhas e economize tempo.
                   </p>
                 </div>
               </div>
 
               {/* Card 2 */}
-              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-6 shadow-xs hover:shadow-md hover:border-[#2563eb]/50 transition-all group">
+              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 flex flex-col justify-between gap-5 shadow-xs hover:shadow-md hover:border-[#2563eb]/50 transition-all group">
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-[#eaf3fd] text-[#2563eb] flex items-center justify-center">
                     <Users size={20} />
@@ -540,14 +540,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-[#0e261f] leading-tight">Mais engajamento</h3>
-                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1.5 leading-snug">
+                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1 leading-snug">
                     Leve suas mensagens para mais pessoas.
                   </p>
                 </div>
               </div>
 
               {/* Card 3 */}
-              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-6 shadow-xs hover:shadow-md hover:border-[#8b5cf6]/50 transition-all group">
+              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 flex flex-col justify-between gap-5 shadow-xs hover:shadow-md hover:border-[#8b5cf6]/50 transition-all group">
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-[#f4eefb] text-[#8b5cf6] flex items-center justify-center">
                     <BarChart3 size={20} />
@@ -556,14 +556,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-[#0e261f] leading-tight">Relatórios completos</h3>
-                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1.5 leading-snug">
+                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1 leading-snug">
                     Acompanhe entregas e resultados em tempo real.
                   </p>
                 </div>
               </div>
 
               {/* Card 4 */}
-              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-6 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all group">
+              <div className="bg-white border border-[#e5ebe7] rounded-2xl p-5 flex flex-col justify-between gap-5 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all group">
                 <div className="flex items-center justify-between">
                   <div className="w-10 h-10 rounded-xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center">
                     <Lock size={20} />
@@ -572,7 +572,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-[#0e261f] leading-tight">Segurança e privacidade</h3>
-                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1.5 leading-snug">
+                  <p className="text-xs sm:text-sm text-[#6a7d73] mt-1 leading-snug">
                     Seus dados protegidos sempre.
                   </p>
                 </div>
@@ -585,16 +585,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           7. "RESULTADOS REAIS" STATS BANNER (Dark Green Gradient Card)
          ========================================================================= */}
-      <section className="py-16 md:py-24">
+      <section className="py-8 md:py-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative rounded-[36px] bg-gradient-to-r from-[#041a12] via-[#08291e] to-[#041a12] text-white p-8 sm:p-12 lg:p-16 overflow-hidden shadow-2xl border border-[#164332]">
+          <div className="relative rounded-[28px] bg-gradient-to-r from-[#041a12] via-[#08291e] to-[#041a12] text-white p-6 sm:p-10 lg:p-12 overflow-hidden shadow-2xl border border-[#164332]">
             {/* Glowing background circles */}
             <div className="absolute top-0 right-0 w-96 h-96 bg-[#00c968]/15 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#00c968]/10 rounded-full blur-3xl pointer-events-none" />
 
-            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-6 items-center">
               {/* Left Column */}
-              <div className="lg:col-span-5 flex flex-col gap-4 text-left">
+              <div className="lg:col-span-5 flex flex-col gap-3 text-left">
                 <div className="flex items-center gap-2">
                   <span className="w-4 h-[2px] bg-[#00c968]" />
                   <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#00c968]">
@@ -602,7 +602,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </span>
                 </div>
 
-                <h2 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight tracking-tight">
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white leading-tight tracking-tight">
                   Negócios de todos os tamanhos já confiam no <span className="text-[#00c968]">Gruply.</span>
                 </h2>
 
@@ -655,11 +655,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           8. "DEPOIMENTOS" (Testimonials) SECTION
          ========================================================================= */}
-      <section id="depoimentos" className="py-20 md:py-28">
+      <section id="depoimentos" className="py-10 md:py-14">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 mb-12">
-            <div className="flex flex-col gap-2 text-left">
+          <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-4 mb-6">
+            <div className="flex flex-col gap-1.5 text-left">
               <div className="flex items-center gap-2">
                 <span className="w-4 h-[2px] bg-[#00c968]" />
                 <span className="text-[11px] font-extrabold uppercase tracking-widest text-[#00c968]">
@@ -694,18 +694,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </div>
 
           {/* 3 Testimonial Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
             {testimonials.map((t, idx) => (
               <div
                 key={idx}
-                className="bg-white border border-[#e5ebe7] rounded-2xl p-6 flex flex-col justify-between gap-5 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all"
+                className="bg-white border border-[#e5ebe7] rounded-2xl p-5 sm:p-6 flex flex-col justify-between gap-4 shadow-xs hover:shadow-md hover:border-[#00c968]/50 transition-all"
               >
                 {/* Author Info */}
                 <div className="flex items-center gap-3.5">
                   <img
                     src={t.avatar}
                     alt={t.name}
-                    className="w-12 h-12 rounded-full object-cover border-2 border-[#e6f9ef]"
+                    className="w-11 h-11 rounded-full object-cover border-2 border-[#e6f9ef]"
                   />
                   <div>
                     <h3 className="text-sm font-bold text-[#0e261f] leading-tight">{t.name}</h3>
@@ -733,15 +733,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           9. BOTTOM CTA BANNER
          ========================================================================= */}
-      <section className="py-12 md:py-20">
+      <section className="py-6 md:py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="relative rounded-[32px] bg-[#e9f8f0] border border-[#c4e8d3] p-8 sm:p-12 lg:p-14 overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-8 shadow-sm">
+          <div className="relative rounded-[28px] bg-[#e9f8f0] border border-[#c4e8d3] p-6 sm:p-10 lg:p-12 overflow-hidden flex flex-col lg:flex-row items-center justify-between gap-6 shadow-sm">
             {/* Organic green shapes in the corners */}
             <div className="absolute -left-12 -bottom-12 w-48 h-48 rounded-full bg-[#00c968]/20 blur-2xl pointer-events-none" />
             <div className="absolute -right-12 -top-12 w-56 h-56 rounded-full bg-[#00c968]/25 blur-2xl pointer-events-none" />
 
             <div className="relative z-10 flex flex-col gap-2 text-left max-w-xl">
-              <h2 className="text-2xl sm:text-3xl lg:text-[34px] font-black text-[#0e261f] leading-tight tracking-tight">
+              <h2 className="text-2xl sm:text-3xl lg:text-[32px] font-black text-[#0e261f] leading-tight tracking-tight">
                 Pronto para levar suas mensagens mais longe?
               </h2>
               <p className="text-sm sm:text-base text-[#55695e]">
@@ -752,7 +752,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="relative z-10 flex flex-col items-center lg:items-end gap-2.5 shrink-0">
               <button
                 onClick={onGetStarted}
-                className="inline-flex items-center gap-2.5 px-8 py-4 rounded-full text-base font-bold text-white bg-[#0e261f] hover:bg-[#163a2f] transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 cursor-pointer"
+                className="inline-flex items-center gap-2.5 px-8 py-3.5 rounded-full text-base font-bold text-white bg-[#0e261f] hover:bg-[#163a2f] transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5 cursor-pointer"
               >
                 <span>Começar agora grátis</span>
                 <ArrowRight size={18} />
@@ -775,11 +775,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       {/* =========================================================================
           10. FOOTER
          ========================================================================= */}
-      <footer className="bg-white border-t border-[#e5ebe7] pt-14 pb-10 text-[#55695e] text-xs">
+      <footer className="bg-white border-t border-[#e5ebe7] pt-8 pb-6 text-[#55695e] text-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-10 pb-12 border-b border-[#eef2ef]">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8 pb-6 border-b border-[#eef2ef]">
             {/* Brand column */}
-            <div className="md:col-span-4 flex flex-col gap-3">
+            <div className="md:col-span-4 flex flex-col gap-2.5">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-[#00c968] flex items-center justify-center text-white">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -798,7 +798,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Produto */}
-            <div className="md:col-span-2 flex flex-col gap-2.5">
+            <div className="md:col-span-2 flex flex-col gap-2">
               <span className="text-xs font-bold text-[#0e261f] uppercase tracking-wider">Produto</span>
               <a href="#recursos" className="hover:text-[#00c968] transition-colors">
                 Recursos
@@ -824,7 +824,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Empresa */}
-            <div className="md:col-span-3 flex flex-col gap-2.5">
+            <div className="md:col-span-3 flex flex-col gap-2">
               <span className="text-xs font-bold text-[#0e261f] uppercase tracking-wider">Empresa</span>
               <a href="#" className="hover:text-[#00c968] transition-colors">
                 Sobre
@@ -844,42 +844,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </div>
 
             {/* Siga a gente */}
-            <div className="md:col-span-3 flex flex-col gap-3">
+            <div className="md:col-span-3 flex flex-col gap-2.5">
               <span className="text-xs font-bold text-[#0e261f] uppercase tracking-wider">Siga a gente</span>
               <div className="flex items-center gap-2.5 text-[#0e261f]">
                 <a
                   href="https://instagram.com"
                   target="_blank"
                   rel="noreferrer"
-                  className="w-9 h-9 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
                   aria-label="Instagram"
                 >
-                  <Instagram size={16} />
+                  <Instagram size={15} />
                 </a>
                 <a
                   href="https://youtube.com"
                   target="_blank"
                   rel="noreferrer"
-                  className="w-9 h-9 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
                   aria-label="YouTube"
                 >
-                  <Youtube size={16} />
+                  <Youtube size={15} />
                 </a>
                 <a
                   href="https://linkedin.com"
                   target="_blank"
                   rel="noreferrer"
-                  className="w-9 h-9 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
                   aria-label="LinkedIn"
                 >
-                  <Linkedin size={16} />
+                  <Linkedin size={15} />
                 </a>
               </div>
             </div>
           </div>
 
           {/* Bottom Copyright & Made with love */}
-          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-[#7a8d83]">
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-[#7a8d83]">
             <span>© 2026 Gruply. Todos os direitos reservados.</span>
             <span>Feito com 💙 para conectar pessoas.</span>
           </div>
