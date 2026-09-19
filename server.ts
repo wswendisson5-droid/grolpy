@@ -2540,13 +2540,10 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 const clientCampaignsStore: ClientCampaign[] = loadJsonSafe(CAMPAIGNS_FILE, []);
 const clientHistoryStore: ClientHistoryLog[] = loadJsonSafe(HISTORY_FILE, []);
 
-// Store for client imported groups (per instance)
+// Store for the current authenticated instance only.
+// Do not hydrate this cache from a global disk snapshot: that can leak stale groups
+// from a previous connection/user into the current tenant.
 const clientImportedGroupsStore = new Map<string, any[]>();
-const initialImported = loadJsonSafe(IMPORTED_GROUPS_FILE, []);
-if (Array.isArray(initialImported) && initialImported.length > 0) {
-  clientImportedGroupsStore.set("default", initialImported);
-  clientImportedGroupsStore.set("minhabagg-leads", initialImported);
-}
 
 // Dedicated Client WhatsApp Status endpoint (Strict tenant isolation)
 app.get("/api/client/whatsapp/status", async (req, res) => {
