@@ -50,6 +50,101 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
+  const fetchStatus = useCallback(async (targetInst?: string) => {
+    try {
+      const instToQuery = targetInst || info.instanceName || undefined;
+      const data = await connectionService.getStatus(instToQuery);
+      setInfo(prev => ({
+        ...prev,
+        ...data,
+        instanceName: data.instanceName || prev.instanceName,
+        qrCode: data.qrCode || prev.qrCode,
+      }));
+      onStatusChange?.(data.status);
+      return data;
+    } catch (e) {
+      console.error('[WhatsApp] status:', e);
+      return null;
+    }
+  }, [info.instanceName, onStatusChange]);
+
+  const handleRefreshQr = useCallback(async (targetInst?: string) => {
+    if (isLoadingQr) return;
+    setIsLoadingQr(true);
+    const instToUse = targetInst || info.instanceName || undefined;
+    try {
+      const result = await connectionService.requestNewQrCode(instToUse);
+      if (result.success && result.qrCode) {
+        setInfo(prev => ({
+          ...prev,
+          status: 'waiting_qr',
+          qrCode: result.qrCode,
+          instanceName: result.instanceName || prev.instanceName,
+          error: undefined,
+        }));
+        onStatusChange?.('waiting_qr');
+      } else {
+        // Never throw away an already visible QR just because a refresh failed.
+        const current = await fetchStatus(instToUse);
+        if (!current?.qrCode && result.error) {
+          setInfo(prev => ({ ...prev, status: 'error', error: result.error }));
+        }
+      }
+    } finally {
+      setIsLoadingQr(false);
+    }
+  }, [info.instanceName, isLoadingQr, fetchStatus, onStatusChange]);
+
+  const handleResetInstance = useCallback(async () => {
+    if (isResetting) return;
+    setIsResetting(true);
+    try {
+      const result = await connectionService.resetInstance(info.instanceName || undefined);
+      if (result.success && result.qrCode) {
+        setInfo(prev => ({ ...prev, status: 'waiting_qr', qrCode: result.qrCode, error: undefined }));
+        onStatusChange?.('waiting_qr');
+      } else {
+        const current = await fetchStatus();
+        if (!current?.qrCode) setInfo(prev => ({ ...prev, status: 'error', error: result.error }));
+      }
+    } finally {
+      setIsResetting(false);
+    }
+  }, [info.instanceName, isResetting, fetchStatus, onStatusChange]);
+
+  const handleRestart = useCallback(async () => {
+    if (isRestarting) return;
+    setIsRestarting(true);
+    setInfo(prev => ({ ...prev, status: 'connecting' }));
+    try {
+      const result = await connectionService.restartInstance(info.instanceName);
+      if (!result.success) throw new Error(result.error || 'Falha ao reiniciar');
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      await fetchStatus();
+    } catch (e) {
+      console.error('[WhatsApp] restart:', e);
+      setInfo(prev => ({ ...prev, status: 'error', error: e instanceof Error ? e.message : 'Falha ao reiniciar a conexão.' }));
+    } finally {
+      setIsRestarting(false);
+    }
+  }, [info.instanceName, isRestarting, fetchStatus]);
+
+  const handleDisconnect = useCallback(async () => {
+    if (isDisconnecting) return;
+    setIsDisconnecting(true);
+    try {
+      const result = await connectionService.disconnectInstance(info.instanceName);
+      if (!result.success) throw new Error(result.error || 'Falha ao desconectar');
+      setInfo(prev => ({ ...prev, status: 'waiting_qr', profile: undefined, webhookStatus: 'waiting', qrCode: undefined }));
+      await handleRefreshQr(info.instanceName);
+    } catch (e) {
+      console.error('[WhatsApp] disconnect:', e);
+      setInfo(prev => ({ ...prev, status: 'error', error: e instanceof Error ? e.message : 'Falha ao desconectar.' }));
+    } finally {
+      setIsDisconnecting(false);
+    }
+  }, [info.instanceName, isDisconnecting, handleRefreshQr]);
+
   // Initialize exactly once. Client mode must never call the ADM instances endpoint.
   // The previous duplicate initialization created races: status/QR requests could
   // overlap and the first QR attempt could be replaced by a second state update.
