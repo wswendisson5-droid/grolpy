@@ -286,8 +286,18 @@ export async function ensureUserInstance(userId:number){
   await pool.execute("INSERT INTO evolution_instances(user_id,instance_name,status) VALUES(?,?,'disconnected')",[userId,name]);
   return getUserInstance(userId);
 }
-export async function setUserInstanceStatus(userId:number,status:string,phone?:string){
-  await pool.execute("UPDATE evolution_instances SET status=?, owner_phone=COALESCE(?,owner_phone) WHERE user_id=?",[status,phone||null,userId]);
+export async function setUserInstanceStatus(userId:number,status:string,phone?:string,profileName?:string,profilePicUrl?:string){
+  const isConnected = status === 'connected' || status === 'open';
+  await pool.execute(
+    `UPDATE evolution_instances 
+     SET status=?, 
+         owner_phone=COALESCE(?,owner_phone),
+         profile_name=COALESCE(?,profile_name),
+         profile_pic_url=COALESCE(?,profile_pic_url),
+         last_connected_at=CASE WHEN ?=1 THEN NOW() ELSE last_connected_at END
+     WHERE user_id=?`,
+    [status, phone||null, profileName||null, profilePicUrl||null, isConnected ? 1 : 0, userId]
+  );
 }
 export async function setUserBillingIdentity(userId:number,cpfCnpj:string){ await pool.execute("UPDATE users SET cpf_cnpj=? WHERE id=?",[cpfCnpj,userId]); }
 export async function upsertSubscription(userId:number,planId:string,data:any){

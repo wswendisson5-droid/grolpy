@@ -92,6 +92,7 @@ export const ClientConexaoView: React.FC = () => {
         setQrCode(null);
         setPairingCode(null);
         setErrorMessage('');
+        window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
       } else if (isWaitingQrRef.current || appState === 'waiting_qr') {
         setStatus('waiting_qr');
         if (data.qrCode) {
@@ -124,6 +125,7 @@ export const ClientConexaoView: React.FC = () => {
         isWaitingQrRef.current = false;
         setStatus('connected');
         setProfile(data.connectedProfile);
+        window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
         return;
       }
 
@@ -172,6 +174,7 @@ export const ClientConexaoView: React.FC = () => {
         isWaitingQrRef.current = false;
         setStatus('connected');
         setProfile(data.connectedProfile);
+        window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
         return;
       }
 
@@ -209,6 +212,7 @@ export const ClientConexaoView: React.FC = () => {
       setQrCode(null);
       setPairingCode(null);
       setConfirmDisconnect(false);
+      window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: false, profile: null } }));
     } catch (e: any) {
       console.error('[ClientConexao] Logout error:', e);
     } finally {
@@ -228,6 +232,7 @@ export const ClientConexaoView: React.FC = () => {
           if (data.state === 'connected' || data.state === 'open') {
             setStatus('connected');
             setProfile(data.connectedProfile);
+            window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
             return;
           }
           if (data.qrCode) {
@@ -240,9 +245,14 @@ export const ClientConexaoView: React.FC = () => {
             return;
           }
         }
-        setStatus('disconnected');
+        // Auto-generate QR code immediately
+        if (mounted) {
+          generateQrCode(false);
+        }
       } catch {
-        if (mounted) setStatus('disconnected');
+        if (mounted) {
+          generateQrCode(false);
+        }
       }
     })();
     return () => { mounted = false; };

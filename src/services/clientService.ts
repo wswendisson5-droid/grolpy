@@ -63,7 +63,7 @@ class ClientService {
     return this.cachedGroups;
   }
 
-    async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<{
+  async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<{
     isConnected: boolean;
     state: string;
     profile: {
@@ -71,15 +71,20 @@ class ClientService {
       number?: string;
       pictureUrl?: string;
       instanceName?: string;
+      connectedAt?: string;
     } | null;
   }> {
     try {
-      const res = await fetch('/api/evolution/status',{headers:this.authHeaders()});
+      const res = await fetch('/api/evolution/status', { headers: this.authHeaders() });
       const data = await res.json();
       
       const isConn = data.state === 'connected' || data.state === 'open' || data.status === 'CONNECTED';
-      const profile = isConn ? (data.connectedProfile || { instanceName: data.instanceName || instance }) : null;
-      
+      const profile = isConn
+        ? (data.connectedProfile || {
+            name: 'WhatsApp Conectado',
+            instanceName: data.instanceName || instance,
+          })
+        : (data.connectedProfile?.pictureUrl ? data.connectedProfile : null);
 
       return {
         isConnected: isConn,

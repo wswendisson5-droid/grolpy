@@ -467,6 +467,57 @@ app.post("/api/evolution/select-instance", async (req, res) => {
   });
 });
 
+// Helper: fetch instance WhatsApp profile with profilePictureUrl and fallback endpoint
+async function fetchInstanceProfile(instance: string, stateData?: any): Promise<{ name: string; number: string; pictureUrl: string; connectedAt?: string }> {
+  let name = stateData?.instance?.profileName || stateData?.profileName || "";
+  let rawOwner = stateData?.instance?.ownerJid || stateData?.instance?.owner || stateData?.ownerJid || stateData?.owner || "";
+  let pictureUrl = stateData?.instance?.profilePictureUrl || stateData?.instance?.profilePicUrl || stateData?.profilePictureUrl || stateData?.profilePicUrl || "";
+
+  if (!pictureUrl && profilePicCache.has(instance)) {
+    pictureUrl = profilePicCache.get(instance) || "";
+  }
+
+  try {
+    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
+    if (fetchRes.ok && Array.isArray(fetchRes.data)) {
+      const instData = fetchRes.data.find((i: any) => i.name === instance);
+      if (instData) {
+        name = instData.profileName || instData.name || name;
+        rawOwner = instData.ownerJid || instData.owner || rawOwner;
+        pictureUrl = instData.profilePictureUrl || instData.profilePicUrl || pictureUrl;
+      }
+    }
+  } catch {}
+
+  const cleanDigits = cleanPhoneDigits(rawOwner);
+
+  // If pictureUrl is still missing, query Evolution /chat/fetchProfilePictureUrl/{instance}
+  if (!pictureUrl && cleanDigits) {
+    try {
+      const picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({ number: cleanDigits }),
+      }, 3500, 0);
+      if (picRes.ok && (picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl)) {
+        pictureUrl = picRes.data.profilePictureUrl || picRes.data.pictureUrl || picRes.data.profilePicUrl;
+      }
+    } catch {}
+  }
+
+  if (pictureUrl) {
+    profilePicCache.set(instance, pictureUrl);
+  }
+
+  const formatted = rawOwner ? formatPhone(rawOwner) : "";
+
+  return {
+    name: name || "WhatsApp Conectado",
+    number: formatted || (cleanDigits ? `+${cleanDigits}` : ""),
+    pictureUrl: pictureUrl || "",
+    connectedAt: new Date().toLocaleString("pt-BR"),
+  };
+}
+
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
   const own:any=await ownedInstance(req,true,false);
@@ -528,30 +579,43 @@ app.get("/api/evolution/status", async (req, res) => {
 
     currentInst.state = appState;
     currentInst.lastUpdated = new Date().toISOString();
-    await own.db.setUserInstanceStatus(own.user.id, appState);
 
     // If connected, fetch real WhatsApp profile metadata
     if (appState === "connected") {
       try {
-        const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000);
-        if (fetchRes.ok && Array.isArray(fetchRes.data)) {
-          const instData = fetchRes.data.find((i: any) => i.name === instance);
-
-          if (instData) {
-            currentInst.connectedProfile = {
-              name: instData.profileName || instData.name || "Groply WhatsApp",
-              number: instData.ownerJid ? formatPhone(instData.ownerJid) : (currentInst.connectedProfile?.number || ""),
-              pictureUrl: instData.profilePicUrl || "",
-              connectedAt: currentInst.connectedProfile?.connectedAt || new Date(instData.updatedAt || Date.now()).toLocaleString("pt-BR"),
-              lastSyncAt: new Date().toLocaleString("pt-BR"),
-              version: "v2.3.7",
-            };
-            currentInst.webhookStatus = "active";
-          }
-        }
+        const prof = await fetchInstanceProfile(instance, stateRes.data);
+        currentInst.connectedProfile = {
+          name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
+          number: prof.number || currentInst.connectedProfile?.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : ""),
+          pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || own.record?.profile_pic_url || "",
+          connectedAt: currentInst.connectedProfile?.connectedAt || (own.record?.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : prof.connectedAt),
+          lastSyncAt: new Date().toLocaleString("pt-BR"),
+          version: "v2.3.7",
+        };
+        currentInst.webhookStatus = "active";
+        await own.db.setUserInstanceStatus(
+          own.user.id,
+          appState,
+          prof.number || currentInst.connectedProfile.number,
+          prof.name || currentInst.connectedProfile.name,
+          prof.pictureUrl || currentInst.connectedProfile.pictureUrl
+        );
       } catch (e) {
-        // silent fallback to existing profile cache
+        await own.db.setUserInstanceStatus(own.user.id, appState);
       }
+    } else {
+      await own.db.setUserInstanceStatus(own.user.id, appState);
+    }
+
+    if (!currentInst.connectedProfile && own.record?.profile_pic_url) {
+      currentInst.connectedProfile = {
+        name: own.record.profile_name || "WhatsApp Conectado",
+        number: own.record.owner_phone ? formatPhone(own.record.owner_phone) : "",
+        pictureUrl: own.record.profile_pic_url,
+        connectedAt: own.record.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : undefined,
+        lastSyncAt: new Date().toLocaleString("pt-BR"),
+        version: "v2.3.7",
+      };
     }
 
     res.json({
@@ -611,11 +675,21 @@ app.get("/api/evolution/qrcode", async (req, res) => {
     const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
     if (stateRes.ok && rawState === "open") {
       currentInst.state = "connected";
-      await own.db.setUserInstanceStatus(own.user.id, "connected");
+      const prof = await fetchInstanceProfile(instance, stateRes.data);
+      currentInst.connectedProfile = {
+        name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
+        number: prof.number || currentInst.connectedProfile?.number || "",
+        pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || "",
+        connectedAt: currentInst.connectedProfile?.connectedAt || prof.connectedAt,
+        lastSyncAt: new Date().toLocaleString("pt-BR"),
+        version: "v2.3.7",
+      };
+      await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
       return res.json({
         success: true,
         instanceName: instance,
         state: "connected",
+        connectedProfile: currentInst.connectedProfile,
         message: "WhatsApp já está conectado.",
       });
     }
@@ -811,11 +885,21 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
     const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
     if (stateRes.ok && rawState === "open") {
       currentInst.state = "connected";
-      await own.db.setUserInstanceStatus(own.user.id, "connected");
+      const prof = await fetchInstanceProfile(instance, stateRes.data);
+      currentInst.connectedProfile = {
+        name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
+        number: prof.number || currentInst.connectedProfile?.number || "",
+        pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || "",
+        connectedAt: currentInst.connectedProfile?.connectedAt || prof.connectedAt,
+        lastSyncAt: new Date().toLocaleString("pt-BR"),
+        version: "v2.3.7",
+      };
+      await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
       return res.json({
         success: true,
         instanceName: instance,
         state: "connected",
+        connectedProfile: currentInst.connectedProfile,
         message: "WhatsApp já está conectado.",
       });
     }

@@ -30,6 +30,9 @@ interface ClientSidebarProps {
   groupsCount?: number;
   uniqueGroupsCount?: number;
   whatsappProfilePic?: string;
+  whatsappProfileName?: string;
+  whatsappPhoneNumber?: string;
+  whatsappIsConnected?: boolean;
 }
 
 export const ClientSidebar: React.FC<ClientSidebarProps> = ({
@@ -44,6 +47,9 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
   groupsCount = 0,
   uniqueGroupsCount = 0,
   whatsappProfilePic,
+  whatsappProfileName,
+  whatsappPhoneNumber,
+  whatsappIsConnected,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [currentPlan, setCurrentPlan] = useState(planService.getCurrentPlan());
@@ -247,11 +253,16 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
 
           {/* User Profile & TROCA DE PAINEL */}
           {(() => {
-            let loggedUser = { name: 'Cliente Grolpy', email: '' };
+            let loggedUser = { name: 'Cliente', email: '' };
             try {
               const raw = localStorage.getItem('groply_user');
               if (raw) loggedUser = JSON.parse(raw);
             } catch {}
+
+            const displayName = whatsappProfileName || loggedUser.name || 'Cliente';
+            const displaySubtitle = whatsappIsConnected
+              ? (whatsappPhoneNumber || 'WhatsApp Conectado')
+              : (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano');
 
             return (
               <div className="relative">
@@ -260,25 +271,37 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
                   className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#eff5f1] transition-colors cursor-pointer border border-transparent hover:border-[#e2ebe5]"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <img
-                      src={whatsappProfilePic || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"}
-                      alt={loggedUser.name || "Cliente"}
-                      referrerPolicy="no-referrer"
-                      className="w-8 h-8 rounded-full object-cover border border-[#c8d9cf]"
-                    />
-                    <div className="flex flex-col text-left">
-                      <span className="text-xs font-bold text-[#11241c] leading-tight truncate max-w-[130px]">
-                        {loggedUser.name || 'Cliente'}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="relative shrink-0">
+                      {whatsappProfilePic ? (
+                        <img
+                          src={whatsappProfilePic}
+                          alt={displayName}
+                          referrerPolicy="no-referrer"
+                          className="w-8 h-8 rounded-full object-cover border-2 border-[#109353]/50"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-[#e8f7ee] border border-[#c4e6ce] flex items-center justify-center text-[#109353] font-bold text-xs">
+                          {displayName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      {whatsappIsConnected && (
+                        <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#25d366] border-2 border-white" />
+                      )}
+                    </div>
+                    <div className="flex flex-col text-left min-w-0">
+                      <span className="text-xs font-bold text-[#11241c] leading-tight truncate max-w-[125px]">
+                        {displayName}
                       </span>
-                      <span className="text-[11px] text-[#63756b] truncate max-w-[130px]">
-                        {subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano'}
+                      <span className="text-[11px] text-[#63756b] truncate max-w-[125px] flex items-center gap-1">
+                        {whatsappIsConnected && <span className="w-1.5 h-1.5 rounded-full bg-[#25d366] shrink-0 inline-block" />}
+                        <span className="truncate">{displaySubtitle}</span>
                       </span>
                     </div>
                   </div>
 
                   <button
-                    className="p-1 text-[#83968d] hover:text-[#11241c]"
+                    className="p-1 text-[#83968d] hover:text-[#11241c] shrink-0"
                     aria-label="Opções"
                   >
                     <MoreVertical size={16} />
@@ -294,12 +317,27 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                     />
                     <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-2xl shadow-xl border border-[#e2eae5] py-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
                       <div className="px-3.5 py-2 border-b border-[#f0f4f1]">
-                        <p className="font-bold text-[#11241c] truncate">{loggedUser.name || 'Cliente'}</p>
-                        <p className="text-[#64786d] text-[11px] truncate">{loggedUser.email || (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano ativo')}</p>
+                        <p className="font-bold text-[#11241c] truncate">{displayName}</p>
+                        <p className="text-[#64786d] text-[11px] truncate">{loggedUser.email || (whatsappPhoneNumber || 'Conta Grolpy')}</p>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          {whatsappIsConnected ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#e8f6ee] text-[#109353] rounded text-[10px] font-bold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-[#25d366]" />
+                              WhatsApp Conectado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-[10px] font-bold">
+                              WhatsApp Desconectado
+                            </span>
+                          )}
+                          <span className="inline-block px-2 py-0.5 bg-[#f0f4f1] text-[#4a5e52] rounded text-[10px] font-bold">
+                            {subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano'}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="p-1.5 border-b border-[#f0f4f1]">
-                        <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold"><LogOut size={15}/>Sair da conta</button>
+                        <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold cursor-pointer"><LogOut size={15}/>Sair da conta</button>
                       </div>
 
                       <div className="p-1">

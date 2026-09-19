@@ -11,6 +11,9 @@ interface ClientHeaderProps {
   onSwitchPanel?: (mode: AppPanelMode) => void;
   onOpenPlanModal?: () => void;
   whatsappProfilePic?: string;
+  whatsappProfileName?: string;
+  whatsappPhoneNumber?: string;
+  whatsappIsConnected?: boolean;
   isLoadingProfile?: boolean;
   planUsage?: {
     usedMessages: number;
@@ -29,12 +32,23 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   onSwitchPanel,
   onOpenPlanModal,
   whatsappProfilePic,
+  whatsappProfileName,
+  whatsappPhoneNumber,
+  whatsappIsConnected,
   isLoadingProfile,
   planUsage,
 }) => {
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isPlanUsageDropdownOpen, setIsPlanUsageDropdownOpen] = useState(false);
   const [hasUnreadNotification, setHasUnreadNotification] = useState(true);
+
+  let loggedUser = { name: 'Minha Empresa', email: '' };
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('groply_user') : null;
+    if (raw) loggedUser = JSON.parse(raw);
+  } catch {}
+
+  const displayName = whatsappProfileName || loggedUser.name || 'Minha Conta';
 
   const sub = planService.getSubscription();
   const currentPlan = sub.plan;
@@ -279,32 +293,44 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           <button
             id="company-profile-menu-button"
             onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-            className="flex items-center gap-1.5 p-1 sm:px-2 sm:py-1 rounded-2xl bg-white hover:bg-[#f6f9f7] border border-[#d8e2dc] shadow-2xs transition-all cursor-pointer"
+            className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1.5 rounded-2xl bg-white hover:bg-[#f6f9f7] border border-[#d8e2dc] shadow-2xs transition-all cursor-pointer"
           >
             {/* Top Navbar Profile Picture: WhatsApp connected photo or user icon */}
-            {whatsappProfilePic ? (
-              <img
-                src={whatsappProfilePic}
-                alt="Foto do Perfil WhatsApp"
-                referrerPolicy="no-referrer"
-                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full object-cover shadow-xs shrink-0 border border-[#109353]/40"
-              />
-            ) : isLoadingProfile ? (
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#f2f7f4] border border-[#d3e3da] flex items-center justify-center shrink-0">
-                <Loader2 size={13} className="text-[#109353] animate-spin" />
-              </div>
-            ) : (
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#f2f7f4] border border-[#d3e3da] flex items-center justify-center text-[#556b60] shrink-0">
-                <User size={13} />
-              </div>
-            )}
+            <div className="relative shrink-0">
+              {whatsappProfilePic ? (
+                <img
+                  src={whatsappProfilePic}
+                  alt="Foto do Perfil WhatsApp"
+                  referrerPolicy="no-referrer"
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover shadow-xs shrink-0 border-2 border-[#109353]/50"
+                />
+              ) : isLoadingProfile ? (
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#f2f7f4] border border-[#d3e3da] flex items-center justify-center shrink-0">
+                  <Loader2 size={13} className="text-[#109353] animate-spin" />
+                </div>
+              ) : (
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#eaf6ef] border border-[#c4e6ce] flex items-center justify-center text-[#109353] font-bold text-xs shrink-0">
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {whatsappIsConnected && (
+                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#25d366] border-2 border-white shadow-2xs" />
+              )}
+            </div>
 
             <div className="hidden lg:flex flex-col text-left">
-              <span className="text-xs font-bold text-[#11241c] leading-tight">
-                Minha Empresa
+              <span className="text-xs font-bold text-[#11241c] leading-tight truncate max-w-[130px]">
+                {displayName}
               </span>
-              <span className="text-[9px] font-semibold text-[#109353] leading-none">
-                Plano {currentPlan.name}
+              <span className="text-[9px] font-semibold text-[#109353] leading-none flex items-center gap-1 mt-0.5">
+                {whatsappIsConnected ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#25d366]" />
+                    <span>Conectado</span>
+                  </>
+                ) : (
+                  <span>{sub.status === 'active' && currentPlan ? `Plano ${currentPlan.name}` : 'Sem plano'}</span>
+                )}
               </span>
             </div>
 
@@ -321,11 +347,23 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
               <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-[#e2eae5] py-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
                 {/* Header Info */}
                 <div className="px-3.5 py-2.5 border-b border-[#f0f4f1]">
-                  <p className="font-bold text-[#11241c]">Minha Empresa LTDA</p>
-                  <p className="text-[#64786d] text-[11px]">wendisson@empresa.com.br</p>
-                  <span className="inline-block mt-1.5 px-2 py-0.5 bg-[#e8f7ee] text-[#109353] rounded text-[10px] font-bold">
-                    Plano {currentPlan.name} • Ativo
-                  </span>
+                  <p className="font-bold text-[#11241c] truncate">{displayName}</p>
+                  <p className="text-[#64786d] text-[11px] truncate">{loggedUser.email || (whatsappPhoneNumber || 'Conta Grolpy')}</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    {whatsappIsConnected ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#e8f7ee] text-[#109353] rounded text-[10px] font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#25d366]" />
+                        WhatsApp Conectado
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-[10px] font-bold">
+                        WhatsApp Desconectado
+                      </span>
+                    )}
+                    <span className="inline-block px-2 py-0.5 bg-[#f0f4f1] text-[#4a5e52] rounded text-[10px] font-bold">
+                      {sub.status === 'active' && currentPlan ? `Plano ${currentPlan.name}` : 'Sem plano'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="p-1.5 border-b border-[#f0f4f1]">

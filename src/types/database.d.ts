@@ -1,4 +1,4 @@
-﻿declare module "*database.cjs" {
+declare module "*database.cjs" {
   export const mysql: any;
   export function initDatabase(): Promise<boolean>;
   export function getUserByToken(token: string): Promise<any>;
@@ -11,7 +11,7 @@
   export function adminSetSubscription(userId: number, action: string): Promise<any>;
   export function ensureUserInstance(userId: number): Promise<any>;
   export function getUserInstance(userId: number): Promise<any>;
-  export function setUserInstanceStatus(userId: number, status: string, ownerPhone?: string): Promise<any>;
+  export function setUserInstanceStatus(userId: number, status: string, ownerPhone?: string, profileName?: string, profilePicUrl?: string): Promise<any>;
   export function getSubscriptionForUser(userId: number): Promise<any>;
   export function listCampaignsForUser(userId: number): Promise<any[]>;
   export function saveCampaignForUser(userId: number, campaign: any): Promise<any>;

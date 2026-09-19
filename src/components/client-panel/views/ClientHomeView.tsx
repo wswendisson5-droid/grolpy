@@ -19,6 +19,7 @@ interface ClientHomeViewProps {
   onToggleCampaignActive: (id: string) => void;
   onSendNow?: (id: string) => void;
   whatsappProfilePic?: string;
+  whatsappProfileName?: string;
   whatsappPhoneNumber?: string;
   whatsappIsConnected?: boolean;
 }
@@ -33,6 +34,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   onToggleCampaignActive,
   onSendNow,
   whatsappProfilePic,
+  whatsappProfileName,
   whatsappPhoneNumber,
   whatsappIsConnected,
 }) => {
@@ -84,6 +86,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
             groupsCount={groupsCount}
             onNavigateToConnection={() => onNavigateTab('conexao')}
             initialProfilePic={whatsappProfilePic}
+            initialProfileName={whatsappProfileName}
             initialPhoneNumber={whatsappPhoneNumber}
             whatsappIsConnected={whatsappIsConnected}
           />

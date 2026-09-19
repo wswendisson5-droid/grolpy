@@ -5,20 +5,23 @@ interface ClientWhatsAppCardProps {
   onNavigateToConnection?: () => void;
   groupsCount?: number;
   initialProfilePic?: string;
+  initialProfileName?: string;
   initialPhoneNumber?: string;
   whatsappIsConnected?: boolean;
 }
 
 export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
   onNavigateToConnection,
-  groupsCount = 24,
+  groupsCount = 0,
   initialProfilePic,
+  initialProfileName,
   initialPhoneNumber,
   whatsappIsConnected,
 }) => {
   // Use passed prop if available, otherwise assume loading or disconnected based on presence of phone number
   const isLoading = whatsappIsConnected === undefined;
   const isConnected = whatsappIsConnected === true || (!isLoading && initialPhoneNumber !== undefined);
+  const displayName = initialProfileName || 'WhatsApp Conectado';
   
   return (
     <div
@@ -67,7 +70,7 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
 
           <div className="flex flex-col min-w-0">
             <span className="text-sm font-bold text-[#11241c] leading-tight truncate">
-              {isConnected ? 'WhatsApp Conectado' : 'WhatsApp Desconectado'}
+              {isConnected ? displayName : 'WhatsApp Desconectado'}
             </span>
             {/* REAL CONNECTED NUMBER OR LOADING SPINNER - ZERO MOCK */}
             <div className="text-base sm:text-lg font-extrabold text-[#11241c] leading-tight truncate mt-0.5">
@@ -77,16 +80,16 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
                   <span>Carregando número conectado...</span>
                 </span>
               ) : isConnected && initialPhoneNumber ? (
-                <span>{initialPhoneNumber}</span>
+                <span className="text-[#109353]">{initialPhoneNumber}</span>
               ) : isConnected && !initialPhoneNumber ? (
-                <span className="text-xs text-[#6e8276] font-semibold">Número conectado</span>
+                <span className="text-xs text-[#109353] font-semibold">Número conectado</span>
               ) : (
                 <span className="text-xs text-amber-700 font-semibold">Nenhum número conectado</span>
               )}
             </div>
 
             <span className="text-xs text-[#718479] mt-0.5 truncate">
-              {isConnected ? 'Conexão ativa via Evolution API' : 'Clique para escanear QR Code'}
+              {isConnected ? 'Conexão ativa e pronta para envios' : 'Clique para escanear QR Code'}
             </span>
           </div>
         </div>
