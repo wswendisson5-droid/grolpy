@@ -169,7 +169,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/select-instance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       return res.ok;
@@ -185,7 +185,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/reset-instance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       const data = await res.json();
@@ -212,7 +212,7 @@ class ConnectionService {
       const res = await fetch('/api/evolution/credentials', {
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(config),
       });
       return res.ok;
