@@ -593,10 +593,52 @@ export async function saveCampaignForUser(userId: number, data: any) {
 export async function listCampaignsForUser(userId:number){
   await ensureCampaignsTable().catch(() => {});
   try {
-    const [r]:any=await pool.execute("SELECT config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);
-    return r.map((x:any)=>{try{return JSON.parse(x.config_json)}catch{return {}}});
+    const [r]:any=await pool.execute("SELECT status, total_sent, total_failed, config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);
+    return r.map((x:any)=>{
+      try {
+        const c = JSON.parse(x.config_json);
+        if (x.status) c.status = x.status;
+        if (x.total_sent !== null && x.total_sent !== undefined) c.totalSent = Number(x.total_sent);
+        if (x.total_failed !== null && x.total_failed !== undefined) c.totalFailed = Number(x.total_failed);
+        return c;
+      } catch {
+        return {};
+      }
+    });
   } catch(err) {
     console.warn("[DB] Erro ao listar campanhas user=" + userId, err);
+    return [];
+  }
+}
+export async function listActiveScheduledCampaigns(): Promise<Array<{
+  userId: number;
+  campaignKey: string;
+  status: string;
+  config: any;
+}>> {
+  await ensureCampaignsTable().catch(() => {});
+  try {
+    const [rows]: any = await pool.query(
+      "SELECT user_id, campaign_key, status, total_sent, total_failed, config_json FROM user_campaigns WHERE status IN ('agendada', 'ativa', 'enviando')"
+    );
+    return (rows || []).map((r: any) => {
+      try {
+        const config = JSON.parse(r.config_json);
+        if (r.status) config.status = r.status;
+        if (r.total_sent !== null && r.total_sent !== undefined) config.totalSent = Number(r.total_sent);
+        if (r.total_failed !== null && r.total_failed !== undefined) config.totalFailed = Number(r.total_failed);
+        return {
+          userId: Number(r.user_id),
+          campaignKey: r.campaign_key,
+          status: r.status,
+          config,
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  } catch (err) {
+    console.warn("[DB] Erro ao listar campanhas agendadas:", err);
     return [];
   }
 }
@@ -634,6 +676,14 @@ export async function saveGroupsForUser(userId:number,groups:any[]){
     for(const g of groups||[]){const jid=String(g.jid||g.id||g.groupJid||"");if(!jid)continue;await pool.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);}
   } catch(err) {
     console.warn("[DB] Erro ao salvar grupos user=" + userId, err);
+  }
+}
+export async function clearGroupsForUser(userId:number){
+  await ensureCampaignsTable().catch(() => {});
+  try {
+    await pool.execute("DELETE FROM user_groups WHERE user_id=?", [userId]);
+  } catch(err) {
+    console.warn("[DB] Erro ao limpar grupos user=" + userId, err);
   }
 }
 export async function listGroupsForUser(userId:number){

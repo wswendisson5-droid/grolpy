@@ -102,20 +102,20 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
       <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#f0f4f1]">
         {/* Stat 1 */}
         <div className="bg-[#f7faf8] rounded-xl p-2.5 flex flex-col items-center text-center">
-          <div className="flex items-center gap-1 text-[#109353] mb-0.5">
-            <CheckCircle size={13} />
-            <span className="text-xs font-bold text-[#109353]">100%</span>
+          <div className={`flex items-center gap-1 mb-0.5 ${isConnected ? 'text-[#109353]' : 'text-amber-600'}`}>
+            {isConnected ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
+            <span className="text-xs font-bold">{isConnected ? '100%' : '0%'}</span>
           </div>
           <span className="text-[10px] text-[#5e7166] font-medium leading-tight">
-            Conexão estável
+            {isConnected ? 'Conexão estável' : 'Desconectado'}
           </span>
         </div>
 
         {/* Stat 2 */}
         <div className="bg-[#f7faf8] rounded-xl p-2.5 flex flex-col items-center text-center">
-          <div className="flex items-center gap-1 text-[#109353] mb-0.5">
+          <div className={`flex items-center gap-1 mb-0.5 ${isConnected ? 'text-[#109353]' : 'text-zinc-500'}`}>
             <Users size={13} />
-            <span className="text-xs font-bold">{groupsCount !== undefined ? groupsCount : 0}</span>
+            <span className="text-xs font-bold">{isConnected ? (groupsCount !== undefined ? groupsCount : 0) : 0}</span>
           </div>
           <span className="text-[10px] text-[#5e7166] font-medium leading-tight">
             Grupos sincronizados
@@ -124,12 +124,12 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
 
         {/* Stat 3 */}
         <div className="bg-[#f7faf8] rounded-xl p-2.5 flex flex-col items-center text-center">
-          <div className="flex items-center gap-1 text-[#109353] mb-0.5">
+          <div className={`flex items-center gap-1 mb-0.5 ${isConnected ? 'text-[#109353]' : 'text-zinc-500'}`}>
             <Activity size={13} />
-            <span className="text-xs font-bold text-[#109353]">Online</span>
+            <span className="text-xs font-bold">{isConnected ? 'Online' : 'Pausado'}</span>
           </div>
           <span className="text-[10px] text-[#5e7166] font-medium leading-tight">
-            Funcionando
+            {isConnected ? 'Funcionando' : 'Aguardando'}
           </span>
         </div>
       </div>

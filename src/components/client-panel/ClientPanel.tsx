@@ -43,10 +43,13 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>([]);
   const [groups, setGroups] = useState<ClientGroup[]>(() => {
     try {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('groply_cached_groups') : null;
-      if (saved) return JSON.parse(saved);
+      if (typeof window !== 'undefined' && clientService.isWhatsAppConnected()) {
+        const key = clientService.getGroupsStorageKey();
+        const saved = localStorage.getItem(key);
+        if (saved) return JSON.parse(saved);
+      }
     } catch {}
-    return clientService.getCachedGroups();
+    return [];
   });
   const [planUsage, setPlanUsage] = useState(INITIAL_PLAN_USAGE);
 
@@ -82,9 +85,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const refreshGroups = async (force: boolean = false) => {
     try {
       const real = await clientService.getRealGroups(clientService.getDefaultInstance(), force);
-      if (real && real.length > 0) {
-        setGroups(real);
-      }
+      setGroups(real || []);
     } catch {
       // Keep existing groups if network blips
     }
@@ -203,6 +204,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       });
       if (statusData.isConnected) {
         refreshGroups();
+      } else {
+        setGroups([]);
       }
     } catch {
       setWhatsappProfile((prev) => ({ ...prev, isLoading: false }));

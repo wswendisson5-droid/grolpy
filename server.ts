@@ -1357,8 +1357,11 @@ app.post("/api/evolution/logout", async (req, res) => {
     currentInst.state = "disconnected";
     currentInst.qrCode = undefined;
     currentInst.connectedProfile = undefined;
+    cachedGroupsByInstance.delete(instance);
+    clientImportedGroupsStore.delete(instance);
     try {
       await own.db.setUserInstanceStatus(own.user.id, "disconnected");
+      await own.db.clearGroupsForUser(own.user.id);
     } catch {}
 
     res.json({
@@ -2262,6 +2265,7 @@ interface ClientCampaign {
   lastExecutedMinute?: string;
   executed?: boolean;
   instanceName?: string;
+  userId?: number;
 }
 
 interface ClientHistoryLog {
@@ -2349,48 +2353,28 @@ async function getActiveConnectedInstance(preferred?: string): Promise<string> {
 }
 
 // Ultra-fast background sync for WhatsApp groups for a specific instance with full Evolution API v2 payload mapping
-async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: string = "minhabagg-leads", dbUser?: { id: number; db: any }): Promise<any[]> {
+async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: string = "", dbUser?: { id: number; db: any }): Promise<any[]> {
   const now = Date.now();
-  
+  if (!targetInstance) return [];
+
   // Try to get cached for this specific instance
   const cachedForInstance = cachedGroupsByInstance.get(targetInstance);
   if (!force && cachedForInstance && now - cachedForInstance.timestamp < 15000 && cachedForInstance.groups.length > 0) {
     return cachedForInstance.groups;
   }
-  if (targetInstance === DEFAULT_INSTANCE_NAME) {
-    lastSyncGroupsTimestamp = now;
-  }
 
-  const collectedGroupsMap = new Map<string, any>();
-  const instancesToTry: string[] = [];
-  if (targetInstance) instancesToTry.push(targetInstance);
-  if (DEFAULT_INSTANCE_NAME && !instancesToTry.includes(DEFAULT_INSTANCE_NAME)) {
-    instancesToTry.push(DEFAULT_INSTANCE_NAME);
-  }
-  if (cachedActiveInstance?.name && !instancesToTry.includes(cachedActiveInstance.name)) {
-    instancesToTry.push(cachedActiveInstance.name);
-  }
-
-  // Also discover any open instances from Evolution API
+  // Verify that targetInstance is actually connected before attempting Evolution group fetch
   try {
-    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
-    const list: any[] = Array.isArray(fetchRes.data)
-      ? fetchRes.data
-      : Array.isArray(fetchRes.data?.instances)
-      ? fetchRes.data.instances
-      : Array.isArray(fetchRes.data?.data)
-      ? fetchRes.data.data
-      : [];
-
-    for (const inst of list) {
-      const iName = inst.name || inst.instanceName || inst.instance?.instanceName || inst.id;
-      if (iName && isEvolutionStateConnected(inst) && !instancesToTry.includes(iName)) {
-        instancesToTry.push(iName);
-      }
+    const { isConnected } = await resolveActiveInstance(targetInstance, dbUser?.id, dbUser?.db);
+    if (!isConnected) {
+      return [];
     }
   } catch {}
 
-  const extractGroupsFromPayload = (data: any, instName: string) => {
+  const collectedGroupsMap = new Map<string, any>();
+  const instName = targetInstance;
+
+  const extractGroupsFromPayload = (data: any, iName: string) => {
     if (!data) return;
     let list: any[] = [];
     if (Array.isArray(data)) {
@@ -2438,72 +2422,57 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
           totalPosts: 0,
           lastPostTime: "Recente",
           avatar,
-          instanceName: instName,
+          instanceName: iName,
         });
       }
     }
   };
 
-  for (const instName of instancesToTry) {
-    try {
-      // 1. fetchAllGroups with getParticipants=false
-      const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 6000, 0);
-      if (gRes1.ok && gRes1.data) {
-        extractGroupsFromPayload(gRes1.data, instName);
-      }
-
-      // 2. fetchAllGroups direct
-      if (collectedGroupsMap.size === 0) {
-        const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 6000, 0);
-        if (gRes2.ok && gRes2.data) {
-          extractGroupsFromPayload(gRes2.data, instName);
-        }
-      }
-
-      // 3. findChats GET (fast in v2)
-      if (collectedGroupsMap.size === 0) {
-        try {
-          const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 5000, 0);
-          if (cResGet.ok && cResGet.data) {
-            extractGroupsFromPayload(cResGet.data, instName);
-          }
-        } catch {}
-      }
-
-      // 4. findChats POST
-      if (collectedGroupsMap.size === 0) {
-        try {
-          const cRes = await callEvolution(`/chat/findChats/${instName}`, {
-            method: "POST",
-            body: JSON.stringify({ limit: 1000 }),
-          }, 6000, 0);
-          if (cRes.ok && cRes.data) {
-            extractGroupsFromPayload(cRes.data, instName);
-          }
-        } catch {}
-      }
-
-      if (collectedGroupsMap.size > 0) {
-        break;
-      }
-    } catch (err: any) {
-      console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
+  try {
+    // 1. fetchAllGroups with getParticipants=false
+    const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 6000, 0);
+    if (gRes1.ok && gRes1.data) {
+      extractGroupsFromPayload(gRes1.data, instName);
     }
+
+    // 2. fetchAllGroups direct
+    if (collectedGroupsMap.size === 0) {
+      const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 6000, 0);
+      if (gRes2.ok && gRes2.data) {
+        extractGroupsFromPayload(gRes2.data, instName);
+      }
+    }
+
+    // 3. findChats GET (fast in v2)
+    if (collectedGroupsMap.size === 0) {
+      try {
+        const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 5000, 0);
+        if (cResGet.ok && cResGet.data) {
+          extractGroupsFromPayload(cResGet.data, instName);
+        }
+      } catch {}
+    }
+
+    // 4. findChats POST
+    if (collectedGroupsMap.size === 0) {
+      try {
+        const cRes = await callEvolution(`/chat/findChats/${instName}`, {
+          method: "POST",
+          body: JSON.stringify({ limit: 1000 }),
+        }, 6000, 0);
+        if (cRes.ok && cRes.data) {
+          extractGroupsFromPayload(cRes.data, instName);
+        }
+      } catch {}
+    }
+  } catch (err: any) {
+    console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
   }
 
   if (collectedGroupsMap.size > 0) {
     const freshGroups = Array.from(collectedGroupsMap.values());
-    for (const inst of instancesToTry) {
-      cachedGroupsByInstance.set(inst, { timestamp: now, groups: freshGroups });
-      clientImportedGroupsStore.set(inst, freshGroups);
-    }
-    if (DEFAULT_INSTANCE_NAME) {
-      cachedGroupsByInstance.set(DEFAULT_INSTANCE_NAME, { timestamp: now, groups: freshGroups });
-      clientImportedGroupsStore.set(DEFAULT_INSTANCE_NAME, freshGroups);
-    }
-    globalCachedGroups = freshGroups;
-    saveJsonSafe(GROUPS_CACHE_FILE, freshGroups);
-    saveJsonSafe(IMPORTED_GROUPS_FILE, freshGroups);
+    cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
+    clientImportedGroupsStore.set(instName, freshGroups);
 
     if (dbUser?.db && dbUser?.id) {
       try {
@@ -2511,11 +2480,11 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
       } catch {}
     }
 
-    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} real WhatsApp groups.`);
+    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} WhatsApp groups for instance ${instName}.`);
     return freshGroups;
   }
 
-  // If Evolution didn't return groups right now, check MySQL user_groups
+  // If Evolution didn't return groups right now, check MySQL user_groups for this specific user
   if (dbUser?.db && dbUser?.id) {
     try {
       const dbGroups = await dbUser.db.listGroupsForUser(dbUser.id);
@@ -2527,12 +2496,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     } catch {}
   }
 
-  if (globalCachedGroups.length > 0) {
-    return globalCachedGroups;
-  }
-
-  const fallbackCache = cachedGroupsByInstance.get(targetInstance);
-  return fallbackCache ? fallbackCache.groups : [];
+  return [];
 }
 
 // Background scheduler for group syncing (run only once on start or every hour to keep Evolution DB pool clean)
@@ -2655,55 +2619,52 @@ app.get("/api/client/groups", async (req, res) => {
   const reqInstance = own.instance;
   const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
 
-  // 1. Check memory / disk cache first (Instant < 1ms)
-  let groups = clientImportedGroupsStore.get(reqInstance) || clientImportedGroupsStore.get(DEFAULT_INSTANCE_NAME) || (globalCachedGroups.length > 0 ? globalCachedGroups : []);
-
-  if (groups.length > 0 && !forceRefresh) {
+  // Strictly check if user's WhatsApp is connected
+  const { isConnected } = await resolveActiveInstance(reqInstance, own.user?.id, own.db);
+  if (!isConnected) {
     return res.json({
       success: true,
       instanceName: reqInstance,
-      total: groups.length,
-      groups,
-      cached: true,
+      total: 0,
+      groups: [],
+      isConnected: false,
     });
   }
 
-  // 2. Check MySQL if not forced
-  if (!forceRefresh) {
-    try {
-      const dbGroups = await own.db.listGroupsForUser(own.user.id);
-      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
-        syncAllWhatsAppGroups(false, reqInstance, { id: own.user.id, db: own.db }).catch(() => {});
-        return res.json({
-          success: true,
-          instanceName: reqInstance,
-          total: dbGroups.length,
-          groups: dbGroups,
-          cached: true,
-        });
-      }
-    } catch {}
+  // 1. Check memory cache for this specific instance
+  const cached = cachedGroupsByInstance.get(reqInstance);
+  if (!forceRefresh && cached && Array.isArray(cached.groups) && cached.groups.length > 0 && (Date.now() - cached.timestamp < 20000)) {
+    return res.json({
+      success: true,
+      instanceName: reqInstance,
+      total: cached.groups.length,
+      groups: cached.groups,
+      cached: true,
+      isConnected: true,
+    });
   }
 
-  // 3. Perform sync with Evolution and persist to MySQL
-  const fresh = await syncAllWhatsAppGroups(true, reqInstance, { id: own.user.id, db: own.db });
+  // 2. Perform sync with Evolution for this specific instance
+  const fresh = await syncAllWhatsAppGroups(forceRefresh, reqInstance, { id: own.user.id, db: own.db });
   if (fresh.length > 0) {
     return res.json({
       success: true,
       instanceName: reqInstance,
       total: fresh.length,
       groups: fresh,
+      isConnected: true,
     });
   }
 
-  // 4. Fallback to MySQL or global cache
+  // 3. Fallback to MySQL user_groups for this user only
   const dbGroups = await own.db.listGroupsForUser(own.user.id);
-  const resultGroups = (Array.isArray(dbGroups) && dbGroups.length > 0) ? dbGroups : globalCachedGroups;
+  const resultGroups = (Array.isArray(dbGroups) && dbGroups.length > 0) ? dbGroups : [];
   res.json({
     success: true,
     instanceName: reqInstance,
     total: resultGroups.length,
     groups: resultGroups,
+    isConnected: true,
   });
 });
 
@@ -3274,7 +3235,8 @@ app.post("/api/client/campaigns/create", async (req, res) => {
       tags: [category ? category.split("&")[0].trim() : "Divulgação", scheduleMode === 'agendar' ? 'Agendada' : (scheduleMode === 'recorrente' ? 'Recorrente' : 'Imediata')],
       createdAt: new Date().toISOString(),
       executed: false,
-      instanceName: targetInstance,
+      instanceName: targetInstance || own.instance,
+      userId: own.user.id,
     };
 
     try {
@@ -3386,9 +3348,11 @@ async function executeGroupDispatch(
   campaignTitle: string,
   campaignId?: string,
   intervalMs: number = 0,
-  onProgress?: (processedCount: number, successfulCount: number, failedCount: number, targetTotal: number) => void
+  onProgress?: (processedCount: number, successfulCount: number, failedCount: number, targetTotal: number) => void,
+  userId?: number,
+  db?: any
 ) {
-  const instance = await getActiveConnectedInstance(preferredInstance || "minhabagg-leads");
+  const instance = preferredInstance;
   console.log(`\n[Dispatch] 🚀 Dispatching '${campaignTitle}' to ${targets.length} groups via '${instance}' (hasImage: ${Boolean(imgToSend)}, intervalMs: ${intervalMs})`);
 
   const dispatchResults: Array<{ jid: string; success: boolean; error?: string }> = [];
@@ -3591,10 +3555,44 @@ async function executeGroupDispatch(
         duration: `${durationSeconds} segundos`,
       });
       saveJsonSafe(HISTORY_FILE, clientHistoryStore);
+
+      if (userId && db?.addHistoryForUser) {
+        try {
+          await db.addHistoryForUser(userId, {
+            campaignId: campaignId || "manual",
+            campaignTitle: campaignTitle || "Divulgação",
+            groupJid: jid,
+            groupName,
+            messageText: textToSend,
+            imageUrl: imgToSend || null,
+            mediaType: imgToSend ? "imagem" : "texto",
+            status: isOk ? "delivered" : "failed",
+            error: errorDetails || null,
+            duration: `${durationSeconds} segundos`,
+          });
+        } catch (dbErr) {
+          console.warn("[DB] Erro ao gravar historico de envio:", dbErr);
+        }
+      }
     } catch (err: any) {
       console.log(`[FAILED] Erro catastrofico ao enviar para ${jid}: ${err.message}`);
       failedCount++;
       dispatchResults.push({ jid, success: false, error: err.message });
+      if (userId && db?.addHistoryForUser) {
+        try {
+          await db.addHistoryForUser(userId, {
+            campaignId: campaignId || "manual",
+            campaignTitle: campaignTitle || "Divulgação",
+            groupJid: jid,
+            groupName,
+            messageText: textToSend,
+            imageUrl: imgToSend || null,
+            mediaType: imgToSend ? "imagem" : "texto",
+            status: "failed",
+            error: err.message,
+          });
+        } catch {}
+      }
       if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
     }
   }
@@ -3694,13 +3692,14 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
             camp.totalSent = successfulCount;
             camp.totalFailed = failedCount;
             camp.status = "enviando";
-            own.db.saveCampaignForUser(own.user.id,camp).catch(()=>{});
+            own.db.saveCampaignForUser(own.user.id, camp).catch(() => {});
           }
-        }
+        },
+        own.user.id,
+        own.db
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
-      for(const result of dispatchResults){await own.db.addHistoryForUser(own.user.id,{campaignId:camp?.id||campaignId,campaignTitle:camp?.title||"Disparo Imediato",groupJid:result.jid,groupName:result.jid||"Grupo",messageText:textToSend,imageUrl:imgToSend,mediaType:imgToSend?"imagem":"texto",status:result.success?"delivered":"failed",error:result.error||null});}
 
       if (camp) {
         camp.totalSent = successfulCount;
@@ -3733,103 +3732,146 @@ function getBrazilTimeData() {
   const now = new Date();
   const brTimeStr = now.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false });
   const brDateStr = now.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }); // YYYY-MM-DD
-  const dayNames = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-  const brDayName = dayNames[now.getDay()];
+  const brWeekday = now.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", weekday: "short" });
+  const dayNames: Record<string, string> = {
+    "dom": "Dom", "seg": "Seg", "ter": "Ter", "qua": "Qua", "qui": "Qui", "sex": "Sex", "sáb": "Sáb", "sab": "Sáb"
+  };
+  const prefix = brWeekday.slice(0, 3).toLowerCase().replace(".", "");
+  const brDayName = dayNames[prefix] || "Seg";
   return { brTimeStr, brDateStr, brDayName, now };
 }
 
-// Automatic Background Scheduling Engine (Checks every 3 seconds for scheduled campaigns)
+// Automatic Background Scheduling Engine (Checks MySQL every 3 seconds for scheduled campaigns)
+let isSchedulerRunning = false;
 setInterval(async () => {
-  const { brTimeStr, brDateStr, brDayName } = getBrazilTimeData();
+  if (isSchedulerRunning) return;
+  isSchedulerRunning = true;
 
-  for (const camp of clientCampaignsStore) {
-    if (!camp.active && camp.status !== 'enviando') continue;
-    if (camp.status === 'concluida' || camp.status === 'falha') continue;
-    if (activeCampaignsRunning.has(camp.id)) continue;
+  try {
+    const db: any = await getDatabase().catch(() => null);
+    if (!db) return;
 
-    let shouldTrigger = false;
-    const slotKey = `${brDateStr}_${brTimeStr}`;
+    const { brTimeStr, brDateStr, brDayName } = getBrazilTimeData();
 
-    // Auto-Resume any interrupted campaign
-    if (camp.status === 'enviando' && !activeCampaignsRunning.has(camp.id)) {
-      shouldTrigger = true;
-      console.log(`[Scheduler] 🔄 Resumindo campanha interrompida '${camp.title}' (progresso: ${camp.totalSent || 0}/${camp.totalTarget || camp.selectedGroupJids?.length || 0})`);
-    }
+    // 1. Fetch all active/scheduled campaigns directly from MySQL (Shared Single Source of Truth)
+    const dbCampaigns = await db.listActiveScheduledCampaigns().catch(() => []);
 
-    // Mode 1: Agendar (Disparo Único com Data e Hora)
-    else if (camp.scheduleMode === 'agendar') {
-      const campDate = camp.scheduleDate || brDateStr;
-      const campTime = camp.scheduleTime || "00:00";
-      
-      // If scheduled date has arrived and time is reached
-      if (campDate < brDateStr || (campDate === brDateStr && campTime <= brTimeStr)) {
-        if (!camp.executed && (camp.status === 'agendada' || camp.status === 'ativa')) {
-          shouldTrigger = true;
+    for (const item of dbCampaigns) {
+      const camp = item.config;
+      const userId = item.userId;
+      const campId = camp.id || item.campaignKey;
+
+      if (!camp.active && camp.status !== 'enviando') continue;
+      if (camp.status === 'concluida' || camp.status === 'falha') continue;
+      if (activeCampaignsRunning.has(campId)) continue;
+
+      let shouldTrigger = false;
+      const slotKey = `${brDateStr}_${brTimeStr}`;
+
+      // Auto-Resume any interrupted campaign
+      if (camp.status === 'enviando') {
+        shouldTrigger = true;
+        console.log(`[Scheduler] 🔄 Resumindo campanha interrompida '${camp.title}' (progresso: ${camp.totalSent || 0}/${camp.totalTarget || camp.selectedGroupJids?.length || 0})`);
+      }
+      // Mode 1: Agendar / Programado (Disparo Único com Data e Hora)
+      else if (camp.scheduleMode === 'agendar' || camp.scheduleMode === 'programado') {
+        const campDate = camp.scheduleDate || brDateStr;
+        const campTime = (camp.scheduleTime || "00:00").slice(0, 5);
+
+        if (campDate < brDateStr || (campDate === brDateStr && campTime <= brTimeStr)) {
+          if (!camp.executed && (camp.status === 'agendada' || camp.status === 'ativa')) {
+            shouldTrigger = true;
+          }
         }
       }
-    }
+      // Mode 2: Recorrente (Dias da semana & horários do dia)
+      else if (camp.scheduleMode === 'recorrente') {
+        const days = camp.scheduleDays || "Todos os dias";
+        const isDayMatch = days === "Todos os dias" || days.includes(brDayName);
 
-    // Mode 2: Recorrente (Dias da semana & horários do dia)
-    else if (camp.scheduleMode === 'recorrente') {
-      const days = camp.scheduleDays || "Todos os dias";
-      const isDayMatch = days === "Todos os dias" || days.includes(brDayName);
+        if (isDayMatch) {
+          const times = (Array.isArray(camp.scheduleTimes) && camp.scheduleTimes.length > 0
+            ? camp.scheduleTimes
+            : [camp.scheduleTime || "00:00"]).map((t: any) => String(t).slice(0, 5));
 
-      if (isDayMatch) {
-        const times = Array.isArray(camp.scheduleTimes) && camp.scheduleTimes.length > 0
-          ? camp.scheduleTimes
-          : [camp.scheduleTime || "00:00"];
-
-        if (times.includes(brTimeStr) && camp.lastExecutedSlot !== slotKey) {
-          shouldTrigger = true;
-          camp.lastExecutedSlot = slotKey;
+          if (times.includes(brTimeStr) && camp.lastExecutedSlot !== slotKey) {
+            shouldTrigger = true;
+            camp.lastExecutedSlot = slotKey;
+          }
         }
       }
-    }
 
-    if (shouldTrigger) {
-      console.log(`[Scheduler] 🚀 Triggering campaign '${camp.title}' (${camp.scheduleMode}) at ${brTimeStr} (BRT)`);
+      if (!shouldTrigger) continue;
+
+      console.log(`[Scheduler] 🚀 Disparo agendado acionado para '${camp.title}' (usuário ${userId}) às ${brTimeStr} (BRT)`);
+      activeCampaignsRunning.add(campId);
       camp.status = 'enviando';
-      camp.executed = true; // Mark as executed immediately so it NEVER re-triggers for one-time agendamento
+      camp.executed = true;
+      await db.saveCampaignForUser(userId, camp).catch(() => {});
 
-      const instance = await getActiveConnectedInstance(camp.instanceName || "minhabagg-leads");
-      let allTargets = camp.selectedGroupJids || [];
-      if (allTargets.length === 0) {
-        const imported = clientImportedGroupsStore.get(instance) || [];
-        allTargets = imported.map((g: any) => g.jid || g.id).filter(Boolean);
-      }
+      // Resolve user's WhatsApp instance
+      let targetInstName = camp.instanceName;
+      try {
+        const uInst = await db.getUserInstance(userId).catch(() => null);
+        if (uInst?.instance_name) targetInstName = uInst.instance_name;
+      } catch {}
 
-      if (allTargets.length === 0) {
-        console.warn(`[Scheduler] ⚠️ No targets found for campaign '${camp.title}'`);
+      // Verify connection before attempting dispatch
+      const { isConnected, activeInstance } = await resolveActiveInstance(targetInstName, userId, db);
+      if (!isConnected) {
+        console.warn(`[Scheduler] ⚠️ WhatsApp desconectado para usuário ${userId} (instância ${targetInstName}). Disparo cancelado.`);
         camp.status = 'falha';
         camp.active = false;
+        await db.saveCampaignForUser(userId, camp).catch(() => {});
+        await db.addHistoryForUser(userId, {
+          campaignId: campId,
+          campaignTitle: camp.title || "Divulgação Agendada",
+          groupJid: "N/A",
+          groupName: "Falha de Conexão",
+          messageText: camp.previewText || "",
+          status: "failed",
+          error: "WhatsApp desconectado no horário agendado. Conecte seu WhatsApp para enviar divulgações.",
+        }).catch(() => {});
+        activeCampaignsRunning.delete(campId);
+        continue;
+      }
+
+      let allTargets = Array.isArray(camp.selectedGroupJids) ? camp.selectedGroupJids : [];
+      if (allTargets.length === 0) {
+        console.warn(`[Scheduler] ⚠️ Nenhum grupo selecionado para '${camp.title}'`);
+        camp.status = 'falha';
+        camp.active = false;
+        await db.saveCampaignForUser(userId, camp).catch(() => {});
+        activeCampaignsRunning.delete(campId);
         continue;
       }
 
       camp.totalTarget = allTargets.length;
       camp.groupsCount = allTargets.length;
+
       // Filter out already successful targets from this campaign based on history
-      const successfulJids = clientHistoryStore
-        .filter(h => h.campaignId === camp.id && h.status === 'delivered')
-        .map(h => h.groupJid);
-      
-      const remainingTargets = allTargets.filter(jid => !successfulJids.includes(jid));
+      const userHistory = await db.listHistoryForUser(userId, 30).catch(() => []);
+      const successfulJids = (userHistory || [])
+        .filter((h: any) => h.campaignId === campId && h.status === 'delivered')
+        .map((h: any) => h.groupJid);
+
+      const remainingTargets = allTargets.filter((jid: string) => !successfulJids.includes(jid));
       const totalAlreadySent = successfulJids.length;
 
       if (remainingTargets.length === 0) {
-        console.warn(`[Scheduler] ⚠️ Todos os alvos já foram enviados para a campanha '${camp.title}'`);
+        console.log(`[Scheduler] ✅ Todos os grupos já foram enviados para '${camp.title}'`);
         camp.status = 'concluida';
         camp.active = false;
+        await db.saveCampaignForUser(userId, camp).catch(() => {});
+        activeCampaignsRunning.delete(campId);
         continue;
       }
 
-      // Interval between groups (in milliseconds)
       const intervalMs = (camp.delaySeconds !== undefined && camp.delaySeconds !== null && Number(camp.delaySeconds) >= 0)
         ? Number(camp.delaySeconds) * 1000
         : (camp.intervalMinutes ? Number(camp.intervalMinutes) * 60 * 1000 : 30000);
 
-      console.log(`[Scheduler] 🚀 Iniciando disparo da campanha '${camp.title}' para ${remainingTargets.length} grupos restantes (de ${allTargets.length}) com intervalo de ${intervalMs / 1000}s`);
-
-      activeCampaignsRunning.add(camp.id);
+      console.log(`[Scheduler] 🚀 Iniciando envio da campanha '${camp.title}' para ${remainingTargets.length} grupos restantes com intervalo de ${intervalMs / 1000}s`);
 
       // Execute dispatch in background
       (async () => {
@@ -3838,16 +3880,18 @@ setInterval(async () => {
             remainingTargets,
             camp.previewText,
             camp.imageUrl,
-            instance,
+            activeInstance,
             camp.title,
-            camp.id,
+            campId,
             intervalMs,
             (processedCount, successfulCount, failedCount) => {
               camp.totalSent = totalAlreadySent + successfulCount;
-              camp.totalFailed = (camp.totalFailed || 0) + failedCount; // Keep previous failures if retrying
+              camp.totalFailed = (camp.totalFailed || 0) + failedCount;
               camp.status = 'enviando';
-              saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
-            }
+              db.saveCampaignForUser(userId, camp).catch(() => {});
+            },
+            userId,
+            db
           );
 
           const successCount = results.filter((r) => r.success).length;
@@ -3856,31 +3900,29 @@ setInterval(async () => {
           camp.totalSent = totalSuccess;
           camp.totalFailed = (camp.totalFailed || 0) + failedCount;
           camp.lastSentAt = `Hoje às ${getBrazilTimeData().brTimeStr}`;
-          
+
           if (camp.scheduleMode === 'recorrente') {
-            camp.status = 'ativa'; // Stays active for next recurring schedule
+            camp.status = 'ativa';
             camp.active = true;
           } else {
-            if (totalSuccess >= allTargets.length) {
-              camp.status = 'concluida';
-            } else if (totalSuccess > 0) {
-              camp.status = 'parcial';
-            } else {
-              camp.status = 'falha';
-            }
-            camp.active = false; // Finished one-time scheduled run!
+            camp.status = totalSuccess >= allTargets.length ? 'concluida' : (totalSuccess > 0 ? 'parcial' : 'falha');
+            camp.active = false;
           }
-          saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+          await db.saveCampaignForUser(userId, camp).catch(() => {});
         } catch (err: any) {
-          console.error(`[Scheduler] Error running campaign '${camp.title}':`, err);
+          console.error(`[Scheduler] Erro durante execução da campanha '${camp.title}':`, err);
           camp.status = 'falha';
           camp.active = false;
-          saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+          await db.saveCampaignForUser(userId, camp).catch(() => {});
         } finally {
-          activeCampaignsRunning.delete(camp.id);
+          activeCampaignsRunning.delete(campId);
         }
       })();
     }
+  } catch (err: any) {
+    console.warn("[Scheduler] Erro no loop de agendamento:", err?.message || err);
+  } finally {
+    isSchedulerRunning = false;
   }
 }, 3000);
 
@@ -3905,7 +3947,10 @@ app.get("/api/client/stats", async (req, res) => {
   const sub = await own.db.getSubscriptionForUser(own.user.id);
   const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
 
-  const importedGroups = clientImportedGroupsStore.get(instance) || [];
+  const { isConnected } = await resolveActiveInstance(instance, own.user.id, own.db);
+  const cachedGroups = cachedGroupsByInstance.get(instance);
+  const realGroupsCount = isConnected ? (cachedGroups?.groups?.length || 0) : 0;
+
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   const deliveredHistory = clientHistoryStore.filter((h) => h.status === "delivered").length;
   const totalMessagesSent = Math.max(totalSentFromCampaigns, deliveredHistory);
@@ -3938,7 +3983,7 @@ app.get("/api/client/stats", async (req, res) => {
     stats: {
       messagesSent: totalMessagesSent,
       sentToday,
-      activeGroups: importedGroups.length,
+      activeGroups: realGroupsCount,
       successRate,
       activeCampaigns: activeCampaignsCount,
       scheduledToday: scheduledCount,

@@ -47,21 +47,31 @@ class ClientService {
   private lastFetchTime: number = 0;
 
   constructor() {
-    if (typeof window !== 'undefined') {
-      try {
-        const g = localStorage.getItem('groply_cached_groups');
-        if (g) this.cachedGroups = JSON.parse(g);
-      } catch {}
-    }
+    // Groups are loaded per-user dynamically once authenticated
   }
 
   getDefaultInstance(): string { return this.defaultInstance; }
   private authHeaders(extra:Record<string,string>={}) { const token=typeof window!=='undefined'?localStorage.getItem('groply_token')||'':''; return {...extra,...(token?{Authorization:`Bearer ${token}`}:{})}; }
 
+  getGroupsStorageKey(): string {
+    if (typeof window === 'undefined') return 'groply_cached_groups';
+    try {
+      const u = JSON.parse(localStorage.getItem('groply_user') || '{}');
+      return u.id ? `groply_cached_groups_${u.id}` : 'groply_cached_groups';
+    } catch {
+      return 'groply_cached_groups';
+    }
+  }
+
   getCachedGroups(): ClientGroup[] {
+    if (!this.isWhatsAppConnected()) {
+      this.cachedGroups = [];
+      return [];
+    }
     if (this.cachedGroups.length === 0 && typeof window !== 'undefined') {
       try {
-        const g = localStorage.getItem('groply_cached_groups');
+        const key = this.getGroupsStorageKey();
+        const g = localStorage.getItem(key);
         if (g) this.cachedGroups = JSON.parse(g);
       } catch {}
     }
@@ -185,21 +195,31 @@ class ClientService {
   }
 
   async getRealGroups(instance: string = this.defaultInstance, forceRefresh: boolean = false): Promise<ClientGroup[]> {
+    const key = this.getGroupsStorageKey();
+    if (!this.isWhatsAppConnected()) {
+      this.cachedGroups = [];
+      if (typeof window !== 'undefined') localStorage.removeItem(key);
+      return [];
+    }
     try {
       const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
       const res = await fetch(url, { headers: this.authHeaders() });
       const data = await res.json();
-      if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
-        this.cachedGroups = data.groups;
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('groply_cached_groups', JSON.stringify(data.groups));
+      if (data.isConnected === false) {
+        this.cachedGroups = [];
+        if (typeof window !== 'undefined') localStorage.removeItem(key);
+        return [];
+      }
+      const groups = Array.isArray(data.groups) ? data.groups : [];
+      this.cachedGroups = groups;
+      if (typeof window !== 'undefined') {
+        if (groups.length > 0) {
+          localStorage.setItem(key, JSON.stringify(groups));
+        } else {
+          localStorage.removeItem(key);
         }
-        return data.groups;
       }
-      if (this.cachedGroups.length > 0 && !forceRefresh) {
-        return this.cachedGroups;
-      }
-      return data.groups || this.cachedGroups || [];
+      return groups;
     } catch {
       return this.getCachedGroups();
     }
@@ -213,29 +233,43 @@ class ClientService {
     const now = Date.now();
     if (now - this.lastFetchTime < 10000) return;
     this.lastFetchTime = now;
+    if (!this.isWhatsAppConnected()) return;
     try {
-      const res = await fetch('/api/client/groups',{headers:this.authHeaders()});
+      const res = await fetch('/api/client/groups', { headers: this.authHeaders() });
       const data = await res.json();
-      if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
+      if (data.isConnected === false) {
+        this.cachedGroups = [];
+        const key = this.getGroupsStorageKey();
+        if (typeof window !== 'undefined') localStorage.removeItem(key);
+        return;
+      }
+      if (data.success && Array.isArray(data.groups)) {
         this.cachedGroups = data.groups;
+        const key = this.getGroupsStorageKey();
         if (typeof window !== 'undefined') {
-          localStorage.setItem('groply_cached_groups', JSON.stringify(data.groups));
+          if (data.groups.length > 0) {
+            localStorage.setItem(key, JSON.stringify(data.groups));
+          } else {
+            localStorage.removeItem(key);
+          }
         }
       }
     } catch {}
   }
 
   async getImportedGroups(instance: string = this.defaultInstance): Promise<ClientGroup[]> {
+    if (!this.isWhatsAppConnected()) return [];
     if (this.cachedGroups.length > 0) {
       return this.cachedGroups;
     }
     try {
-      const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`,{headers:this.authHeaders()});
+      const res = await fetch(`/api/client/imported-groups?instance=${safeEncodeURIComponent(instance)}`, { headers: this.authHeaders() });
       const data = await res.json();
       if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
         this.cachedGroups = data.groups;
+        const key = this.getGroupsStorageKey();
         if (typeof window !== 'undefined') {
-          localStorage.setItem('groply_cached_groups', JSON.stringify(data.groups));
+          localStorage.setItem(key, JSON.stringify(data.groups));
         }
         return data.groups;
       }
@@ -247,8 +281,13 @@ class ClientService {
 
   async saveImportedGroups(groups: ClientGroup[], instance: string = this.defaultInstance): Promise<ClientGroup[]> {
     this.cachedGroups = groups;
+    const key = this.getGroupsStorageKey();
     if (typeof window !== 'undefined') {
-      localStorage.setItem('groply_cached_groups', JSON.stringify(groups));
+      if (groups.length > 0) {
+        localStorage.setItem(key, JSON.stringify(groups));
+      } else {
+        localStorage.removeItem(key);
+      }
     }
     try {
       const res = await fetch('/api/client/imported-groups', {

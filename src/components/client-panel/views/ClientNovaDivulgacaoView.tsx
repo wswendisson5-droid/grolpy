@@ -97,21 +97,19 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   // ETAPA 2: Grupos reais do WhatsApp
   const [availableGroups, setAvailableGroups] = useState<ClientGroup[]>(() => {
-    if (groups && groups.length > 0) return groups;
-    return clientService.getCachedGroups();
+    return (groups && groups.length > 0) ? groups : [];
   });
   const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>([]);
   const [groupSearch, setGroupSearch] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [isWhatsappConnected, setIsWhatsappConnected] = useState<boolean>(() => {
     if (propWhatsappConnected !== undefined) return propWhatsappConnected;
-    if (groups && groups.length > 0) return true;
-    return clientService.getCachedGroups().length > 0;
+    return clientService.isWhatsAppConnected();
   });
 
   useEffect(() => {
+    setAvailableGroups(groups || []);
     if (groups && groups.length > 0) {
-      setAvailableGroups(groups);
       setIsWhatsappConnected(true);
     }
   }, [groups]);
@@ -155,6 +153,11 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   // Load real WhatsApp instance groups fast with 0ms delay
   const fetchRealGroups = async (force: boolean = false) => {
+    if (!clientService.isWhatsAppConnected()) {
+      setAvailableGroups([]);
+      setIsWhatsappConnected(false);
+      return;
+    }
     if (availableGroups.length === 0 && groups.length === 0) {
       setLoadingGroups(true);
     }
@@ -167,11 +170,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         setAvailableGroups(groups);
         setIsWhatsappConnected(true);
       } else {
-        const imported = await clientService.getImportedGroups();
-        if (imported && imported.length > 0) {
-          setAvailableGroups(imported);
-          setIsWhatsappConnected(true);
-        }
+        setAvailableGroups([]);
       }
     } catch {
       // keep cached
