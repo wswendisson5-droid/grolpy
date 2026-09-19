@@ -250,9 +250,73 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
     );
   };
 
+  const compressImageIfNeeded = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Falha ao ler arquivo de imagem.'));
+      reader.onload = () => {
+        if (typeof reader.result !== 'string') return reject(new Error('Resultado inválido'));
+        const img = new Image();
+        img.onerror = () => reject(new Error('Falha ao processar imagem'));
+        img.onload = () => {
+          try {
+            const MAX_WIDTH = 1280;
+            const MAX_HEIGHT = 1280;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+              if (width > height) {
+                height = Math.round((height * MAX_WIDTH) / width);
+                width = MAX_WIDTH;
+              } else {
+                width = Math.round((width * MAX_HEIGHT) / height);
+                height = MAX_HEIGHT;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              return resolve(reader.result as string);
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressed = canvas.toDataURL('image/jpeg', 0.82);
+            resolve(compressed);
+          } catch {
+            resolve(reader.result as string);
+          }
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Media Handlers
-  const handleAddMedia = (type: 'image' | 'video' | 'document', file?: File) => {
+  const handleAddMedia = async (type: 'image' | 'video' | 'document', file?: File) => {
     if (file) {
+      if (file.size > 16 * 1024 * 1024) {
+        setValidationError('O arquivo selecionado excede o limite de 16MB. Por favor, escolha um arquivo menor.');
+        return;
+      }
+      if (type === 'image') {
+        try {
+          const optimizedDataUrl = await compressImageIfNeeded(file);
+          const newMedia: MediaItem = {
+            id: `m-${Date.now()}`,
+            type,
+            url: optimizedDataUrl,
+            name: file.name,
+          };
+          setMediaList((prev) => [...prev, newMedia]);
+          return;
+        } catch {
+          // fallback to standard reader
+        }
+      }
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
@@ -480,6 +544,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         dailyLimit,
         previewText: newCampaign.previewText,
         imageUrl: firstImage,
+        mediaList: newCampaign.mediaList,
         selectedGroupJids,
         groupsCount: selectedGroupJids.length,
         active: activateNow,
@@ -495,7 +560,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
           campaignId: created?.id || newCampaign.id,
           customGroupJids: selectedGroupJids,
           customMessage: newCampaign.previewText,
-          imageUrl: firstImage,
+          imageUrl: created?.imageUrl || firstImage,
           intervalSeconds: delaySeconds,
         });
 

@@ -266,6 +266,12 @@ class ClientService {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
+        if (res.status === 402 || data.error === 'PAYMENT_REQUIRED') {
+          throw new Error('Sua assinatura não está ativa ou requer renovação de pagamento.');
+        }
+        if (res.status === 413) {
+          throw new Error('A mídia anexada é muito grande. Escolha uma imagem ou vídeo menor.');
+        }
         throw new Error(data.error || 'Não foi possível salvar a divulgação no banco de dados.');
       }
       if (data.campaign) {
@@ -319,7 +325,7 @@ class ClientService {
     try {
       const res = await fetch('/api/client/campaigns/send-now', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           ...payload,
           instanceName: payload.instanceName || this.defaultInstance,

@@ -19,8 +19,31 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+const UPLOADS_DIR = path.join(process.cwd(), "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {}
+}
+app.use("/uploads", express.static(UPLOADS_DIR));
+
+function saveBase64MediaToFile(base64Data: string, prefix = "media"): string {
+  if (!base64Data || typeof base64Data !== "string" || !base64Data.startsWith("data:")) return base64Data;
+  try {
+    const matches = base64Data.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+    if (!matches || matches.length !== 3) return base64Data;
+    const ext = matches[1].includes("png") ? "png" : matches[1].includes("webp") ? "webp" : matches[1].includes("gif") ? "gif" : matches[1].includes("mp4") ? "mp4" : "jpg";
+    const filename = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const filePath = path.join(UPLOADS_DIR, filename);
+    const buffer = Buffer.from(matches[2], "base64");
+    fs.writeFileSync(filePath, buffer);
+    return `/uploads/${filename}`;
+  } catch (err) {
+    console.error("[UPLOAD] Falha ao salvar arquivo base64 no disco:", err);
+    return base64Data;
+  }
+}
 
 // Evolution API credentials from environment
 const DEFAULT_EVOLUTION_URL = (process.env.EVOLUTION_API_URL || "").replace(/\/+$/, "");
@@ -354,8 +377,10 @@ async function ownedInstance(req: any, requireActive = true, createIfMissing = t
   const user: any = await authenticatedUser(req);
   if (!user) return { error: "UNAUTHORIZED" };
   const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
-  if (requireActive && !isAdmin && user.status !== "active") return { error: "PAYMENT_REQUIRED", user };
   const db: any = await getDatabase();
+  const sub = await db.getSubscriptionForUser(user.id).catch(() => null);
+  const isPaidActive = user.status === "active" || sub?.status === "active";
+  if (requireActive && !isAdmin && !isPaidActive) return { error: "PAYMENT_REQUIRED", user, db };
   const inst = createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
   if (!inst) return { error: "INSTANCE_NOT_FOUND", user, db };
   return { user, db, instance: inst.instance_name, record: inst, isAdmin };
@@ -2171,6 +2196,7 @@ interface ClientCampaign {
   totalSent: number;
   totalFailed?: number;
   imageUrl?: string;
+  mediaList?: any[];
   previewText: string;
   tags: string[];
   createdAt: string;
@@ -2996,7 +3022,8 @@ app.get("/api/client/campaigns", async (req, res) => {
 
 // Create new campaign with real schedule support
 app.post("/api/client/campaigns/create", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const {
     id,
     title,
@@ -3012,6 +3039,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     dailyLimit,
     previewText,
     imageUrl,
+    mediaList,
     selectedGroupJids,
     groupsCount,
     active,
@@ -3093,6 +3121,22 @@ app.post("/api/client/campaigns/create", async (req, res) => {
 
   console.log(`[VALIDATION] Limites validados: OK. Agendamento permitido.`);
 
+  // Process and save any base64 media to disk to avoid massive MySQL packets
+  let safeImageUrl = imageUrl;
+  if (safeImageUrl && typeof safeImageUrl === "string" && safeImageUrl.startsWith("data:")) {
+    safeImageUrl = saveBase64MediaToFile(safeImageUrl, "camp");
+  }
+
+  let safeMediaList = undefined;
+  if (Array.isArray(mediaList)) {
+    safeMediaList = mediaList.map((m: any) => {
+      if (m && m.url && typeof m.url === "string" && m.url.startsWith("data:")) {
+        return { ...m, url: saveBase64MediaToFile(m.url, "camp") };
+      }
+      return m;
+    });
+  }
+
   const isScheduled = scheduleMode === 'agendar' || scheduleMode === 'recorrente';
   const initialStatus: 'ativa' | 'agendada' | 'pausada' = active === false ? 'pausada' : (isScheduled ? 'agendada' : 'ativa');
   const targetCount = incomingJids.length > 0 ? incomingJids.length : (groupsCount || 1);
@@ -3132,7 +3176,8 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     selectedGroupJids: Array.isArray(selectedGroupJids) ? selectedGroupJids : [],
     totalSent: 0,
     totalFailed: 0,
-    imageUrl: imageUrl || undefined,
+    imageUrl: safeImageUrl || undefined,
+    mediaList: safeMediaList,
     previewText: previewText.trim(),
     tags: [category ? category.split("&")[0].trim() : "Divulgação", scheduleMode === 'agendar' ? 'Agendada' : (scheduleMode === 'recorrente' ? 'Recorrente' : 'Imediata')],
     createdAt: new Date().toISOString(),
@@ -3154,9 +3199,11 @@ app.post("/api/client/campaigns/create", async (req, res) => {
 
 // Toggle campaign active state
 app.post("/api/client/campaigns/toggle", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
-  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
-  const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+  const clientCampaignsStore: any[] = await own.db.listCampaignsForUser(own.user.id);
+  const sub = await own.db.getSubscriptionForUser(own.user.id);
+  const userPlanId = (sub?.plan_id || "start") as any;
   const { id } = req.body;
   const camp = clientCampaignsStore.find((c) => c.id === id);
   if (!camp) {
@@ -3196,17 +3243,17 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
     camp.status = 'pausada';
   }
 
-  await own.db.saveCampaignForUser(own.user.id,camp);
+  await own.db.saveCampaignForUser(own.user.id, camp);
   res.json({ success: true, campaign: camp });
 });
 
 // Delete campaign
-app.delete("/api/client/campaigns/:id", async (req,res)=>{
- const own:any=await ownedInstance(req);
- if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
- const ok=await own.db.deleteCampaignForUser(own.user.id,String(req.params.id));
- if(!ok)return res.status(404).json({error:"Campanha não encontrada"});
- res.json({success:true});
+app.delete("/api/client/campaigns/:id", async (req, res) => {
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+  const ok = await own.db.deleteCampaignForUser(own.user.id, String(req.params.id));
+  if (!ok) return res.status(404).json({ error: "Campanha não encontrada" });
+  res.json({ success: true });
 });
 
 // Helper to look up real group name
@@ -3261,7 +3308,7 @@ async function executeGroupDispatch(
       let attemptCount = 0;
 
       // 1. If image provided, attempt sendMedia
-      if (imgToSend && (imgToSend.startsWith("http") || imgToSend.startsWith("data:") || imgToSend.length > 50)) {
+      if (imgToSend && (imgToSend.startsWith("http") || imgToSend.startsWith("data:") || imgToSend.startsWith("/uploads/") || imgToSend.startsWith("uploads/") || imgToSend.length > 20)) {
         attemptCount++;
         console.log(`attempt: ${attemptCount} (sendMedia)`);
         endpointUsed = `/message/sendMedia/${instance}`;
@@ -3279,6 +3326,7 @@ async function executeGroupDispatch(
               if (header.includes("png")) mime = "image/png";
               else if (header.includes("webp")) mime = "image/webp";
               else if (header.includes("gif")) mime = "image/gif";
+              else if (header.includes("mp4")) mime = "video/mp4";
               else mime = "image/jpeg";
               fileName = `imagem.${mime.split("/")[1] || "jpg"}`;
             }
@@ -3287,14 +3335,27 @@ async function executeGroupDispatch(
             if (cleanMedia.includes(".png")) mime = "image/png";
             else if (cleanMedia.includes(".webp")) mime = "image/webp";
             else if (cleanMedia.includes(".gif")) mime = "image/gif";
+            else if (cleanMedia.includes(".mp4")) mime = "video/mp4";
             fileName = `imagem.${mime.split("/")[1] || "jpg"}`;
+          } else if (cleanMedia.startsWith("/uploads/") || cleanMedia.startsWith("uploads/")) {
+            const relPath = cleanMedia.replace(/^\/+/, "");
+            const fullLocal = path.join(process.cwd(), relPath);
+            if (fs.existsSync(fullLocal)) {
+              const ext = path.extname(fullLocal).toLowerCase();
+              mime = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : ext === ".mp4" ? "video/mp4" : "image/jpeg";
+              fileName = path.basename(fullLocal);
+              cleanMedia = fs.readFileSync(fullLocal).toString("base64");
+            } else {
+              cleanMedia = `https://grolpy.minhabagg.com.br/${relPath}`;
+            }
           } else {
             cleanMedia = cleanMedia.replace(/[\r\n\s]/g, "");
           }
 
+          const isVideo = mime.startsWith("video/") || fileName.endsWith(".mp4");
           const mediaPayload = {
             number: jid,
-            mediatype: "image",
+            mediatype: isVideo ? "video" : "image",
             mimetype: mime,
             media: cleanMedia,
             caption: textToSend || "",
@@ -3304,7 +3365,7 @@ async function executeGroupDispatch(
               delay: 1200
             },
             mediaMessage: { // Evolution V2 fallback structure
-              mediatype: "image",
+              mediatype: isVideo ? "video" : "image",
               caption: textToSend || "",
               media: cleanMedia,
               fileName
@@ -3431,7 +3492,8 @@ async function executeGroupDispatch(
 
 // Real Dispatch of Campaign to WhatsApp Groups via Evolution API
 app.post("/api/client/campaigns/send-now", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const { campaignId, customGroupJids, customMessage, imageUrl, instanceName, intervalSeconds } = req.body;
   const instanceParam = own.instance;
   const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);

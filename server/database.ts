@@ -243,6 +243,11 @@ export async function initDatabase() {
       await c.query("ALTER TABLE evolution_instances ADD COLUMN last_connected_at DATETIME NULL").catch(()=>{});
       await c.query("INSERT INTO migrations(name) VALUES (?)",["011_evolution_profile_columns"]).catch(()=>{});
     }
+    if (!done.has("012_campaign_longtext")) {
+      await c.query("ALTER TABLE user_campaigns MODIFY media_url LONGTEXT NULL").catch(()=>{});
+      await c.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(()=>{});
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["012_campaign_longtext"]).catch(()=>{});
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -339,8 +344,9 @@ export async function applyPaymentEvent(eventKey:string,eventType:string,payment
   return true;
 }
 
-export async function saveCampaignForUser(userId:number,data:any){
-  const clientId="client-"+userId; const key=String(data.id||data.campaignKey||("camp-"+Date.now()));
+export async function saveCampaignForUser(userId: number, data: any) {
+  const clientId = "client-" + userId;
+  const key = String(data.id || data.campaignKey || ("camp-" + Date.now()));
   let safeScheduledAt: string | null = null;
   const rawDate = data.scheduleDate || data.scheduledAt;
   if (rawDate && typeof rawDate === 'string') {
@@ -357,10 +363,24 @@ export async function saveCampaignForUser(userId:number,data:any){
       }
     }
   }
-  await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
-  VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
-  [userId,clientId,key,data.title||data.name||"Divulgação",data.previewText||data.message||"",data.imageUrl||data.mediaUrl||null,JSON.stringify(data),data.status||"draft",safeScheduledAt,Number(data.delaySeconds||data.intervalSeconds||30),Number(data.totalSent||0),Number(data.totalFailed||0)]);
-  return key;
+
+  const title = String(data.title || data.name || "Divulgação").trim().slice(0, 190);
+  const message = String(data.previewText || data.message || "").trim();
+  const mediaUrl = data.imageUrl || data.mediaUrl || null;
+  const status = String(data.status || "draft").slice(0, 30);
+  const intervalSeconds = Number(data.delaySeconds ?? data.intervalSeconds) || 30;
+  const totalSent = Number(data.totalSent) || 0;
+  const totalFailed = Number(data.totalFailed) || 0;
+
+  try {
+    await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
+    [userId, clientId, key, title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed]);
+    return key;
+  } catch (err: any) {
+    console.error(`[DB] Erro ao salvar campanha user=${userId} key=${key}:`, err);
+    throw err;
+  }
 }
 export async function listCampaignsForUser(userId:number){const [r]:any=await pool.execute("SELECT config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);return r.map((x:any)=>{try{return JSON.parse(x.config_json)}catch{return {}}});}
 export async function deleteCampaignForUser(userId:number,key:string){const [r]:any=await pool.execute("DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=?",[userId,key]);return r.affectedRows>0;}
