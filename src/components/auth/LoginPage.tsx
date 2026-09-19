@@ -28,15 +28,48 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }
 
     setIsLoading(true);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     try {
-      const response = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:email.trim().toLowerCase(),password}) });
-      const raw=await response.text(); let data:any={}; try{data=raw?JSON.parse(raw):{}}catch{throw new Error('O servidor de login retornou uma resposta inválida.');}
-      if (!response.ok) throw new Error(data.error || 'Não foi possível entrar.');
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const raw = await response.text();
+      let data: any = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error('O servidor retornou uma resposta inesperada. Tente novamente.');
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || 'E-mail ou senha incorretos.');
+      }
+
       localStorage.setItem('groply_token', data.token);
       localStorage.setItem('groply_user', JSON.stringify(data.user));
-      onLoginSuccess();
-    } catch (err:any) { setErrorMessage(err.message || 'Não foi possível entrar.'); }
-    finally { setIsLoading(false); }
+      if (!localStorage.getItem('groply_preferred_panel')) {
+        localStorage.setItem('groply_preferred_panel', 'client');
+      }
+
+      await Promise.resolve(onLoginSuccess());
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        setErrorMessage('O servidor demorou para responder. Verifique sua conexão e tente novamente.');
+      } else {
+        setErrorMessage(err.message || 'Não foi possível entrar.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGoogleLogin = () => {

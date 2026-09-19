@@ -10,8 +10,20 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
+  connectTimeout: 8000,
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 10000,
   charset: "utf8mb4",
 });
+
+// Keepalive periódico: evita que o LiteSpeed ou o cPanel derrubem conexões inativas
+setInterval(async () => {
+  try {
+    if (process.env.DB_NAME && process.env.DB_USER) {
+      await pool.query("SELECT 1");
+    }
+  } catch {}
+}, 45000);
 
 export async function initDatabase() {
   if (!process.env.DB_NAME || !process.env.DB_USER || !process.env.DB_PASSWORD) {

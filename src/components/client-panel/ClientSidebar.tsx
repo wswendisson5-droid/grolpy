@@ -253,7 +253,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
 
           {/* User Profile & TROCA DE PAINEL */}
           {(() => {
-            let loggedUser = { name: 'Cliente', email: '' };
+            let loggedUser: { name: string; email: string; role?: string } = { name: 'Cliente', email: '', role: 'client' };
             try {
               const raw = localStorage.getItem('groply_user');
               if (raw) loggedUser = JSON.parse(raw);
@@ -336,7 +336,18 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                         </div>
                       </div>
 
-                      <div className="p-1.5 border-b border-[#f0f4f1]">
+                      <div className="p-1.5 border-b border-[#f0f4f1] space-y-1">
+                        {(loggedUser.role === 'admin' || loggedUser.email === 'wswendisson5@gmail.com' || loggedUser.email === 'mateus@gmail.com') && (
+                          <button
+                            onClick={() => {
+                              setIsUserMenuOpen(false);
+                              onSwitchPanel && onSwitchPanel('admin');
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-[#eaf6ef] text-[#109353] font-bold cursor-pointer transition-colors"
+                          >
+                            <span>⚡ Painel Admin (Radar)</span>
+                          </button>
+                        )}
                         <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold cursor-pointer"><LogOut size={15}/>Sair da conta</button>
                       </div>
 

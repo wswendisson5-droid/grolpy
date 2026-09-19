@@ -16,7 +16,7 @@ import {
   ChevronDownIcon,
   LightningIcon,
 } from './icons/HugeIcon';
-import { Wifi, LogOut } from 'lucide-react';
+import { Wifi, LogOut, Megaphone } from 'lucide-react';
 
 interface SidebarProps {
   currentTab: string;
@@ -229,7 +229,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <p className="text-[#64786d] text-[11px]">Administrador do Sistema</p>
                   </div>
 
-                  <div className="p-1.5 border-b border-[#f0f4f1]">
+                  <div className="p-1.5 border-b border-[#f0f4f1] space-y-1">
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        onSwitchPanel && onSwitchPanel('client');
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-[#eaf6ef] text-[#109353] font-bold cursor-pointer transition-colors"
+                    >
+                      <Megaphone size={15} />
+                      <span>Ir para o Painel do Cliente</span>
+                    </button>
                     <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold"><LogOut size={15}/>Sair da conta</button>
                   </div>
 

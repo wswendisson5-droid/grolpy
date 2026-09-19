@@ -296,14 +296,19 @@ app.get("/api/health", (_req, res) => {
 });
 
 // Dynamic database loader that works seamlessly in local dev (TSX) and production (CJS bundle)
+let cachedDbModule: any = null;
 async function getDatabase(): Promise<any> {
+  if (cachedDbModule) return cachedDbModule;
   try {
-    return await import("./database.cjs");
+    cachedDbModule = await import("./database.cjs");
+    return cachedDbModule;
   } catch {
     try {
-      return await import("./dist/database.cjs");
+      cachedDbModule = await import("./dist/database.cjs");
+      return cachedDbModule;
     } catch {
-      return await import("./server/database");
+      cachedDbModule = await import("./server/database");
+      return cachedDbModule;
     }
   }
 }

@@ -50,9 +50,115 @@ import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 
 export default function App() {
-  const [panelMode, setPanelMode] = useState<any>('loading');
-  useEffect(()=>{let alive=true;(async()=>{const token=localStorage.getItem('groply_token');if(!token){if(alive)setPanelMode('landing');return;}try{const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}});if(!r.ok)throw new Error();const d=await r.json();if(!alive)return;if(d?.user?.role==='admin'){setCurrentTab('radar');setPanelMode('admin');}else if(d?.access)setPanelMode('client');else if(d?.subscription)setPanelMode('public-checkout');else setPanelMode('public-plans');}catch{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');if(alive)setPanelMode('landing')}})();return()=>{alive=false}},[]);
-  const logout=()=>{localStorage.removeItem('groply_token');localStorage.removeItem('groply_user');setPanelMode('landing');};
+  const [panelMode, setPanelMode] = useState<any>(() => {
+    if (typeof window === 'undefined') return 'loading';
+    const token = localStorage.getItem('groply_token');
+    if (!token) return 'landing';
+    try {
+      const rawUser = localStorage.getItem('groply_user');
+      const pref = localStorage.getItem('groply_preferred_panel');
+      if (rawUser) {
+        const u = JSON.parse(rawUser);
+        if (u?.role === 'admin') {
+          return pref === 'admin' ? 'admin' : 'client';
+        }
+        return 'client';
+      }
+    } catch {}
+    return 'loading';
+  });
+
+  const logout = () => {
+    try {
+      localStorage.removeItem('groply_token');
+      localStorage.removeItem('groply_user');
+      localStorage.removeItem('groply_whatsapp_profile');
+      localStorage.removeItem('groply_preferred_panel');
+    } catch {}
+    setPanelMode('landing');
+  };
+
+  const handleSwitchPanel = (mode: any) => {
+    if (mode === 'landing') {
+      logout();
+    } else {
+      try {
+        localStorage.setItem('groply_preferred_panel', mode);
+      } catch {}
+      if (mode === 'admin') {
+        setCurrentTab('radar');
+      }
+      setPanelMode(mode);
+    }
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') : null;
+    if (!token) {
+      setPanelMode('landing');
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+    (async () => {
+      try {
+        const r = await fetch('/api/account/status', {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (r.status === 401) {
+          logout();
+          return;
+        }
+
+        if (!r.ok) throw new Error('Status check failed');
+
+        const d = await r.json();
+        if (!alive) return;
+
+        if (d?.user) {
+          try {
+            localStorage.setItem('groply_user', JSON.stringify(d.user));
+          } catch {}
+        }
+
+        const pref = localStorage.getItem('groply_preferred_panel');
+        if (d?.user?.role === 'admin') {
+          if (pref === 'admin') {
+            setCurrentTab('radar');
+            setPanelMode('admin');
+          } else {
+            setPanelMode('client');
+          }
+        } else if (d?.access) {
+          setPanelMode('client');
+        } else if (d?.subscription) {
+          setPanelMode('public-checkout');
+        } else {
+          setPanelMode('public-plans');
+        }
+      } catch {
+        clearTimeout(timeoutId);
+        if (!alive) return;
+        const hasCachedUser = Boolean(localStorage.getItem('groply_user'));
+        if (!hasCachedUser) {
+          logout();
+        }
+      }
+    })();
+
+    return () => {
+      alive = false;
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
   const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
@@ -314,7 +420,22 @@ export default function App() {
     return opportunities.filter((o) => o.stage === 'nao_atribuidas').length;
   }, [opportunities]);
 
-  if(panelMode==='loading') return <div className="min-h-screen bg-[#f8faf9]" />;
+  if (panelMode === 'loading') {
+    return (
+      <div className="min-h-screen bg-[#f8faf9] flex flex-col items-center justify-center p-4 selection:bg-[#00c968] selection:text-white">
+        <div className="flex flex-col items-center gap-4">
+          <img
+            src="https://i.imgur.com/HqvEmQF.png"
+            alt="Grolpy"
+            referrerPolicy="no-referrer"
+            className="h-10 w-auto object-contain max-w-[170px] animate-pulse"
+          />
+          <div className="w-8 h-8 border-3 border-[#109353] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-semibold text-[#5b6e63]">Carregando painel...</p>
+        </div>
+      </div>
+    );
+  }
 
   // If Landing Page mode is active, render the Index / Landing Page
   if (panelMode === 'landing') {
@@ -335,7 +456,42 @@ export default function App() {
   if (panelMode === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={async () => { try { const token=localStorage.getItem('groply_token')||''; const raw=localStorage.getItem('groply_user'); const localUser=raw?JSON.parse(raw):null; const r=await fetch('/api/account/status',{headers:{Authorization:`Bearer ${token}`}}); const d=await r.json(); if(d?.user?.role==='admin'){setCurrentTab('radar');setPanelMode('admin');return;} setPanelMode(d?.access?'client':(d?.subscription?'public-checkout':'public-plans')); } catch { setPanelMode('public-plans'); } }}
+        onLoginSuccess={async () => {
+          try {
+            const token = localStorage.getItem('groply_token') || '';
+            const controller = new AbortController();
+            const tid = setTimeout(() => controller.abort(), 6000);
+            const r = await fetch('/api/account/status', {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: controller.signal,
+            });
+            clearTimeout(tid);
+            const d = await r.json();
+            if (d?.user) {
+              try {
+                localStorage.setItem('groply_user', JSON.stringify(d.user));
+              } catch {}
+            }
+            const pref = localStorage.getItem('groply_preferred_panel');
+            if (d?.user?.role === 'admin') {
+              if (pref === 'admin') {
+                setCurrentTab('radar');
+                setPanelMode('admin');
+              } else {
+                setPanelMode('client');
+              }
+              return;
+            }
+            setPanelMode(d?.access ? 'client' : (d?.subscription ? 'public-checkout' : 'public-plans'));
+          } catch {
+            const raw = localStorage.getItem('groply_user');
+            if (raw) {
+              setPanelMode('client');
+            } else {
+              setPanelMode('public-plans');
+            }
+          }
+        }}
         onNavigateRegister={() => setPanelMode('public-plans')}
         onNavigateHome={() => setPanelMode('landing')}
       />
@@ -359,7 +515,7 @@ export default function App() {
 
   // If Client Panel mode is active, render Client Dashboard
   if (panelMode === 'client') {
-    return <ClientPanel onSwitchPanel={(_mode:any)=>logout()} />;
+    return <ClientPanel onSwitchPanel={handleSwitchPanel} />;
   }
 
   if(panelMode !== 'admin') { setPanelMode('landing'); return null; }
@@ -373,7 +529,7 @@ export default function App() {
         activeCount={unassignedCount}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onSwitchPanel={(mode:any)=>mode==='landing'?logout():setPanelMode(mode)}
+        onSwitchPanel={handleSwitchPanel}
       />
 
       {/* Main Workspace Area */}
