@@ -520,16 +520,15 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
-  const own:any=await ownedInstance(req,true,false);
-  if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."});
-  if(own.error==="PAYMENT_REQUIRED")return res.status(402).json({error:"Plano inativo."});
-  if(own.error==="INSTANCE_NOT_FOUND")return res.json({configured:true,instanceExists:false,state:"disconnected",connectedProfile:null});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
+  if (own.error) return res.json({ configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
     // 1. Fetch connection state: GET /instance/connectionState/{instance}
-    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 5000);
+    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 5000, 0);
 
     if (!stateRes.ok && stateRes.status === 404) {
       return res.json({
@@ -538,6 +537,7 @@ app.get("/api/evolution/status", async (req, res) => {
         instanceName: instance,
         platform: "Evolution API",
         state: "disconnected",
+        connectedProfile: null,
         webhook: {
           status: "waiting",
           url: `${req.protocol}://${req.get("host")}/api/evolution/webhook`,
@@ -593,18 +593,20 @@ app.get("/api/evolution/status", async (req, res) => {
           version: "v2.3.7",
         };
         currentInst.webhookStatus = "active";
-        await own.db.setUserInstanceStatus(
-          own.user.id,
-          appState,
-          prof.number || currentInst.connectedProfile.number,
-          prof.name || currentInst.connectedProfile.name,
-          prof.pictureUrl || currentInst.connectedProfile.pictureUrl
-        );
+        try {
+          await own.db.setUserInstanceStatus(
+            own.user.id,
+            appState,
+            prof.number || currentInst.connectedProfile.number,
+            prof.name || currentInst.connectedProfile.name,
+            prof.pictureUrl || currentInst.connectedProfile.pictureUrl
+          );
+        } catch {}
       } catch (e) {
-        await own.db.setUserInstanceStatus(own.user.id, appState);
+        try { await own.db.setUserInstanceStatus(own.user.id, appState); } catch {}
       }
     } else {
-      await own.db.setUserInstanceStatus(own.user.id, appState);
+      try { await own.db.setUserInstanceStatus(own.user.id, appState); } catch {}
     }
 
     if (!currentInst.connectedProfile && own.record?.profile_pic_url) {
@@ -648,7 +650,7 @@ app.get("/api/evolution/status", async (req, res) => {
 // integrates with webhook cache, auto-converts raw strings to Base64, and returns 200
 // pending instead of premature 502 error pages so the user experience is smooth and uninterrupted.
 app.get("/api/evolution/qrcode", async (req, res) => {
-  const own: any = await ownedInstance(req);
+  const own: any = await ownedInstance(req, false, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
@@ -684,7 +686,9 @@ app.get("/api/evolution/qrcode", async (req, res) => {
         lastSyncAt: new Date().toLocaleString("pt-BR"),
         version: "v2.3.7",
       };
-      await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
+      try {
+        await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
+      } catch {}
       return res.json({
         success: true,
         instanceName: instance,
@@ -715,7 +719,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
           currentInst.qrCode = norm;
           currentInst.state = "waiting_qr";
           currentInst.lastUpdated = new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
           return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
         }
       }
@@ -725,7 +729,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
         currentInst.qrCode = norm;
         currentInst.state = "waiting_qr";
         currentInst.lastUpdated = new Date().toISOString();
-        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
         return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
       }
     }
@@ -737,7 +741,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
       // Check if incoming webhook event delivered the QR Code while we were waiting
       if (currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
         currentInst.state = "waiting_qr";
-        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
         return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
       }
 
@@ -748,7 +752,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
           currentInst.qrCode = norm;
           currentInst.state = "waiting_qr";
           currentInst.lastUpdated = new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
           return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
         }
       } else if (poll.status === 404 && attempt === 0) {
@@ -789,7 +793,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 
 // 5.1 Clean Reset & Refresh QR Code (Preserves instance session, refreshes QR)
 app.post("/api/evolution/reset-instance", async (req, res) => {
-  const own: any = await ownedInstance(req);
+  const own: any = await ownedInstance(req, false, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
@@ -816,7 +820,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
 
       if (currentInst.qrCode?.base64) {
         currentInst.state = "waiting_qr";
-        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
         return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode });
       }
 
@@ -827,7 +831,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
           currentInst.qrCode = norm;
           currentInst.state = "waiting_qr";
           currentInst.lastUpdated = new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
           return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode });
         }
       }
@@ -848,7 +852,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
 
 // 5.2 Request Pairing Code from Evolution API (Connect with Phone Number)
 app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
-  const own: any = await ownedInstance(req);
+  const own: any = await ownedInstance(req, false, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
@@ -894,7 +898,9 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
         lastSyncAt: new Date().toLocaleString("pt-BR"),
         version: "v2.3.7",
       };
-      await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
+      try {
+        await own.db.setUserInstanceStatus(own.user.id, "connected", prof.number, prof.name, prof.pictureUrl);
+      } catch {}
       return res.json({
         success: true,
         instanceName: instance,
@@ -966,7 +972,7 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
       };
       currentInst.state = "waiting_qr";
       currentInst.lastUpdated = new Date().toISOString();
-      await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+      try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
 
       return res.json({
         success: true,
@@ -999,12 +1005,10 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
 
 // 6. Create instance manually / Initiate WhatsApp Connection
 app.post("/api/evolution/create-instance", async (req, res) => {
-  const user: any = await authenticatedUser(req);
-  if (!user) return res.status(401).json({ error: "Sessão inválida." });
-  if (user.status !== "active") return res.status(402).json({ error: "Plano aguardando pagamento ou suspenso." });
-  const db: any = await import("./database.cjs");
-  const owned = await db.ensureUserInstance(user.id);
-  const instance = owned.instance_name;
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
+  if (own.error) return res.status(402).json({ error: "Plano aguardando pagamento ou suspenso." });
+  const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
@@ -1044,7 +1048,7 @@ app.post("/api/evolution/create-instance", async (req, res) => {
       currentInst.qrCode = norm;
       currentInst.state = "waiting_qr";
       currentInst.lastUpdated = new Date().toISOString();
-      await db.setUserInstanceStatus(user.id, "waiting_qr");
+      try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
       return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
     }
 
@@ -1063,7 +1067,8 @@ app.post("/api/evolution/create-instance", async (req, res) => {
 
 // 7. Restart instance: POST /instance/restart/{instance}
 app.post("/api/evolution/restart", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
 
   try {
@@ -1083,17 +1088,22 @@ app.post("/api/evolution/restart", async (req, res) => {
 
 // 8. Logout instance: DELETE /instance/logout/{instance}
 app.post("/api/evolution/logout", async (req, res) => {
-  const own:any=await ownedInstance(req,false); if(own.error)return res.status(401).json({error:"Sessão inválida."});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(401).json({ error: "Sessão inválida." });
   const instance = own.instance;
+  const currentInst = getInstanceCache(instance);
 
   try {
     const logoutRes = await callEvolution(`/instance/logout/${instance}`, {
       method: "DELETE",
     });
 
-    memoryState.state = "disconnected";
-    memoryState.qrCode = undefined;
-    memoryState.connectedProfile = undefined;
+    currentInst.state = "disconnected";
+    currentInst.qrCode = undefined;
+    currentInst.connectedProfile = undefined;
+    try {
+      await own.db.setUserInstanceStatus(own.user.id, "disconnected");
+    } catch {}
 
     res.json({
       success: true,

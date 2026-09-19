@@ -237,6 +237,12 @@ export async function initDatabase() {
       await c.query("INSERT INTO migrations(name) VALUES (?)",["010_crm_leads_opportunities"]);
       await c.commit();
     }
+    if (!done.has("011_evolution_profile_columns")) {
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN profile_name VARCHAR(150) NULL").catch(()=>{});
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN profile_pic_url LONGTEXT NULL").catch(()=>{});
+      await c.query("ALTER TABLE evolution_instances ADD COLUMN last_connected_at DATETIME NULL").catch(()=>{});
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["011_evolution_profile_columns"]).catch(()=>{});
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -288,16 +294,25 @@ export async function ensureUserInstance(userId:number){
 }
 export async function setUserInstanceStatus(userId:number,status:string,phone?:string,profileName?:string,profilePicUrl?:string){
   const isConnected = status === 'connected' || status === 'open';
-  await pool.execute(
-    `UPDATE evolution_instances 
-     SET status=?, 
-         owner_phone=COALESCE(?,owner_phone),
-         profile_name=COALESCE(?,profile_name),
-         profile_pic_url=COALESCE(?,profile_pic_url),
-         last_connected_at=CASE WHEN ?=1 THEN NOW() ELSE last_connected_at END
-     WHERE user_id=?`,
-    [status, phone||null, profileName||null, profilePicUrl||null, isConnected ? 1 : 0, userId]
-  );
+  try {
+    await pool.execute(
+      `UPDATE evolution_instances 
+       SET status=?, 
+           owner_phone=COALESCE(?,owner_phone),
+           profile_name=COALESCE(?,profile_name),
+           profile_pic_url=COALESCE(?,profile_pic_url),
+           last_connected_at=CASE WHEN ?=1 THEN NOW() ELSE last_connected_at END
+       WHERE user_id=?`,
+      [status, phone||null, profileName||null, profilePicUrl||null, isConnected ? 1 : 0, userId]
+    );
+  } catch (err: any) {
+    try {
+      await pool.execute(
+        `UPDATE evolution_instances SET status=?, owner_phone=COALESCE(?,owner_phone) WHERE user_id=?`,
+        [status, phone||null, userId]
+      );
+    } catch {}
+  }
 }
 export async function setUserBillingIdentity(userId:number,cpfCnpj:string){ await pool.execute("UPDATE users SET cpf_cnpj=? WHERE id=?",[cpfCnpj,userId]); }
 export async function upsertSubscription(userId:number,planId:string,data:any){

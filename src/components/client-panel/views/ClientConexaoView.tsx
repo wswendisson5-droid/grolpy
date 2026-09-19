@@ -81,7 +81,10 @@ export const ClientConexaoView: React.FC = () => {
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch('/api/evolution/status', { headers: authHeaders() });
-      if (!res.ok) return;
+      if (!res.ok) {
+        if (status === 'loading') setStatus('disconnected');
+        return;
+      }
       const data = await res.json();
       const appState = data.state;
 
@@ -98,13 +101,16 @@ export const ClientConexaoView: React.FC = () => {
         if (data.qrCode) {
           await handleSetQrCode(data.qrCode);
         }
-      } else if (status !== 'loading') {
+      } else {
         setStatus('disconnected');
         setProfile(null);
         setQrCode(null);
       }
     } catch (e) {
       console.error('[ClientConexao] status fetch:', e);
+      if (status === 'loading') {
+        setStatus('disconnected');
+      }
     }
   }, [authHeaders, handleSetQrCode, status]);
 
