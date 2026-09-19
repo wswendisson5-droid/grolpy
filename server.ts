@@ -307,10 +307,10 @@ async function getDatabase(): Promise<any> {
     return cachedDbModule;
   }
   try {
-    cachedDbModule = await import("./database.cjs");
+    cachedDbModule = await import("./dist/database.cjs");
   } catch {
     try {
-      cachedDbModule = await import("./dist/database.cjs");
+      cachedDbModule = await import("./database.cjs");
     } catch {
       cachedDbModule = await import("./server/database");
     }

@@ -238,18 +238,29 @@ CREATE TABLE IF NOT EXISTS `radar_opportunities` (
 -- ==============================================================================
 -- ATUALIZACAO SEGURA DE COLUNAS EXISTENTES (ALTER TABLE)
 -- ==============================================================================
--- Garante a presenca de client_id para isolamento e compatibilidade com criacao de campanhas
+-- Garante todas as colunas de user_campaigns para instalacoes legadas
 ALTER TABLE `user_campaigns` ADD COLUMN `client_id` VARCHAR(80) NOT NULL DEFAULT '' AFTER `user_id`;
+ALTER TABLE `user_campaigns` ADD COLUMN `campaign_key` VARCHAR(120) NOT NULL DEFAULT '' AFTER `client_id`;
+ALTER TABLE `user_campaigns` ADD COLUMN `config_json` LONGTEXT NULL;
+ALTER TABLE `user_campaigns` ADD COLUMN `total_sent` INT NOT NULL DEFAULT 0;
+ALTER TABLE `user_campaigns` ADD COLUMN `total_failed` INT NOT NULL DEFAULT 0;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `media_url` LONGTEXT NULL;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `config_json` LONGTEXT NULL;
 
+-- Garante todas as colunas de user_history para instalacoes legadas
 ALTER TABLE `user_history` ADD COLUMN `client_id` VARCHAR(80) NOT NULL DEFAULT '' AFTER `user_id`;
+ALTER TABLE `user_history` ADD COLUMN `campaign_key` VARCHAR(120) NULL;
 ALTER TABLE `user_history` ADD COLUMN `campaign_title` VARCHAR(190) NULL;
+ALTER TABLE `user_history` ADD COLUMN `group_jid` VARCHAR(190) NULL;
+ALTER TABLE `user_history` ADD COLUMN `group_name` VARCHAR(190) NULL;
 ALTER TABLE `user_history` ADD COLUMN `message_text` TEXT NULL;
 ALTER TABLE `user_history` ADD COLUMN `media_url` LONGTEXT NULL;
 ALTER TABLE `user_history` ADD COLUMN `media_type` VARCHAR(30) NULL;
 ALTER TABLE `user_history` ADD COLUMN `duration` VARCHAR(40) NULL;
+ALTER TABLE `user_history` ADD COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'unknown';
+ALTER TABLE `user_history` ADD COLUMN `error_text` TEXT NULL;
 
+-- Garante colunas de perfil da evolution_instances
 ALTER TABLE `evolution_instances` ADD COLUMN `profile_name` VARCHAR(150) NULL;
 ALTER TABLE `evolution_instances` ADD COLUMN `profile_pic_url` LONGTEXT NULL;
 ALTER TABLE `evolution_instances` ADD COLUMN `last_connected_at` DATETIME NULL;

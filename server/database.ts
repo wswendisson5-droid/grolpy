@@ -407,12 +407,21 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       INDEX idx_camp_sched (scheduled_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
-    // Dynamic column check for user_campaigns: ensures legacy tables get client_id and LONGTEXT
+    // Dynamic column check for user_campaigns: ensures legacy tables get all required columns
     try {
       const [campCols]: any = await pool.query("SHOW COLUMNS FROM user_campaigns");
       const campSet = new Set((campCols || []).map((c: any) => c.Field));
       if (!campSet.has("client_id")) {
         await pool.query("ALTER TABLE user_campaigns ADD COLUMN client_id VARCHAR(80) NOT NULL DEFAULT '' AFTER user_id").catch(() => {});
+      }
+      if (!campSet.has("campaign_key")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN campaign_key VARCHAR(120) NOT NULL DEFAULT ''").catch(() => {});
+      }
+      if (!campSet.has("name")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN name VARCHAR(190) NOT NULL DEFAULT ''").catch(() => {});
+      }
+      if (!campSet.has("message")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN message TEXT NULL").catch(() => {});
       }
       if (!campSet.has("media_url")) {
         await pool.query("ALTER TABLE user_campaigns ADD COLUMN media_url LONGTEXT NULL").catch(() => {});
@@ -423,6 +432,21 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
         await pool.query("ALTER TABLE user_campaigns ADD COLUMN config_json LONGTEXT NULL").catch(() => {});
       } else {
         await pool.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(() => {});
+      }
+      if (!campSet.has("status")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'draft'").catch(() => {});
+      }
+      if (!campSet.has("scheduled_at")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN scheduled_at DATETIME NULL").catch(() => {});
+      }
+      if (!campSet.has("interval_seconds")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN interval_seconds INT NOT NULL DEFAULT 30").catch(() => {});
+      }
+      if (!campSet.has("total_sent")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN total_sent INT NOT NULL DEFAULT 0").catch(() => {});
+      }
+      if (!campSet.has("total_failed")) {
+        await pool.query("ALTER TABLE user_campaigns ADD COLUMN total_failed INT NOT NULL DEFAULT 0").catch(() => {});
       }
     } catch {}
 
@@ -454,8 +478,17 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       if (!histSet.has("client_id")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN client_id VARCHAR(80) NOT NULL DEFAULT '' AFTER user_id").catch(() => {});
       }
+      if (!histSet.has("campaign_key")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN campaign_key VARCHAR(120) NULL").catch(() => {});
+      }
       if (!histSet.has("campaign_title")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN campaign_title VARCHAR(190) NULL").catch(() => {});
+      }
+      if (!histSet.has("group_jid")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN group_jid VARCHAR(190) NULL").catch(() => {});
+      }
+      if (!histSet.has("group_name")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN group_name VARCHAR(190) NULL").catch(() => {});
       }
       if (!histSet.has("message_text")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN message_text TEXT NULL").catch(() => {});
@@ -470,6 +503,12 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       }
       if (!histSet.has("duration")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN duration VARCHAR(40) NULL").catch(() => {});
+      }
+      if (!histSet.has("status")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN status VARCHAR(30) NOT NULL DEFAULT 'unknown'").catch(() => {});
+      }
+      if (!histSet.has("error_text")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN error_text TEXT NULL").catch(() => {});
       }
     } catch {}
 
