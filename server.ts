@@ -647,59 +647,48 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 app.post("/api/evolution/reset-instance", async (req, res) => {
   const own:any=await ownedInstance(req);
   if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
-
-  const instance = own.instance;
-  const currentInst = getInstanceCache(instance);
-
-  try {
-    // Refreshing the QR must never delete the tenant's Evolution instance.
-    // Deleting/recreating the Baileys session was the source of intermittent
-    // first-click failures and could also destroy an already-established session.
-    let lastFailure:any = null;
-
-    for(let attempt=0; attempt<6; attempt++){
-      const connectRes = await callEvolution(`/instance/connect/${instance}`, {
-        method: "GET",
-      }, 9000, 1);
-
+  const instance=own.instance;
+  const currentInst=getInstanceCache(instance);
+  try{
+    let lastFailure:any=null;
+    for(let attempt=0;attempt<8;attempt++){
+      if(attempt>0) await new Promise(resolve=>setTimeout(resolve,700));
+      const connectRes=await callEvolution(`/instance/connect/${instance}`,{method:"GET"},3500,0);
       if(connectRes.ok){
-        const q:any = connectRes.data?.qrcode || connectRes.data;
-        if(q?.base64 || q?.code){
-          currentInst.qrCode={
-            base64:q.base64,
-            code:q.code,
-            pairingCode:q.pairingCode,
-            updatedAt:Date.now(),
-          };
+        const q:any=connectRes.data?.qrcode||connectRes.data;
+        if(q?.base64||q?.code){
+          currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
           currentInst.state="waiting_qr";
           currentInst.lastUpdated=new Date().toISOString();
           await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-          return res.json({
-            success:true,
-            instanceName:instance,
-            qrCode:currentInst.qrCode,
-            message:"Novo QR Code gerado sem recriar a sessão.",
-          });
+          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,message:"Novo QR Code gerado sem recriar a sessão."});
         }
         lastFailure=connectRes.data;
       }else{
         lastFailure=connectRes.data;
+        if(connectRes.status===404){
+          const createRes=await callEvolution("/instance/create",{
+            method:"POST",
+            body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
+          },6000,0);
+          if(createRes.ok||createRes.status===409){
+            const q:any=createRes.data?.qrcode||createRes.data;
+            if(q?.base64||q?.code){
+              currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
+              currentInst.state="waiting_qr";
+              currentInst.lastUpdated=new Date().toISOString();
+              await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
+              return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode});
+            }
+          }else lastFailure=createRes.data;
+        }else if(connectRes.status!==408&&connectRes.status!==502) break;
       }
-
-      if(attempt<5) await new Promise(resolve=>setTimeout(resolve,700+attempt*350));
     }
-
     const detail=lastFailure?.response?.message||lastFailure?.message||lastFailure?.error;
-    return res.status(502).json({
-      error:detail||"A Evolution ainda não disponibilizou o QR Code.",
-      retryable:true
-    });
+    return res.status(502).json({error:detail||"A Evolution ainda não disponibilizou o QR Code.",retryable:true});
   }catch(err:any){
     console.error("[Evolution reset-instance]",instance,err?.message||err);
-    return res.status(502).json({
-      error:"Não foi possível atualizar o QR Code agora. A sessão foi preservada; tente novamente.",
-      retryable:true
-    });
+    return res.status(502).json({error:"Não foi possível atualizar o QR Code agora. A sessão foi preservada; tente novamente.",retryable:true});
   }
 });
 
