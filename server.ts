@@ -2328,14 +2328,11 @@ interface ClientHistoryLog {
 // In-memory cache for active instance and groups to eliminate latency
 let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
-let globalCachedGroups: any[] = [];
 let lastSyncGroupsTimestamp = 0;
 
 // Disk persistence file paths
-const GROUPS_CACHE_FILE = path.join(process.cwd(), "groups_cache.json");
 const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_data.json");
 const HISTORY_FILE = path.join(process.cwd(), "history_data.json");
-const IMPORTED_GROUPS_FILE = path.join(process.cwd(), "imported_groups.json");
 
 // Helper to safely load JSON from disk
 function loadJsonSafe(filePath: string, fallback: any) {
@@ -2360,13 +2357,6 @@ function saveJsonSafe(filePath: string, data: any) {
 }
 
 // Initialize global cache from disk immediately
-const initialDiskGroups = loadJsonSafe(GROUPS_CACHE_FILE, []);
-if (Array.isArray(initialDiskGroups) && initialDiskGroups.length > 0) {
-  globalCachedGroups = initialDiskGroups;
-  cachedGroupsByInstance.set("default", { timestamp: Date.now(), groups: initialDiskGroups });
-  cachedGroupsByInstance.set("minhabagg-leads", { timestamp: Date.now(), groups: initialDiskGroups });
-}
-
 // Helper to dynamically resolve the best active/connected instance fast
 async function getActiveConnectedInstance(preferred?: string): Promise<string> {
   const targetInstance = preferred || "minhabagg-leads";
@@ -2412,6 +2402,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   } catch {}
 
   const collectedGroupsMap = new Map<string, any>();
+  let evolutionQuerySucceeded = false;
   const instName = targetInstance;
 
   const extractGroupsFromPayload = (data: any, iName: string) => {
@@ -2473,6 +2464,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     // 1. fetchAllGroups with getParticipants=false
     const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 15000, 0);
     if (gRes1.ok && gRes1.data) {
+      evolutionQuerySucceeded = true;
       extractGroupsFromPayload(gRes1.data, instName);
     }
 
@@ -2480,6 +2472,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     if (collectedGroupsMap.size === 0) {
       const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 15000, 0);
       if (gRes2.ok && gRes2.data) {
+        evolutionQuerySucceeded = true;
         extractGroupsFromPayload(gRes2.data, instName);
       }
     }
@@ -2489,6 +2482,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
       try {
         const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 8000, 0);
         if (cResGet.ok && cResGet.data) {
+          evolutionQuerySucceeded = true;
           extractGroupsFromPayload(cResGet.data, instName);
         }
       } catch {}
@@ -2502,6 +2496,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
           body: JSON.stringify({ limit: 1000 }),
         }, 8000, 0);
         if (cRes.ok && cRes.data) {
+          evolutionQuerySucceeded = true;
           extractGroupsFromPayload(cRes.data, instName);
         }
       } catch {}
@@ -2510,7 +2505,9 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
   }
 
-  if (collectedGroupsMap.size > 0) {
+  // A resposta bem-sucedida da Evolution é a fonte de verdade, inclusive quando vier vazia.
+  // Nunca reutilizar o snapshot antigo do MySQL para mascarar uma lista vazia.
+  if (evolutionQuerySucceeded) {
     const freshGroups = Array.from(collectedGroupsMap.values());
     cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
     clientImportedGroupsStore.set(instName, freshGroups);
@@ -2518,25 +2515,16 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     if (dbUser?.db && dbUser?.id) {
       try {
         await dbUser.db.saveGroupsForUser(dbUser.id, freshGroups);
-      } catch {}
+      } catch (err) {
+        console.warn(`[GroupsSync] Falha ao persistir snapshot de grupos user=${dbUser.id}:`, err);
+      }
     }
 
-    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} WhatsApp groups for instance ${instName}.`);
+    console.log(`[GroupsSync] ✅ Snapshot sincronizado: ${freshGroups.length} grupos para ${instName}.`);
     return freshGroups;
   }
 
-  // If Evolution didn't return groups right now, check MySQL user_groups for this specific user
-  if (dbUser?.db && dbUser?.id) {
-    try {
-      const dbGroups = await dbUser.db.listGroupsForUser(dbUser.id);
-      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
-        cachedGroupsByInstance.set(targetInstance, { timestamp: now, groups: dbGroups });
-        clientImportedGroupsStore.set(targetInstance, dbGroups);
-        return dbGroups;
-      }
-    } catch {}
-  }
-
+  console.warn(`[GroupsSync] Evolution não respondeu com sucesso para ${instName}; não será usado snapshot antigo como dado atual.`);
   return [];
 }
 
@@ -2549,13 +2537,10 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 const clientCampaignsStore: ClientCampaign[] = loadJsonSafe(CAMPAIGNS_FILE, []);
 const clientHistoryStore: ClientHistoryLog[] = loadJsonSafe(HISTORY_FILE, []);
 
-// Store for client imported groups (per instance)
+// Store for the current authenticated instance only.
+// Do not hydrate this cache from a global disk snapshot: that can leak stale groups
+// from a previous connection/user into the current tenant.
 const clientImportedGroupsStore = new Map<string, any[]>();
-const initialImported = loadJsonSafe(IMPORTED_GROUPS_FILE, []);
-if (Array.isArray(initialImported) && initialImported.length > 0) {
-  clientImportedGroupsStore.set("default", initialImported);
-  clientImportedGroupsStore.set("minhabagg-leads", initialImported);
-}
 
 // Dedicated Client WhatsApp Status endpoint (Strict tenant isolation)
 app.get("/api/client/whatsapp/status", async (req, res) => {
@@ -2634,16 +2619,8 @@ app.post("/api/client/imported-groups", async (req, res) => {
     return res.status(400).json({ error: "groups deve ser um array." });
   }
   clientImportedGroupsStore.set(instance, groups);
-  
-  if (instance === DEFAULT_INSTANCE_NAME) {
-    globalCachedGroups = groups;
-    saveJsonSafe(IMPORTED_GROUPS_FILE, groups);
-    saveJsonSafe(GROUPS_CACHE_FILE, groups);
-    cachedGroupsByInstance.set("default", { timestamp: Date.now(), groups });
-  }
-
   cachedGroupsByInstance.set(instance, { timestamp: Date.now(), groups });
-  await own.db.saveGroupsForUser(own.user.id,groups);
+  await own.db.saveGroupsForUser(own.user.id, groups);
   res.json({
     success: true,
     instanceName: instance,
@@ -2685,28 +2662,25 @@ app.get("/api/client/groups", async (req, res) => {
     });
   }
 
-  // 2. Return persisted groups immediately. Never keep the Passenger request
-  // waiting on Evolution: on shared/single-worker hosting a slow upstream can
-  // make unrelated routes (health/login) appear offline.
-  const dbGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
-  const resultGroups = (Array.isArray(dbGroups) && dbGroups.length > 0) ? dbGroups : [];
+  // 2. Perform sync with Evolution for this specific instance
+  const fresh = await syncAllWhatsAppGroups(forceRefresh, reqInstance, { id: own.user.id, db: own.db });
+  if (fresh.length > 0) {
+    return res.json({
+      success: true,
+      instanceName: reqInstance,
+      total: fresh.length,
+      groups: fresh,
+      isConnected: true,
+    });
+  }
 
+  // Evolution respondeu: o resultado (inclusive 0 grupos) é o estado atual.
   res.json({
     success: true,
     instanceName: reqInstance,
-    total: resultGroups.length,
-    groups: resultGroups,
-    cached: resultGroups.length > 0,
-    refreshing: true,
+    total: fresh.length,
+    groups: fresh,
     isConnected: true,
-  });
-
-  // Refresh only after the HTTP response has been released. The sync remains
-  // tenant-scoped and persists fresh groups for the next request.
-  setImmediate(() => {
-    syncAllWhatsAppGroups(forceRefresh, reqInstance, { id: own.user.id, db: own.db }).catch((err: any) => {
-      console.warn(`[GroupsSync] Background refresh failed for ${reqInstance}:`, err?.message || err);
-    });
   });
 });
 
@@ -3374,7 +3348,7 @@ app.delete("/api/client/campaigns/:id", async (req, res) => {
 
 // Helper to look up real group name
 function lookupGroupName(jid: string, instance: string): string {
-  const list = clientImportedGroupsStore.get(instance) || clientImportedGroupsStore.get("default") || [];
+  const list = clientImportedGroupsStore.get(instance) || [];
   const found = list.find((g: any) => g.jid === jid || g.id === jid);
   return found?.name || "Grupo WhatsApp";
 }
@@ -3531,7 +3505,7 @@ async function executeGroupDispatch(
           const mediaRes = await callEvolution(endpointUsed, {
             method: "POST",
             body: JSON.stringify(mediaPayload),
-          }, 25000, 0);
+          }, 60000, 0);
 
           console.log(`[EVOLUTION RESPONSE]`);
           console.log(`status: ${mediaRes.status}`);
@@ -3714,15 +3688,20 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     return res.status(400).json({ error: "Texto da mensagem não fornecido." });
   }
 
+  // Revalidate the targets against the current Evolution snapshot before sending.
+  // This prevents a deleted/foreign/stale group from entering the dispatch queue.
+  const liveGroups = await syncAllWhatsAppGroups(true, instance, { id: own.user.id, db: own.db });
+  const liveGroupJids = new Set(liveGroups.map((g: any) => String(g.jid || g.id || "").trim()).filter((jid: string) => jid.endsWith("@g.us")));
+
   let rawTargets: string[] = customGroupJids || camp?.selectedGroupJids || [];
   if (rawTargets.length === 0) {
-    const imported = clientImportedGroupsStore.get(instance) || [];
-    rawTargets = imported.map((g: any) => g.jid || g.id).filter(Boolean);
+    rawTargets = liveGroups.map((g: any) => g.jid || g.id).filter(Boolean);
   }
 
-  // Strictly filter for real WhatsApp groups (@g.us)
+  // Strictly filter for real WhatsApp groups AND groups that currently exist in Evolution.
   let targets = rawTargets.filter((jid: string) => {
-    return jid && jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net");
+    const normalized = String(jid || "").trim();
+    return normalized.endsWith("@g.us") && !normalized.includes("@broadcast") && !normalized.includes("@newsletter") && !normalized.includes("@s.whatsapp.net") && !normalized.includes("@lid") && liveGroupJids.has(normalized);
   });
 
   // Filter out already successful targets if we are retrying a campaign
@@ -4054,22 +4033,10 @@ app.get("/api/client/stats", async (req, res) => {
   const { isConnected } = await resolveActiveInstance(instance, own.user.id, own.db);
   let realGroupsCount = 0;
   if (isConnected) {
-    const cachedGroups = cachedGroupsByInstance.get(instance);
-    if (cachedGroups && Array.isArray(cachedGroups.groups) && cachedGroups.groups.length > 0) {
-      realGroupsCount = cachedGroups.groups.length;
-    } else {
-      const dbGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
-      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
-        realGroupsCount = dbGroups.length;
-        cachedGroupsByInstance.set(instance, { timestamp: Date.now(), groups: dbGroups });
-      } else {
-        // Dashboard must stay fast even when Evolution is slow/unavailable.
-        // Refresh asynchronously; the next stats/groups request will use persisted data.
-        setImmediate(() => {
-          syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => {});
-        });
-      }
-    }
+    // Nunca calcular o contador a partir de user_groups quando a Evolution pode
+    // fornecer o snapshot atual; isso evita ressuscitar grupos antigos.
+    const fresh = await syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => []);
+    realGroupsCount = Array.isArray(fresh) ? fresh.length : 0;
   }
 
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
