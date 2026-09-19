@@ -267,13 +267,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            {/* Produto real: mobile + dashboard */}
+            {/* Produto real: celular mobile */}
             <div className="lg:col-span-6 flex items-center justify-center relative">
               <div className="absolute w-[300px] sm:w-[460px] h-[480px] sm:h-[600px] bg-[#6ee7b7]/25 rounded-[60px] rotate-3 blur-xl -z-10" />
-              <picture>
-                <source media="(max-width: 639px)" srcSet="https://i.imgur.com/pRMndRA.jpeg" />
-                <img src="https://i.imgur.com/QGVPcAW.png" alt="Painel Grolpy" referrerPolicy="no-referrer" className="w-full max-w-[620px] max-h-[620px] object-contain rounded-[28px] shadow-[0_25px_60px_-20px_rgba(14,38,31,0.28)]" />
-              </picture>
+              <img
+                src="https://i.imgur.com/pRMndRA.jpeg"
+                alt="Aplicativo Grolpy no Celular"
+                referrerPolicy="no-referrer"
+                className="w-full max-w-[340px] sm:max-w-[400px] max-h-[580px] object-contain rounded-[32px] shadow-[0_25px_60px_-15px_rgba(14,38,31,0.28)]"
+              />
             </div>
           </div>
         </div>
@@ -459,242 +461,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* =========================================================================
-          5. DASHBOARD VISUAL SIMULATION (Exactly like in the reference image)
+          5. DASHBOARD REAL (Versão Desktop Horizontal)
          ========================================================================= */}
       <section id="recursos" className="py-12 md:py-20">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Large Dashboard Card Frame */}
-          <div className="bg-white border border-[#dce5df] rounded-3xl shadow-[0_20px_50px_-15px_rgba(14,38,31,0.1)] overflow-hidden flex flex-col md:flex-row select-none">
-            {/* Left Dashboard Sidebar */}
-            <div className="w-full md:w-56 bg-[#081a14] text-white p-5 flex flex-col justify-between border-b md:border-b-0 md:border-r border-[#15342a] shrink-0">
-              <div className="flex flex-col gap-6">
-                {/* Logo */}
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-[#00c968] flex items-center justify-center text-white">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M12 3C6.477 3 2 6.94 2 11.8c0 2.22.92 4.25 2.45 5.82L3.3 21l4.03-1.34c1.43.6 3.01.94 4.67.94 5.523 0 10-3.94 10-8.8S17.523 3 12 3z"
-                        fill="white"
-                      />
-                    </svg>
-                  </div>
-                  <span className="text-lg font-black tracking-tight text-white">gruply</span>
-                </div>
-
-                {/* Sidebar Navigation */}
-                <nav className="flex flex-col gap-1 text-xs">
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-[#00c968]/20 text-[#00c968] font-bold">
-                    <BarChart3 size={15} />
-                    <span>Dashboard</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[#8fa89b] hover:text-white transition-colors">
-                    <Send size={15} />
-                    <span>Campanhas</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[#8fa89b] hover:text-white transition-colors">
-                    <Users size={15} />
-                    <span>Grupos</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[#8fa89b] hover:text-white transition-colors">
-                    <MessageSquare size={15} />
-                    <span>Mensagens</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[#8fa89b] hover:text-white transition-colors">
-                    <TrendingUp size={15} />
-                    <span>Relatórios</span>
-                  </div>
-                  <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-[#8fa89b] hover:text-white transition-colors">
-                    <Sliders size={15} />
-                    <span>Configurações</span>
-                  </div>
-                </nav>
-              </div>
-
-              {/* User Profile at bottom */}
-              <div className="pt-6 border-t border-[#15342a] flex items-center gap-3">
-                <img
-                  src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=80&h=80&q=80"
-                  alt="Wendisson"
-                  className="w-8 h-8 rounded-full object-cover border border-[#00c968]/40"
-                />
-                <div className="flex flex-col text-left">
-                  <span className="text-xs font-bold text-white leading-tight">Wendisson</span>
-                  <span className="text-[10px] text-[#8fa89b] leading-none">Administrador</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Main Dashboard Canvas */}
-            <div className="flex-1 p-5 sm:p-7 bg-[#fbfdfc] flex flex-col gap-6">
-              {/* Header Bar */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-base sm:text-lg font-bold text-[#0e261f]">Bom dia, Wendisson! 👋</h3>
-                  <p className="text-xs text-[#6a7d73]">Aqui está um resumo das suas campanhas.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#0e261f] text-white text-xs font-bold shadow-xs">
-                    <span>+ Nova campanha</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* 4 Metric Summary Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                {/* Metric 1 */}
-                <div className="bg-white border border-[#e5ebe7] rounded-2xl p-4 flex items-center gap-3 shadow-2xs">
-                  <div className="w-10 h-10 rounded-xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shrink-0">
-                    <Send size={18} />
-                  </div>
-                  <div>
-                    <span className="text-lg font-extrabold text-[#0e261f] leading-tight block">12</span>
-                    <span className="text-[11px] text-[#6a7d73] leading-none">Grupos conectados</span>
-                  </div>
-                </div>
-
-                {/* Metric 2 */}
-                <div className="bg-white border border-[#e5ebe7] rounded-2xl p-4 flex items-center gap-3 shadow-2xs">
-                  <div className="w-10 h-10 rounded-xl bg-[#eaf3fd] text-[#2563eb] flex items-center justify-center shrink-0">
-                    <Clock size={18} />
-                  </div>
-                  <div>
-                    <span className="text-lg font-extrabold text-[#0e261f] leading-tight block">5</span>
-                    <span className="text-[11px] text-[#6a7d73] leading-none">Campanhas ativas</span>
-                  </div>
-                </div>
-
-                {/* Metric 3 */}
-                <div className="bg-white border border-[#e5ebe7] rounded-2xl p-4 flex items-center gap-3 shadow-2xs">
-                  <div className="w-10 h-10 rounded-xl bg-[#f4eefb] text-[#8b5cf6] flex items-center justify-center shrink-0">
-                    <Users size={18} />
-                  </div>
-                  <div>
-                    <span className="text-lg font-extrabold text-[#0e261f] leading-tight block">2.548</span>
-                    <span className="text-[11px] text-[#6a7d73] leading-none">Pessoas alcançadas</span>
-                  </div>
-                </div>
-
-                {/* Metric 4 */}
-                <div className="bg-white border border-[#e5ebe7] rounded-2xl p-4 flex items-center gap-3 shadow-2xs">
-                  <div className="w-10 h-10 rounded-xl bg-[#e6f9ef] text-[#00c968] flex items-center justify-center shrink-0">
-                    <CheckCircle2 size={18} />
-                  </div>
-                  <div>
-                    <span className="text-lg font-extrabold text-[#0e261f] leading-tight block">98%</span>
-                    <span className="text-[11px] text-[#6a7d73] leading-none">Taxa de entrega</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Bottom Split: Chart & Latest Campaigns */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                {/* Left: 7-Day Chart Simulation */}
-                <div className="lg:col-span-7 bg-white border border-[#e5ebe7] rounded-2xl p-4.5 flex flex-col justify-between gap-4 shadow-2xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#0e261f]">Resultados dos últimos 7 dias</span>
-                  </div>
-
-                  {/* Visual Bar Graph */}
-                  <div className="relative pt-6 pb-2">
-                    {/* Floating highlight tooltip on Friday */}
-                    <div className="absolute top-0 left-[62%] -translate-x-1/2 bg-white border border-[#d6e2db] rounded-lg px-2 py-1 shadow-md text-center z-10">
-                      <span className="text-xs font-extrabold text-[#0e261f] block leading-tight">1.248</span>
-                      <span className="text-[9px] text-[#6a7d73] leading-none">envios realizados</span>
-                    </div>
-
-                    {/* Chart Columns */}
-                    <div className="flex items-end justify-between gap-2 h-36 border-b border-[#eef3f0] pb-2 px-2">
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[40%]" />
-                        <span className="text-[10px] text-[#8ca094]">Seg</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[55%]" />
-                        <span className="text-[10px] text-[#8ca094]">Ter</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[65%]" />
-                        <span className="text-[10px] text-[#8ca094]">Qua</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[75%]" />
-                        <span className="text-[10px] text-[#8ca094]">Qui</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[95%]" />
-                        <span className="text-[10px] font-bold text-[#0e261f]">Sex</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[80%]" />
-                        <span className="text-[10px] text-[#8ca094]">Sáb</span>
-                      </div>
-                      <div className="flex flex-col items-center gap-1.5 flex-1">
-                        <div className="w-full max-w-[20px] bg-[#00c968] rounded-t-md h-[90%]" />
-                        <span className="text-[10px] text-[#8ca094]">Dom</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Latest Campaigns List */}
-                <div className="lg:col-span-5 bg-white border border-[#e5ebe7] rounded-2xl p-4.5 flex flex-col justify-between gap-3 shadow-2xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#0e261f]">Últimas campanhas</span>
-                    <span className="text-[11px] text-[#6a7d73] hover:underline cursor-pointer">Ver todas</span>
-                  </div>
-
-                  <div className="flex flex-col gap-2.5">
-                    {/* Item 1 */}
-                    <div className="flex items-center justify-between p-2 rounded-xl hover:bg-[#f6faf7] transition-colors">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-[#0e261f] text-[#00c968] flex items-center justify-center shrink-0">
-                          <MessageSquare size={14} />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-[#0e261f] leading-tight">Promoção da semana</p>
-                          <p className="text-[10px] text-[#6a7d73] leading-none mt-0.5">Enviado hoje às 12:00</p>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e6f9ef] text-[#00c968]">
-                        Concluída
-                      </span>
-                    </div>
-
-                    {/* Item 2 */}
-                    <div className="flex items-center justify-between p-2 rounded-xl hover:bg-[#f6faf7] transition-colors">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-[#0e261f] text-[#00c968] flex items-center justify-center shrink-0">
-                          <MessageSquare size={14} />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-[#0e261f] leading-tight">Novos produtos</p>
-                          <p className="text-[10px] text-[#6a7d73] leading-none mt-0.5">Enviado em 28/08/2026</p>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e6f9ef] text-[#00c968]">
-                        Concluída
-                      </span>
-                    </div>
-
-                    {/* Item 3 */}
-                    <div className="flex items-center justify-between p-2 rounded-xl hover:bg-[#f6faf7] transition-colors">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-[#0e261f] text-[#00c968] flex items-center justify-center shrink-0">
-                          <MessageSquare size={14} />
-                        </div>
-                        <div>
-                          <p className="text-xs font-bold text-[#0e261f] leading-tight">Evento especial</p>
-                          <p className="text-[10px] text-[#6a7d73] leading-none mt-0.5">Enviado em 25/08/2026</p>
-                        </div>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e6f9ef] text-[#00c968]">
-                        Concluída
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="relative rounded-3xl overflow-hidden border border-[#dce5df] bg-white shadow-[0_20px_50px_-15px_rgba(14,38,31,0.12)] hover:shadow-[0_30px_60px_-15px_rgba(14,38,31,0.2)] transition-all">
+            <img
+              src="https://i.imgur.com/QGVPcAW.png"
+              alt="Painel Grolpy Desktop"
+              referrerPolicy="no-referrer"
+              className="w-full h-auto object-cover rounded-3xl block shadow-xs"
+            />
           </div>
         </div>
       </section>

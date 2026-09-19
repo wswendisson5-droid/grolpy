@@ -1643,6 +1643,7 @@ interface ClientCampaign {
   totalTarget?: number;
   selectedGroupJids: string[];
   totalSent: number;
+  totalFailed?: number;
   imageUrl?: string;
   previewText: string;
   tags: string[];
@@ -2686,7 +2687,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
-      for(const result of dispatchResults){await own.db.addHistoryForUser(own.user.id,{campaignId:camp?.id||campaignId,campaignTitle:camp?.title||"Disparo Imediato",groupJid:result.jid||result.groupJid,groupName:result.groupName||result.jid||"Grupo",messageText:textToSend,imageUrl:imgToSend,mediaType:imgToSend?"imagem":"texto",status:result.success?"delivered":"failed",error:result.error||null});}
+      for(const result of dispatchResults){await own.db.addHistoryForUser(own.user.id,{campaignId:camp?.id||campaignId,campaignTitle:camp?.title||"Disparo Imediato",groupJid:result.jid,groupName:result.jid||"Grupo",messageText:textToSend,imageUrl:imgToSend,mediaType:imgToSend?"imagem":"texto",status:result.success?"delivered":"failed",error:result.error||null});}
 
       if (camp) {
         camp.totalSent = successfulCount;
@@ -2976,7 +2977,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Nexus Evolution Backend running on http://0.0.0.0:${PORT}`);
   });
 }
