@@ -547,83 +547,100 @@ app.get("/api/evolution/status", async (req, res) => {
 });
 
 // 5. Request REAL QR Code from Evolution API: GET /instance/connect/{instance}
+// Important: QR generation is asynchronous in Evolution. We retry/poll before
+// returning an error and NEVER delete/recreate a customer's instance just because
+// one connect request failed. This prevents the first-click/second-click bug and
+// preserves the tenant's existing Baileys session.
 app.get("/api/evolution/qrcode", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error==="UNAUTHORIZED")return res.status(401).json({error:"Sessão inválida."}); if(own.error)return res.status(402).json({error:"Plano inativo."});
+  const own:any=await ownedInstance(req);
+  if(own.error==="UNAUTHORIZED") return res.status(401).json({error:"Sessão inválida."});
+  if(own.error) return res.status(402).json({error:"Plano inativo."});
+
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
 
   try {
-    let connectRes = await callEvolution(`/instance/connect/${instance}`, {
-      method: "GET",
-    });
+    const sleep = (ms:number) => new Promise(resolve => setTimeout(resolve, ms));
+    let lastFailure:any = null;
 
-    // If connect returned error, 401 logout, 404, or invalid object, recreate session cleanly
-    if (!connectRes.ok || connectRes.data?.error || !connectRes.data?.base64 && !connectRes.data?.code) {
-      console.log(`[Evolution] connect failed for ${instance} (status: ${connectRes.status}), attempting clean recreation...`);
-      try {
-        await callEvolution(`/instance/delete/${instance}`, { method: "DELETE" });
-      } catch (e) {}
-      await new Promise((r) => setTimeout(r, 600));
-
-      const createRes = await callEvolution("/instance/create", {
-        method: "POST",
-        body: JSON.stringify({
-          instanceName: instance,
-          integration: "WHATSAPP-BAILEYS",
-          qrcode: true,
-        }),
-      });
-
-      if (createRes.data?.qrcode?.base64 || createRes.data?.qrcode?.code) {
-        const q = createRes.data.qrcode;
-        currentInst.qrCode = {
-          base64: q.base64,
-          code: q.code,
-          pairingCode: q.pairingCode,
-          updatedAt: Date.now(),
-        };
-        currentInst.state = "waiting_qr";
-        return res.json({
-          success: true,
-          instanceName: instance,
-          qrCode: currentInst.qrCode,
-          state: "waiting_qr",
-        });
+    // First try: an existing instance/session should return its current QR.
+    // Evolution may need a few seconds after startup/reconnect to expose it.
+    for(let attempt=0; attempt<4; attempt++){
+      const connectRes = await callEvolution(`/instance/connect/${instance}`, { method:"GET" }, 9000, 1);
+      if(connectRes.ok){
+        const q:any = connectRes.data?.qrcode || connectRes.data;
+        if(q?.base64 || q?.code){
+          currentInst.qrCode = {
+            base64:q.base64,
+            code:q.code,
+            pairingCode:q.pairingCode,
+            updatedAt:Date.now(),
+          };
+          currentInst.state="waiting_qr";
+          currentInst.lastUpdated=new Date().toISOString();
+          await db.setUserInstanceStatus(own.user.id,"waiting_qr");
+          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
+        }
       }
-
-      // Retry connect once after creation
-      connectRes = await callEvolution(`/instance/connect/${instance}`, { method: "GET" });
+      lastFailure = connectRes.data;
+      if(attempt<3) await sleep(900 + attempt*500);
     }
 
-    if (!connectRes.ok) {
-      return res.status(connectRes.status || 500).json({
-        error: connectRes.data?.response?.message || connectRes.data?.message || "Falha ao obter QR Code da Evolution API.",
-        details: connectRes.data,
-      });
+    // The instance may not exist yet (first connection). Create it once.
+    // A 409 means it already exists; in that case simply continue polling.
+    const createRes = await callEvolution("/instance/create",{
+      method:"POST",
+      body:JSON.stringify({
+        instanceName:instance,
+        integration:"WHATSAPP-BAILEYS",
+        qrcode:true
+      })
+    },10000,1);
+
+    if(!createRes.ok && createRes.status!==409){
+      const msg = createRes.data?.response?.message || createRes.data?.message || createRes.data?.error;
+      lastFailure = createRes.data;
+      console.error("[Evolution qrcode] create failed", instance, createRes.status, msg || "");
     }
 
-    const qrData = connectRes.data;
-    const base64 = qrData?.base64;
-    const code = qrData?.code;
-    const pairingCode = qrData?.pairingCode;
+    // Creation can be asynchronous. Poll connect until Evolution publishes QR.
+    for(let attempt=0; attempt<7; attempt++){
+      await sleep(attempt===0 ? 500 : 900);
+      const connectRes = await callEvolution(`/instance/connect/${instance}`, { method:"GET" }, 9000, 1);
+      if(connectRes.ok){
+        const q:any = connectRes.data?.qrcode || connectRes.data;
+        if(q?.base64 || q?.code){
+          currentInst.qrCode = {
+            base64:q.base64,
+            code:q.code,
+            pairingCode:q.pairingCode,
+            updatedAt:Date.now(),
+          };
+          currentInst.state="waiting_qr";
+          currentInst.lastUpdated=new Date().toISOString();
+          await db.setUserInstanceStatus(own.user.id,"waiting_qr");
+          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
+        }
+        lastFailure = connectRes.data;
+      } else {
+        lastFailure = connectRes.data;
+      }
+    }
 
-    currentInst.qrCode = {
-      base64,
-      code,
-      pairingCode,
-      updatedAt: Date.now(),
-    };
-    currentInst.state = "waiting_qr";
-    currentInst.lastUpdated = new Date().toISOString();
-
-    res.json({
-      success: true,
-      instanceName: instance,
-      qrCode: currentInst.qrCode,
-      state: "waiting_qr",
+    // Keep the instance intact. The customer can retry without destroying the
+    // Baileys session or unexpectedly changing the instance identity.
+    const detail = lastFailure?.response?.message || lastFailure?.message || lastFailure?.error;
+    console.error("[Evolution qrcode] QR not available after retries", instance, detail || "");
+    return res.status(502).json({
+      error:"A Evolution ainda não disponibilizou o QR Code. Tente novamente em alguns segundos.",
+      retryable:true
     });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+  } catch(err:any){
+    console.error("[Evolution qrcode]",instance,err?.message||err);
+    return res.status(502).json({
+      error:"Não foi possível obter o QR Code agora. A sessão foi preservada; tente novamente em alguns segundos.",
+      retryable:true
+    });
   }
 });
 
