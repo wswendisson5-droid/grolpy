@@ -2529,8 +2529,15 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     return freshGroups;
   }
 
-  console.warn(`[GroupsSync] Evolution não respondeu com sucesso para ${instName}; não será usado snapshot antigo como dado atual.`);
-  return [];
+  console.warn(`[GroupsSync] Evolution indisponivel para ${instName}; preservando ultimo snapshot confirmado.`);
+  if (dbUser?.db && dbUser?.id) {
+    const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
+    if (Array.isArray(persisted) && persisted.length > 0) {
+      cachedGroupsByInstance.set(instName, { timestamp: now, groups: persisted });
+      return persisted;
+    }
+  }
+  throw new Error("EVOLUTION_GROUP_SYNC_FAILED");
 }
 
 // Background scheduler for group syncing (run only once on start or every hour to keep Evolution DB pool clean)
