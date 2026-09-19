@@ -28,19 +28,26 @@ class ConnectionService {
     return {instanceName:data.instanceName||instanceName||'',platform:data.platform||'Evolution API',status:data.state||data.status||'disconnected',webhookStatus:data.webhook?.status||'waiting',qrCode,profile:data.connectedProfile,apiStatus:'online',messagesToday:0,lastActivity:data.lastUpdated||''} as ConnectionInfo;
   }
 
-  async requestNewQrCode(instanceName?: string): Promise<{success:boolean;qrCode?:QrCodeData;instanceName?:string;error?:string}> {
-    try{
-      const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';
-      const res=await fetch(url,{headers:this.authHeaders()});
-      const raw=await res.text();
-      let data:any={};
-      try{ data=raw?JSON.parse(raw):{}; }catch{ data={error:'O servidor retornou uma resposta inválida. Tente novamente.'}; }
-      if(!res.ok)return {success:false,error:data.error||`Falha ao gerar QR Code (${res.status}).`};
-      let qrCode=data.qrCode;
-      if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);
-      if(!qrCode?.base64&&!qrCode?.code)return {success:false,error:'A Evolution ainda não disponibilizou o QR Code. Tente novamente.'};
-      return {success:true,qrCode,instanceName:data.instanceName};
-    }catch(err:any){return {success:false,error:err.message||'Não foi possível gerar o QR Code.'};}
+  async requestNewQrCode(instanceName?: string, force = false): Promise<{ success: boolean; qrCode?: QrCodeData; instanceName?: string; pending?: boolean; error?: string }> {
+    try {
+      const base = instanceName ? `/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}` : '/api/evolution/qrcode';
+      const url = force ? `${base}${base.includes('?') ? '&' : '?'}force=true` : base;
+      const res = await fetch(url, { headers: this.authHeaders() });
+      const raw = await res.text();
+      let data: any = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: 'O servidor retornou uma resposta inválida. Tente novamente.' }; }
+      if (!res.ok && res.status !== 502) return { success: false, error: data.error || `Falha ao gerar QR Code (${res.status}).` };
+      
+      let qrCode = data.qrCode;
+      if (qrCode?.code && !qrCode?.base64) {
+        try {
+          qrCode.base64 = await QRCode.toDataURL(qrCode.code, { margin: 2, width: 320, color: { dark: '#12382c', light: '#ffffff' } });
+        } catch {}
+      }
+      return { success: true, qrCode, instanceName: data.instanceName, pending: Boolean(data.pending) };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Não foi possível gerar o QR Code.' };
+    }
   }
 
   /**

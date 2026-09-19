@@ -6,6 +6,7 @@ import https from "https";
 import net from "net";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
+import QRCode from "qrcode";
 import { radarEngine } from "./server/radarEngine";
 import { atendimentoEngine } from "./server/atendimentoEngine";
 import { asaasEngine } from "./server/asaasEngine";
@@ -69,6 +70,30 @@ function getInstanceCache(instanceName: string): EvolutionLocalCache {
 }
 
 const memoryState: EvolutionLocalCache = getInstanceCache(DEFAULT_INSTANCE_NAME);
+
+// Helper: Normalize QR code payload and ensure a clean Base64 DataURL is always available
+async function normalizeQrCode(rawQr: any): Promise<{ base64?: string; code?: string; pairingCode?: string; updatedAt: number } | null> {
+  if (!rawQr) return null;
+  const q = rawQr.qrcode || rawQr;
+  let base64 = typeof q.base64 === "string" && q.base64.trim() ? q.base64.trim() : undefined;
+  const code = typeof q.code === "string" && q.code.trim() ? q.code.trim() : undefined;
+  const pairingCode = typeof q.pairingCode === "string" && q.pairingCode.trim() ? q.pairingCode.trim() : undefined;
+
+  if (!base64 && code) {
+    try {
+      base64 = await QRCode.toDataURL(code, {
+        margin: 2,
+        width: 320,
+        color: { dark: "#12382c", light: "#ffffff" },
+      });
+    } catch (err) {
+      console.error("[Evolution QR] Failed to convert code to base64 DataURL:", err);
+    }
+  }
+
+  if (!base64 && !code && !pairingCode) return null;
+  return { base64, code, pairingCode, updatedAt: Date.now() };
+}
 
 // Helper: Make authenticated calls to Evolution API with robust timeout & auto-retry on transient db lock
 async function callEvolution(endpoint: string, options: RequestInit = {}, timeoutMs: number = 10000, retryCount = 1): Promise<{ ok: boolean; status: number; data: any }> {
@@ -549,196 +574,259 @@ app.get("/api/evolution/status", async (req, res) => {
 });
 
 // 5. Request REAL QR Code from Evolution API: GET /instance/connect/{instance}
-// Important: QR generation is asynchronous in Evolution. We retry/poll before
-// returning an error and NEVER delete/recreate a customer's instance just because
-// one connect request failed. This prevents the first-click/second-click bug and
-// preserves the tenant's existing Baileys session.
+// Ultra-resilient implementation: Handles cold-start instance initialization,
+// integrates with webhook cache, auto-converts raw strings to Base64, and returns 200
+// pending instead of premature 502 error pages so the user experience is smooth and uninterrupted.
 app.get("/api/evolution/qrcode", async (req, res) => {
-  const own:any=await ownedInstance(req);
-  if(own.error==="UNAUTHORIZED") return res.status(401).json({error:"Sessão inválida."});
-  if(own.error) return res.status(402).json({error:"Plano inativo."});
+  const own: any = await ownedInstance(req);
+  if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
+  if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
+  const force = req.query.force === "true" || req.query.force === "1";
+
+  // If we already have a valid QR code generated recently and force refresh wasn't requested, return it immediately
+  if (!force && currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
+    return res.json({
+      success: true,
+      instanceName: instance,
+      qrCode: currentInst.qrCode,
+      state: "waiting_qr",
+      cached: true,
+    });
+  }
 
   try {
-    const sleep=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
-    let lastFailure:any=null;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // Do not waste the first request polling a non-existent instance.
-    // The old flow made four connect calls before trying /instance/create,
-    // which could hit the reverse-proxy timeout on the first QR generation.
-    let connectRes=await callEvolution(`/instance/connect/${instance}`,{method:"GET"},4500,0);
-
-    if(connectRes.ok){
-      const q:any=connectRes.data?.qrcode||connectRes.data;
-      if(q?.base64||q?.code){
-        currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
-        currentInst.state="waiting_qr";
-        currentInst.lastUpdated=new Date().toISOString();
-        await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-        return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
-      }
-      lastFailure=connectRes.data;
-    }else{
-      lastFailure=connectRes.data;
+    // 1. Check if instance is already open/connected
+    const stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 3500, 0);
+    const rawState = stateRes.data?.instance?.state || stateRes.data?.state;
+    if (stateRes.ok && rawState === "open") {
+      currentInst.state = "connected";
+      await own.db.setUserInstanceStatus(own.user.id, "connected");
+      return res.json({
+        success: true,
+        instanceName: instance,
+        state: "connected",
+        message: "WhatsApp já está conectado.",
+      });
     }
 
-    // Create is idempotent for our purposes: 409/403 means the instance
-    // already exists, so we simply continue to connect/poll it.
-    if(!connectRes.ok && connectRes.status===404){
-      const createRes=await callEvolution("/instance/create",{
-        method:"POST",
-        body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
-      },6000,0);
-      if(createRes.ok){
-        const q:any=createRes.data?.qrcode||createRes.data;
-        if(q?.base64||q?.code){
-          currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
-          currentInst.state="waiting_qr";
-          currentInst.lastUpdated=new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
+    // 2. Request connection / QR code
+    let connectRes = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 6000, 0);
+
+    // If 404, instance does not exist on Evolution server -> proactively create it
+    if (!connectRes.ok && connectRes.status === 404) {
+      const createRes = await callEvolution(
+        "/instance/create",
+        {
+          method: "POST",
+          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+        },
+        8000,
+        0
+      );
+
+      if (createRes.ok) {
+        const norm = await normalizeQrCode(createRes.data);
+        if (norm) {
+          currentInst.qrCode = norm;
+          currentInst.state = "waiting_qr";
+          currentInst.lastUpdated = new Date().toISOString();
+          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
         }
-        lastFailure=createRes.data;
-      }else if(createRes.status!==409){
-        lastFailure=createRes.data;
+      }
+    } else if (connectRes.ok) {
+      const norm = await normalizeQrCode(connectRes.data);
+      if (norm) {
+        currentInst.qrCode = norm;
+        currentInst.state = "waiting_qr";
+        currentInst.lastUpdated = new Date().toISOString();
+        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
       }
     }
 
-    // Evolution/Baileys can publish the QR a short moment after creation.
-    // Keep this bounded so the browser never receives an HTML proxy timeout.
-    for(let attempt=0;attempt<8;attempt++){
-      if(attempt>0) await sleep(700);
-      const poll=await callEvolution(`/instance/connect/${instance}`,{method:"GET"},3500,0);
-      if(poll.ok){
-        const q:any=poll.data?.qrcode||poll.data;
-        if(q?.base64||q?.code){
-          currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
-          currentInst.state="waiting_qr";
-          currentInst.lastUpdated=new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
+    // 3. Resilient polling loop: poll connect endpoint while also observing webhook memory cache
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await sleep(650);
+
+      // Check if incoming webhook event delivered the QR Code while we were waiting
+      if (currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
+        currentInst.state = "waiting_qr";
+        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+      }
+
+      const poll = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 4000, 0);
+      if (poll.ok) {
+        const norm = await normalizeQrCode(poll.data);
+        if (norm) {
+          currentInst.qrCode = norm;
+          currentInst.state = "waiting_qr";
+          currentInst.lastUpdated = new Date().toISOString();
+          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
         }
-        lastFailure=poll.data;
-      }else{
-        lastFailure=poll.data;
-        // A transient 404 means creation has not propagated yet; keep polling.
-        if(poll.status!==404 && poll.status!==408 && poll.status!==502) break;
+      } else if (poll.status === 404 && attempt === 0) {
+        await callEvolution(
+          "/instance/create",
+          {
+            method: "POST",
+            body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+          },
+          6000,
+          0
+        );
       }
     }
 
-    const detail=lastFailure?.response?.message||lastFailure?.message||lastFailure?.error;
-    console.error("[Evolution qrcode] QR not available",instance,detail||"");
-    return res.status(502).json({
-      error:"A Evolution ainda está preparando o QR Code. Tente novamente em alguns segundos.",
-      retryable:true
+    // Never return 502 when Baileys socket is still preparing; return 200 with pending state
+    currentInst.state = "waiting_qr";
+    return res.json({
+      success: true,
+      pending: true,
+      instanceName: instance,
+      qrCode: currentInst.qrCode || null,
+      state: "waiting_qr",
+      message: "A Evolution está gerando o QR Code. Aguarde...",
     });
-  }catch(err:any){
-    console.error("[Evolution qrcode]",instance,err?.message||err);
-    return res.status(502).json({
-      error:"Não foi possível obter o QR Code agora. A sessão foi preservada; tente novamente em alguns segundos.",
-      retryable:true
+  } catch (err: any) {
+    console.error("[Evolution qrcode]", instance, err?.message || err);
+    return res.json({
+      success: true,
+      pending: true,
+      instanceName: instance,
+      qrCode: currentInst.qrCode || null,
+      state: "waiting_qr",
+      message: "Aguardando QR Code...",
     });
   }
 });
 
-// 5.1 Clean Reset & Recreate Instance (Fixes corrupt Baileys session or stuck count)
+// 5.1 Clean Reset & Refresh QR Code (Preserves instance session, refreshes QR)
 app.post("/api/evolution/reset-instance", async (req, res) => {
-  const own:any=await ownedInstance(req);
-  if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
-  const instance=own.instance;
-  const currentInst=getInstanceCache(instance);
-  try{
-    let lastFailure:any=null;
-    for(let attempt=0;attempt<8;attempt++){
-      if(attempt>0) await new Promise(resolve=>setTimeout(resolve,700));
-      const connectRes=await callEvolution(`/instance/connect/${instance}`,{method:"GET"},3500,0);
-      if(connectRes.ok){
-        const q:any=connectRes.data?.qrcode||connectRes.data;
-        if(q?.base64||q?.code){
-          currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
-          currentInst.state="waiting_qr";
-          currentInst.lastUpdated=new Date().toISOString();
-          await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-          return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,message:"Novo QR Code gerado sem recriar a sessão."});
+  const own: any = await ownedInstance(req);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+  const instance = own.instance;
+  const currentInst = getInstanceCache(instance);
+  currentInst.qrCode = undefined;
+
+  try {
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    let connectRes = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 5000, 0);
+    if (!connectRes.ok && connectRes.status === 404) {
+      await callEvolution(
+        "/instance/create",
+        {
+          method: "POST",
+          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+        },
+        7000,
+        0
+      );
+    }
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (attempt > 0) await sleep(600);
+
+      if (currentInst.qrCode?.base64) {
+        currentInst.state = "waiting_qr";
+        await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+        return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode });
+      }
+
+      const poll = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 3500, 0);
+      if (poll.ok) {
+        const norm = await normalizeQrCode(poll.data);
+        if (norm) {
+          currentInst.qrCode = norm;
+          currentInst.state = "waiting_qr";
+          currentInst.lastUpdated = new Date().toISOString();
+          await own.db.setUserInstanceStatus(own.user.id, "waiting_qr");
+          return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode });
         }
-        lastFailure=connectRes.data;
-      }else{
-        lastFailure=connectRes.data;
-        if(connectRes.status===404){
-          const createRes=await callEvolution("/instance/create",{
-            method:"POST",
-            body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
-          },6000,0);
-          if(createRes.ok||createRes.status===409){
-            const q:any=createRes.data?.qrcode||createRes.data;
-            if(q?.base64||q?.code){
-              currentInst.qrCode={base64:q.base64,code:q.code,pairingCode:q.pairingCode,updatedAt:Date.now()};
-              currentInst.state="waiting_qr";
-              currentInst.lastUpdated=new Date().toISOString();
-              await own.db.setUserInstanceStatus(own.user.id,"waiting_qr");
-              return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode});
-            }
-          }else lastFailure=createRes.data;
-        }else if(connectRes.status!==408&&connectRes.status!==502) break;
       }
     }
-    const detail=lastFailure?.response?.message||lastFailure?.message||lastFailure?.error;
-    return res.status(502).json({error:detail||"A Evolution ainda não disponibilizou o QR Code.",retryable:true});
-  }catch(err:any){
-    console.error("[Evolution reset-instance]",instance,err?.message||err);
-    return res.status(502).json({error:"Não foi possível atualizar o QR Code agora. A sessão foi preservada; tente novamente.",retryable:true});
+
+    return res.json({
+      success: true,
+      pending: true,
+      instanceName: instance,
+      state: "waiting_qr",
+      message: "Novo QR Code solicitado.",
+    });
+  } catch (err: any) {
+    console.error("[Evolution reset-instance]", instance, err?.message || err);
+    return res.json({ success: true, pending: true, instanceName: instance, state: "waiting_qr" });
   }
 });
 
-// 6. Create instance manually: POST /instance/create
-
+// 6. Create instance manually / Initiate WhatsApp Connection
 app.post("/api/evolution/create-instance", async (req, res) => {
-  const user:any=await authenticatedUser(req);
-  if(!user)return res.status(401).json({error:"Sessão inválida."});
-  if(user.status!=="active")return res.status(402).json({error:"Plano aguardando pagamento ou suspenso."});
-  const db:any=await import("./database.cjs");
-  const owned=await db.ensureUserInstance(user.id);
-  const instance=owned.instance_name;
-  const currentInst=getInstanceCache(instance);
-  try{
-    // A instância pertence ao user_id e seu nome fica persistido no MySQL.
-    // Se ela já existe na Evolution, connect devolve um QR novo; se não existe, criamos.
-    let qr:any=null;
+  const user: any = await authenticatedUser(req);
+  if (!user) return res.status(401).json({ error: "Sessão inválida." });
+  if (user.status !== "active") return res.status(402).json({ error: "Plano aguardando pagamento ou suspenso." });
+  const db: any = await import("./database.cjs");
+  const owned = await db.ensureUserInstance(user.id);
+  const instance = owned.instance_name;
+  const currentInst = getInstanceCache(instance);
 
-    // First connection is asynchronous in Evolution. Give it a few attempts
-    // instead of making the customer click "Tentar novamente".
-    for(let attempt=0; attempt<4 && !qr?.base64 && !qr?.code; attempt++){
-      const connectRes=await callEvolution(`/instance/connect/${instance}`,{},8000,1);
-      if(connectRes.ok) qr=connectRes.data?.qrcode || connectRes.data;
-      if(qr?.base64 || qr?.code) break;
+  try {
+    let norm = null;
+    const connectRes = await callEvolution(`/instance/connect/${instance}`, {}, 6000, 0);
+    if (connectRes.ok) {
+      norm = await normalizeQrCode(connectRes.data);
+    } else if (connectRes.status === 404) {
+      const createRes = await callEvolution(
+        "/instance/create",
+        {
+          method: "POST",
+          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+        },
+        8000,
+        0
+      );
+      if (createRes.ok) norm = await normalizeQrCode(createRes.data);
+    }
 
-      if(attempt===0){
-        const createRes=await callEvolution("/instance/create",{
-          method:"POST",
-          body:JSON.stringify({instanceName:instance,integration:"WHATSAPP-BAILEYS",qrcode:true})
-        },10000,1);
-        if(!createRes.ok && createRes.status!==403 && createRes.status!==409){
-          const msg=createRes.data?.response?.message||createRes.data?.message||createRes.data?.error;
-          if(createRes.status!==404) throw new Error(msg||"Falha ao criar instância na Evolution");
+    if (!norm) {
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        if (currentInst.qrCode?.base64) {
+          norm = currentInst.qrCode;
+          break;
         }
-        qr=createRes.data?.qrcode || qr;
-      }
-
-      if(!qr?.base64 && !qr?.code){
-        await new Promise(resolve=>setTimeout(resolve,800+attempt*500));
+        const poll = await callEvolution(`/instance/connect/${instance}`, {}, 4000, 0);
+        if (poll.ok) {
+          norm = await normalizeQrCode(poll.data);
+          if (norm) break;
+        }
       }
     }
 
-    if(!qr?.base64 && !qr?.code) throw new Error("A Evolution ainda não disponibilizou o QR Code.");
-    currentInst.qrCode={base64:qr.base64,code:qr.code,pairingCode:qr.pairingCode,updatedAt:Date.now()};
-    currentInst.state="waiting_qr"; currentInst.lastUpdated=new Date().toISOString();
-    await db.setUserInstanceStatus(user.id,"waiting_qr");
-    return res.json({success:true,instanceName:instance,qrCode:currentInst.qrCode,state:"waiting_qr"});
-  }catch(err:any){
-    console.error("[Evolution create-instance]",instance,err?.message||err);
-    return res.status(502).json({error:err?.message||"Falha ao gerar QR Code."});
+    if (norm) {
+      currentInst.qrCode = norm;
+      currentInst.state = "waiting_qr";
+      currentInst.lastUpdated = new Date().toISOString();
+      await db.setUserInstanceStatus(user.id, "waiting_qr");
+      return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+    }
+
+    return res.json({
+      success: true,
+      pending: true,
+      instanceName: instance,
+      state: "waiting_qr",
+      message: "Gerando QR Code...",
+    });
+  } catch (err: any) {
+    console.error("[Evolution create-instance]", instance, err?.message || err);
+    return res.json({ success: true, pending: true, instanceName: instance, state: "waiting_qr" });
   }
 });
 
@@ -830,37 +918,60 @@ app.post("/api/evolution/set-webhook", async (req, res) => {
 app.post("/api/evolution/webhook", (req: Request, res: Response) => {
   const event = req.body;
   const eventType = event?.event || event?.type || "unknown";
+  const instanceName = event?.instance || event?.data?.instance || event?.sender || DEFAULT_INSTANCE_NAME;
+  const targetCache = getInstanceCache(instanceName);
 
-  memoryState.webhookEvents.unshift({
+  targetCache.webhookEvents.unshift({
     type: eventType,
     data: event,
     timestamp: new Date().toISOString(),
   });
-  if (memoryState.webhookEvents.length > 50) {
-    memoryState.webhookEvents.pop();
+  if (targetCache.webhookEvents.length > 50) {
+    targetCache.webhookEvents.pop();
+  }
+
+  if (targetCache !== memoryState) {
+    memoryState.webhookEvents.unshift({
+      type: eventType,
+      data: event,
+      timestamp: new Date().toISOString(),
+    });
+    if (memoryState.webhookEvents.length > 50) {
+      memoryState.webhookEvents.pop();
+    }
   }
 
   if (eventType === "connection.update" || eventType === "CONNECTION_UPDATE") {
-    const state = event.data?.state;
-    if (state === "open") {
-      memoryState.state = "connected";
-      memoryState.webhookStatus = "active";
-    } else if (state === "close") {
-      memoryState.state = "disconnected";
+    const rawState = event.data?.state || event.data?.connection;
+    if (rawState === "open") {
+      targetCache.state = "connected";
+      targetCache.webhookStatus = "active";
+      if (instanceName === DEFAULT_INSTANCE_NAME) {
+        memoryState.state = "connected";
+        memoryState.webhookStatus = "active";
+      }
+    } else if (rawState === "close") {
+      targetCache.state = "disconnected";
+      if (instanceName === DEFAULT_INSTANCE_NAME) {
+        memoryState.state = "disconnected";
+      }
     }
   }
 
   if (eventType === "qrcode.updated" || eventType === "QRCODE_UPDATED") {
-    const qrcode = event.data?.qrcode;
-    if (qrcode) {
-      memoryState.qrCode = {
-        base64: qrcode.base64,
-        code: qrcode.code,
-        pairingCode: qrcode.pairingCode,
-        updatedAt: Date.now(),
-      };
-      memoryState.state = "waiting_qr";
-    }
+    const rawQr = event.data?.qrcode || event.data;
+    normalizeQrCode(rawQr).then((norm) => {
+      if (norm) {
+        targetCache.qrCode = norm;
+        targetCache.state = "waiting_qr";
+        targetCache.lastUpdated = new Date().toISOString();
+        if (instanceName === DEFAULT_INSTANCE_NAME) {
+          memoryState.qrCode = norm;
+          memoryState.state = "waiting_qr";
+          memoryState.lastUpdated = new Date().toISOString();
+        }
+      }
+    }).catch(() => {});
   }
 
   // Handle typing presence events
