@@ -350,8 +350,17 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
 
       if (res.success && res.payment) {
         setPaymentData(res.payment);
-        // Apply plan immediately in local state
         await planService.setPlan(selectedPlanId);
+        try {
+          const raw = localStorage.getItem('groply_user');
+          if (raw) {
+            const u = JSON.parse(raw);
+            u.status = 'active';
+            u.plan = selectedPlanId;
+            localStorage.setItem('groply_user', JSON.stringify(u));
+          }
+        } catch {}
+        await planService.syncWithBackend();
         setStep('success');
       } else {
         setErrorMessage(res.error || 'Falha na aprovação do cartão. Verifique os dados e tente novamente.');
@@ -370,17 +379,22 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
     setIsLoading(true);
     try {
       const paymentId = paymentData?.id || `sim_${Date.now()}`;
-      const res = await asaasClientService.simulateConfirm(paymentId);
-      if (res.success) {
-        await planService.setPlan(selectedPlanId);
-        setStep('success');
-      } else {
-        // Fallback: update plan directly
-        await planService.setPlan(selectedPlanId);
-        setStep('success');
-      }
+      await asaasClientService.simulateConfirm(paymentId);
+      await planService.setPlan(selectedPlanId);
+      try {
+        const raw = localStorage.getItem('groply_user');
+        if (raw) {
+          const u = JSON.parse(raw);
+          u.status = 'active';
+          u.plan = selectedPlanId;
+          localStorage.setItem('groply_user', JSON.stringify(u));
+        }
+      } catch {}
+      await planService.syncWithBackend();
+      setStep('success');
     } catch {
       await planService.setPlan(selectedPlanId);
+      await planService.syncWithBackend();
       setStep('success');
     } finally {
       setIsLoading(false);

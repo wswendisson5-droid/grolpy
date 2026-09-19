@@ -20,12 +20,18 @@ export const PlanoModal: React.FC<PlanoModalProps> = ({ isOpen, onClose, onUpgra
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[#f0f4f1]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#fef3c7] text-[#b45309] flex items-center justify-center font-bold">
-              <Crown size={22} className="fill-[#b45309]" />
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold ${
+              subscription.status === 'active' && subscription.planId ? 'bg-[#fef3c7] text-[#b45309]' : 'bg-[#fee2e2] text-[#b91c1c]'
+            }`}>
+              <Crown size={22} className={subscription.status === 'active' && subscription.planId ? 'fill-[#b45309]' : 'fill-[#b91c1c]'} />
             </div>
             <div className="flex flex-col">
-              <h3 className="text-lg font-bold text-[#11241c]">Plano {currentPlan.name} Ativo</h3>
-              <p className="text-xs text-[#63756b]">Renovação em {subscription.validUntil}</p>
+              <h3 className="text-lg font-bold text-[#11241c]">
+                {subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name} Ativo` : 'Sem Plano Ativo'}
+              </h3>
+              <p className="text-xs text-[#63756b]">
+                {subscription.status === 'active' && subscription.validUntil ? `Renovação em ${subscription.validUntil}` : 'Assinatura pendente ou não iniciada'}
+              </p>
             </div>
           </div>
           <button

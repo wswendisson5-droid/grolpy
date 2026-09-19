@@ -38,9 +38,9 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   const sub = planService.getSubscription();
   const currentPlan = sub.plan;
-  const maxMonthly = currentPlan.maxMonthlySends;
+  const maxMonthly = sub.status === 'active' && currentPlan ? currentPlan.maxMonthlySends : (planUsage?.totalMessages || 0);
   const usedMonthly = planUsage?.usedMessages || 0;
-  const percentage = Math.min(100, Math.round((usedMonthly / (maxMonthly || 1)) * 100));
+  const percentage = maxMonthly > 0 ? Math.min(100, Math.round((usedMonthly / maxMonthly) * 100)) : 0;
   const remainingMonthly = Math.max(0, maxMonthly - usedMonthly);
 
   // Status color based on percentage

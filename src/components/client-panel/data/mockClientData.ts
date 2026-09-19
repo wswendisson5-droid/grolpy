@@ -9,10 +9,10 @@ export const INITIAL_CLIENT_GROUPS: ClientGroup[] = [];
 export const SAMPLE_CLIENT_GROUPS: ClientGroup[] = [];
 
 export const INITIAL_PLAN_USAGE: ClientPlanUsage = {
-  planName: 'Plano Pro',
-  validUntil: '20/10/2026',
+  planName: 'Carregando plano...',
+  validUntil: '',
   usedMessages: 0,
-  totalMessages: 5000,
+  totalMessages: 0,
   percentage: 0,
   pendingMessages: 0,
   failedMessages: 0,

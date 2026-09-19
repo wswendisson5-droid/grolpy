@@ -156,110 +156,167 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
 
         {/* Bottom: Plan Card + Support Card + User Card */}
         <div className="flex flex-col gap-2.5 pt-3 border-t border-[#ebf1ed] mt-2">
-          {/* Card 1: Plano Pro / Start / Max */}
+          {/* Card 1: Dynamic Subscription Box */}
           <div
             id="client-plan-box"
-            className="p-3.5 rounded-2xl bg-[#fffdf5] border border-[#fef3c7] shadow-2xs flex flex-col gap-2"
+            className={`p-3.5 rounded-2xl border shadow-2xs flex flex-col gap-2 ${
+              subscription.status === 'active' && subscription.planId
+                ? 'bg-[#fffdf5] border-[#fef3c7]'
+                : 'bg-[#fef8f8] border-[#fee2e2]'
+            }`}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-[#fef08a] flex items-center justify-center text-[#b45309]">
-                  <Crown size={15} className="fill-[#b45309]" />
+                <div
+                  className={`w-6 h-6 rounded-lg flex items-center justify-center ${
+                    subscription.status === 'active' && subscription.planId
+                      ? 'bg-[#fef08a] text-[#b45309]'
+                      : 'bg-[#fee2e2] text-[#b91c1c]'
+                  }`}
+                >
+                  <Crown
+                    size={15}
+                    className={
+                      subscription.status === 'active' && subscription.planId
+                        ? 'fill-[#b45309]'
+                        : 'fill-[#b91c1c]'
+                    }
+                  />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs font-bold text-[#78350f] leading-tight">Plano {currentPlan.name}</span>
-                  <span className="text-[10px] text-[#92400e]">Ativo até {subscription.validUntil}</span>
+                  <span
+                    className={`text-xs font-bold leading-tight ${
+                      subscription.status === 'active' && subscription.planId
+                        ? 'text-[#78350f]'
+                        : 'text-[#991b1b]'
+                    }`}
+                  >
+                    {subscription.status === 'active' && subscription.planId
+                      ? `Plano ${currentPlan.name}`
+                      : 'Sem Plano Ativo'}
+                  </span>
+                  <span
+                    className={`text-[10px] ${
+                      subscription.status === 'active' && subscription.planId
+                        ? 'text-[#92400e]'
+                        : 'text-[#b91c1c]'
+                    }`}
+                  >
+                    {subscription.status === 'active' && subscription.planId
+                      ? (subscription.validUntil ? `Ativo até ${subscription.validUntil}` : 'Assinatura ativa')
+                      : 'Assine para liberar os envios'}
+                  </span>
                 </div>
               </div>
             </div>
 
             {/* Progress bar */}
-            <div className="w-full bg-[#fde68a] h-1.5 rounded-full overflow-hidden">
-              <div
-                className="bg-[#109353] h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${Math.min(100, Math.round((uniqueGroupsCount / currentPlan.maxGroups) * 100))}%`,
-                }}
-              />
-            </div>
+            {subscription.status === 'active' && subscription.planId && (
+              <>
+                <div className="w-full bg-[#fde68a] h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-[#109353] h-full rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.round((uniqueGroupsCount / (currentPlan.maxGroups || 1)) * 100))}%`,
+                    }}
+                  />
+                </div>
 
-            <div className="flex items-center justify-between text-[10px] text-[#92400e]">
-              <span>{uniqueGroupsCount} de {currentPlan.maxGroups} grupos utilizados</span>
-              <span className="font-bold">
-                {Math.min(100, Math.round((uniqueGroupsCount / currentPlan.maxGroups) * 100))}%
-              </span>
-            </div>
+                <div className="flex items-center justify-between text-[10px] text-[#92400e]">
+                  <span>{uniqueGroupsCount} de {currentPlan.maxGroups} grupos</span>
+                  <span className="font-bold">
+                    {Math.min(100, Math.round((uniqueGroupsCount / (currentPlan.maxGroups || 1)) * 100))}%
+                  </span>
+                </div>
+              </>
+            )}
 
             <button
               onClick={() => onSelectTab('planos')}
-              className="w-full py-1.5 px-2 bg-white hover:bg-[#fffbeb] text-[#78350f] text-xs font-bold rounded-xl border border-[#fde68a] transition-all cursor-pointer text-center shadow-2xs"
+              className={`w-full py-1.5 px-2 text-xs font-bold rounded-xl transition-all cursor-pointer text-center shadow-2xs ${
+                subscription.status === 'active' && subscription.planId
+                  ? 'bg-white hover:bg-[#fffbeb] text-[#78350f] border border-[#fde68a]'
+                  : 'bg-[#109353] hover:bg-[#0d7c46] text-white'
+              }`}
             >
-              Gerenciar plano
+              {subscription.status === 'active' && subscription.planId ? 'Gerenciar plano' : 'Escolher plano'}
             </button>
           </div>
 
           {/* User Profile & TROCA DE PAINEL */}
-          <div className="relative">
-            <div
-              id="client-user-profile"
-              onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-              className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#eff5f1] transition-colors cursor-pointer border border-transparent hover:border-[#e2ebe5]"
-            >
-              <div className="flex items-center gap-2.5">
-                <img
-                  src={whatsappProfilePic || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"}
-                  alt="Wendisson Santos"
-                  referrerPolicy="no-referrer"
-                  className="w-8 h-8 rounded-full object-cover border border-[#c8d9cf]"
-                />
-                <div className="flex flex-col text-left">
-                  <span className="text-xs font-bold text-[#11241c] leading-tight">
-                    Wendisson Santos
-                  </span>
-                  <span className="text-[11px] text-[#63756b]">Minha empresa</span>
-                </div>
-              </div>
+          {(() => {
+            let loggedUser = { name: 'Cliente Grolpy', email: '' };
+            try {
+              const raw = localStorage.getItem('groply_user');
+              if (raw) loggedUser = JSON.parse(raw);
+            } catch {}
 
-              <button
-                className="p-1 text-[#83968d] hover:text-[#11241c]"
-                aria-label="Opções"
-              >
-                <MoreVertical size={16} />
-              </button>
-            </div>
-
-            {/* TROCA DE PAINEL MENU POPUP */}
-            {isUserMenuOpen && (
-              <>
+            return (
+              <div className="relative">
                 <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setIsUserMenuOpen(false)}
-                />
-                <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-2xl shadow-xl border border-[#e2eae5] py-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-3.5 py-2 border-b border-[#f0f4f1]">
-                    <p className="font-bold text-[#11241c]">Wendisson Santos</p>
-                    <p className="text-[#64786d] text-[11px]">Minha empresa • Plano Pro</p>
+                  id="client-user-profile"
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center justify-between p-2 rounded-2xl hover:bg-[#eff5f1] transition-colors cursor-pointer border border-transparent hover:border-[#e2ebe5]"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={whatsappProfilePic || "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80"}
+                      alt={loggedUser.name || "Cliente"}
+                      referrerPolicy="no-referrer"
+                      className="w-8 h-8 rounded-full object-cover border border-[#c8d9cf]"
+                    />
+                    <div className="flex flex-col text-left">
+                      <span className="text-xs font-bold text-[#11241c] leading-tight truncate max-w-[130px]">
+                        {loggedUser.name || 'Cliente'}
+                      </span>
+                      <span className="text-[11px] text-[#63756b] truncate max-w-[130px]">
+                        {subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano'}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="p-1.5 border-b border-[#f0f4f1]">
-                    <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold"><LogOut size={15}/>Sair da conta</button>
-                  </div>
-
-                  <div className="p-1">
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        handleNavClick('configuracoes');
-                      }}
-                      className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#3c5044] font-medium transition-colors cursor-pointer"
-                    >
-                      ⚙️ Configurações da Conta
-                    </button>
-                  </div>
+                  <button
+                    className="p-1 text-[#83968d] hover:text-[#11241c]"
+                    aria-label="Opções"
+                  >
+                    <MoreVertical size={16} />
+                  </button>
                 </div>
-              </>
-            )}
-          </div>
+
+                {/* TROCA DE PAINEL MENU POPUP */}
+                {isUserMenuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsUserMenuOpen(false)}
+                    />
+                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-white rounded-2xl shadow-xl border border-[#e2eae5] py-2 z-50 text-xs animate-in fade-in zoom-in-95 duration-150">
+                      <div className="px-3.5 py-2 border-b border-[#f0f4f1]">
+                        <p className="font-bold text-[#11241c] truncate">{loggedUser.name || 'Cliente'}</p>
+                        <p className="text-[#64786d] text-[11px] truncate">{loggedUser.email || (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano ativo')}</p>
+                      </div>
+
+                      <div className="p-1.5 border-b border-[#f0f4f1]">
+                        <button onClick={()=>{setIsUserMenuOpen(false);onSwitchPanel&&onSwitchPanel('landing')}} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-left hover:bg-red-50 text-red-600 font-bold"><LogOut size={15}/>Sair da conta</button>
+                      </div>
+
+                      <div className="p-1">
+                        <button
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            handleNavClick('configuracoes');
+                          }}
+                          className="w-full px-2.5 py-2 rounded-xl text-left hover:bg-[#f2f7f4] text-[#3c5044] font-medium transition-colors cursor-pointer"
+                        >
+                          ⚙️ Configurações da Conta
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </aside>
     </>

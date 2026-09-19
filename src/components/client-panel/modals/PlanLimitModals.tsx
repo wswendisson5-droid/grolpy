@@ -140,7 +140,7 @@ export const MonthlySendsLimitModal: React.FC<MonthlySendsLimitModalProps> = ({
   onUpgrade,
   used = 600,
   limit = 600,
-  renewalDate = '20/10/2026',
+  renewalDate = 'Próximo mês',
 }) => {
   if (!isOpen) return null;
 
@@ -432,7 +432,7 @@ export const SubscriptionExpiredModal: React.FC<SubscriptionExpiredModalProps> =
   onClose,
   onRenew,
   onViewPlans,
-  expiredDate = '20/10/2026',
+  expiredDate = 'Recente',
 }) => {
   if (!isOpen) return null;
 

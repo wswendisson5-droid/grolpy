@@ -145,13 +145,18 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
   const refreshStats = async () => {
     try {
+      await planService.syncWithBackend();
+      const sub = planService.getSubscription();
       const statsRes = await clientService.getDashboardStats();
+      const planName = sub.status === 'active' && sub.planId ? `Plano ${planService.getPlan(sub.planId).name}` : 'Sem Plano Ativo';
+      const validUntil = sub.validUntil || (sub.status === 'active' ? 'Mensal' : 'Pendente');
+
       if (statsRes?.success && statsRes.usage) {
         setPlanUsage({
-          planName: 'Plano Pro',
-          validUntil: '20/10/2026',
+          planName,
+          validUntil,
           usedMessages: statsRes.usage.sent || 0,
-          totalMessages: statsRes.usage.limit || 5000,
+          totalMessages: statsRes.usage.limit || (sub.status === 'active' && sub.planId ? planService.getPlan(sub.planId).maxMonthlySends : 0),
           percentage: statsRes.usage.percentage || 0,
           pendingMessages: statsRes.usage.pending || 0,
           failedMessages: statsRes.usage.failed || 0,

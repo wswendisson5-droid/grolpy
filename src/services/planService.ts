@@ -57,21 +57,21 @@ export const PLANS: Record<PlanId, PlanConfig> = {
 };
 
 export interface SubscriptionState {
-  planId: PlanId;
+  planId: PlanId | null;
   plan: PlanConfig;
-  validUntil: string;
-  status: 'active' | 'expired' | 'canceled';
+  validUntil: string | null;
+  status: 'active' | 'pending' | 'expired' | 'canceled' | 'none';
 }
 
 class PlanService {
   private currentSubscription: {
-    planId: PlanId;
-    validUntil: string;
-    status: 'active' | 'expired' | 'canceled';
+    planId: PlanId | null;
+    validUntil: string | null;
+    status: 'active' | 'pending' | 'expired' | 'canceled' | 'none';
   } = {
-    planId: 'pro',
-    validUntil: '20/10/2026',
-    status: 'active',
+    planId: null,
+    validUntil: null,
+    status: 'none',
   };
 
   private listeners: Set<() => void> = new Set();
@@ -83,13 +83,14 @@ class PlanService {
         const saved = localStorage.getItem('groply_subscription');
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (parsed && PLANS[parsed.planId as PlanId]) {
+          if (parsed && (parsed.planId === null || PLANS[parsed.planId as PlanId])) {
             this.currentSubscription = { ...this.currentSubscription, ...parsed };
           }
         }
       } catch {
         // ignore
       }
+      this.syncWithBackend().catch(() => {});
     }
   }
 
@@ -111,12 +112,73 @@ class PlanService {
     };
   }
 
-  getPlan(planId: PlanId = this.currentSubscription.planId): PlanConfig {
-    return PLANS[planId] || PLANS.pro;
+  getPlan(planId?: PlanId | null): PlanConfig {
+    if (planId && PLANS[planId]) return PLANS[planId];
+    return PLANS.start;
   }
 
   getCurrentPlan(): PlanConfig {
     return this.getPlan(this.currentSubscription.planId);
+  }
+
+  async syncWithBackend(): Promise<SubscriptionState> {
+    if (typeof window === 'undefined') return this.getSubscription();
+    const token = localStorage.getItem('groply_token');
+    if (!token) {
+      this.currentSubscription = { planId: null, validUntil: null, status: 'none' };
+      localStorage.removeItem('groply_subscription');
+      this.notify();
+      return this.getSubscription();
+    }
+
+    try {
+      const res = await fetch('/api/account/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const sub = data.subscription;
+        const user = data.user;
+        const isUserActive = user?.status === 'active';
+        const isSubActive = sub?.status === 'active';
+
+        if (isSubActive && sub?.planId && PLANS[sub.planId as PlanId]) {
+          const validUntil = sub.nextDueDate
+            ? new Date(sub.nextDueDate).toLocaleDateString('pt-BR')
+            : null;
+          this.currentSubscription = {
+            planId: sub.planId as PlanId,
+            validUntil,
+            status: 'active',
+          };
+        } else if (isUserActive && user?.plan && PLANS[user.plan as PlanId] && sub?.status !== 'pending') {
+          this.currentSubscription = {
+            planId: user.plan as PlanId,
+            validUntil: null,
+            status: 'active',
+          };
+        } else if (sub) {
+          this.currentSubscription = {
+            planId: (sub.planId as PlanId) || null,
+            validUntil: null,
+            status: sub.status || 'pending',
+          };
+        } else {
+          this.currentSubscription = {
+            planId: null,
+            validUntil: null,
+            status: user?.status === 'pending_payment' ? 'pending' : 'none',
+          };
+        }
+
+        try {
+          localStorage.setItem('groply_subscription', JSON.stringify(this.currentSubscription));
+        } catch {}
+        this.notify();
+      }
+    } catch {}
+
+    return this.getSubscription();
   }
 
   async setPlan(newPlanId: PlanId): Promise<{ success: boolean; subscription: SubscriptionState }> {
@@ -124,7 +186,11 @@ class PlanService {
       return { success: false, subscription: this.getSubscription() };
     }
 
-    this.currentSubscription.planId = newPlanId;
+    this.currentSubscription = {
+      planId: newPlanId,
+      status: 'active',
+      validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString('pt-BR'),
+    };
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem('groply_subscription', JSON.stringify(this.currentSubscription));
@@ -134,9 +200,13 @@ class PlanService {
     }
 
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('groply_token') : null;
       await fetch('/api/client/plan', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ planId: newPlanId }),
       });
     } catch {

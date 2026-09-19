@@ -34,13 +34,18 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
   onOpenCheckout,
   publicMode = false,
 }) => {
-  const [currentPlanId, setCurrentPlanId] = useState<PlanId>(planService.getSubscription().planId);
+  const initialSub = planService.getSubscription();
+  const [currentPlanId, setCurrentPlanId] = useState<PlanId | null>(
+    initialSub.status === 'active' ? initialSub.planId : null
+  );
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
   useEffect(() => {
+    planService.syncWithBackend();
     const unsub = planService.subscribe(() => {
-      setCurrentPlanId(planService.getSubscription().planId);
+      const sub = planService.getSubscription();
+      setCurrentPlanId(sub.status === 'active' ? sub.planId : null);
     });
     return unsub;
   }, []);
@@ -51,12 +56,12 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({
       return;
     }
 
-    if (planId === currentPlanId) return;
+    if (currentPlanId && planId === currentPlanId) return;
 
     const res = await planService.setPlan(planId);
     if (res.success) {
       setCurrentPlanId(planId);
-      const isUpgrade = PLANS[planId].maxGroups > PLANS[currentPlanId].maxGroups;
+      const isUpgrade = currentPlanId ? PLANS[planId].maxGroups > PLANS[currentPlanId].maxGroups : true;
       setFeedbackMessage({
         type: 'success',
         text: isUpgrade
