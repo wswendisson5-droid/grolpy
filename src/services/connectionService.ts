@@ -111,7 +111,7 @@ class ConnectionService {
     try {
       const res = await fetch('/api/evolution/set-webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
       });
       const data = await res.json();
