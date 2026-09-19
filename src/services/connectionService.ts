@@ -29,7 +29,7 @@ class ConnectionService {
   }
 
   async requestNewQrCode(instanceName?: string): Promise<{success:boolean;qrCode?:QrCodeData;instanceName?:string;error?:string}> {
-    try{const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';const res=await fetch(url);const data=await res.json();if(!res.ok)return {success:false,error:data.error||'QR indisponível'};let qrCode=data.qrCode;if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);return {success:true,qrCode,instanceName:data.instanceName};}catch(err:any){return {success:false,error:err.message};}
+    try{const url=instanceName?`/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/qrcode';const res=await fetch(url,{headers:this.authHeaders()});const data=await res.json();if(!res.ok)return {success:false,error:data.error||'QR indisponível'};let qrCode=data.qrCode;if(qrCode?.code&&!qrCode?.base64)qrCode.base64=await QRCode.toDataURL(qrCode.code);return {success:true,qrCode,instanceName:data.instanceName};}catch(err:any){return {success:false,error:err.message};}
   }
 
   /**
@@ -199,6 +199,7 @@ class ConnectionService {
   async saveCredentials(config: { apiUrl: string; apiKey: string; instanceName: string }): Promise<boolean> {
     try {
       const res = await fetch('/api/evolution/credentials', {
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
