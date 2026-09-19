@@ -148,51 +148,6 @@ export const ClientConexaoView: React.FC = () => {
     }
   };
 
-  const createInstance = async () => {
-    try {
-      qrActiveRef.current = true;
-      setErrorMessage(''); setQrCode(null); setStatus('loading');
-      const res=await fetch('/api/evolution/create-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'});
-      const raw=await res.text();
-      let data:any={};
-      try { data=raw ? JSON.parse(raw) : {}; }
-      catch {
-        throw new Error(res.status===503 ? 'Servidor reiniciando. Tente novamente em alguns segundos.' : 'O servidor não retornou uma resposta válida para gerar o QR Code.');
-      }
-      if(!res.ok) throw new Error(data.error||'Falha ao criar conexão');
-      if(!data.qrCode?.base64 && !data.qrCode?.code) throw new Error('QR Code não retornado pela Evolution');
-      await handleSetQrCode(data.qrCode);
-      setStatus('waiting_qr');
-    } catch(e:any){
-      console.error(e);
-      qrActiveRef.current = false;
-      setErrorMessage(e?.message || 'Não foi possível gerar o QR Code.');
-      setStatus('error');
-    }
-  };
-
-  const refreshQrCode = async () => {
-    try { setQrCode(null); setStatus('loading'); const res=await fetch('/api/evolution/reset-instance',{method:'POST',headers:{...authHeaders(),'Content-Type':'application/json'},body:'{}'}); const data=await res.json(); if(!res.ok)throw new Error(data.error||'Falha ao renovar QR Code'); if(data.qrCode)await handleSetQrCode(data.qrCode); setStatus('waiting_qr'); } catch(e){console.error(e);setStatus('error')}
-  };
-
-  const fetchQrCode = async () => {
-    try {
-      const res = await fetch('/api/evolution/qrcode',{headers:authHeaders()});
-      if (res.ok) {
-        const data = await res.json();
-        if (data.base64 || data.code) {
-          await handleSetQrCode(data);
-          setStatus('waiting_qr');
-        } else if (data.qrcode) {
-          await handleSetQrCode(data.qrcode);
-          setStatus('waiting_qr');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(fetchStatus, 5000);
