@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Search, UserPlus, Bell, ChevronDown, Menu, Check, Building, Shield, LogOut, ArrowLeftRight, User, Loader2, Zap, Crown, Flame, AlertCircle } from 'lucide-react';
 import { AppPanelMode } from './types';
 import { planService } from '../../services/planService';
+import { SafeAvatar } from '../common/SafeAvatar';
 
 interface ClientHeaderProps {
   searchQuery: string;
@@ -297,27 +298,19 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           >
             {/* Top Navbar Profile Picture: WhatsApp connected photo or user icon */}
             <div className="relative shrink-0">
-              {whatsappProfilePic || whatsappIsConnected ? (
-                <img
-                  src={whatsappProfilePic || '/api/whatsapp/avatar'}
-                  alt="Foto do Perfil WhatsApp"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    if (!target.src.includes('/api/whatsapp/avatar')) {
-                      target.src = '/api/whatsapp/avatar';
-                    }
-                  }}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover shadow-xs shrink-0 border-2 border-[#109353]/50"
-                />
-              ) : isLoadingProfile ? (
+              {isLoadingProfile ? (
                 <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#f2f7f4] border border-[#d3e3da] flex items-center justify-center shrink-0">
                   <Loader2 size={13} className="text-[#109353] animate-spin" />
                 </div>
               ) : (
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#eaf6ef] border border-[#c4e6ce] flex items-center justify-center text-[#109353] font-bold text-xs shrink-0">
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
+                <SafeAvatar
+                  src={whatsappProfilePic || (whatsappIsConnected ? '/api/whatsapp/avatar' : null)}
+                  alt={displayName}
+                  fallbackText={displayName}
+                  shape="circle"
+                  sizeClassName="w-7 h-7 sm:w-8 sm:h-8"
+                  className="border-2 border-[#109353]/50 shadow-xs"
+                />
               )}
               {whatsappIsConnected && (
                 <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#25d366] border-2 border-white shadow-2xs" />

@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { clientService } from '../../../services/clientService';
+import { SafeAvatar } from '../../common/SafeAvatar';
 
 export interface ClientConexaoViewProps {
   isConnected?: boolean;
@@ -755,17 +756,13 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
             {/* Profile Info Card */}
             <div className="bg-[#f8faf9] border border-[#e2eae6] rounded-2xl p-4 sm:p-5 flex items-center gap-4 w-full max-w-md mb-8 text-left shadow-2xs">
-              <img
+              <SafeAvatar
                 src={profile?.pictureUrl || '/api/whatsapp/avatar'}
                 alt={profile?.name || 'Wendisson'}
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  if (!target.src.includes('/api/whatsapp/avatar')) {
-                    target.src = '/api/whatsapp/avatar';
-                  }
-                }}
-                className="w-14 h-14 rounded-2xl object-cover border-2 border-[#109353]/30 shadow-xs shrink-0"
+                fallbackText={profile?.name || 'Wendisson'}
+                shape="rounded-2xl"
+                sizeClassName="w-14 h-14"
+                className="border-2 border-[#109353]/30 shadow-xs shrink-0"
               />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

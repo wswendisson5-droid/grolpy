@@ -1,6 +1,7 @@
 declare module "*database.cjs" {
   export const mysql: any;
   export function initDatabase(): Promise<boolean>;
+  export function ensureCampaignsTable(): Promise<void>;
   export function getUserByToken(token: string): Promise<any>;
   export function registerUser(name: string, email: string, phone: string, password: string): Promise<any>;
   export function loginUser(email: string, password: string): Promise<any>;

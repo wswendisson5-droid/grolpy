@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ClientTab, AppPanelMode } from './types';
 import { planService } from '../../services/planService';
+import { SafeAvatar } from '../common/SafeAvatar';
 
 interface ClientSidebarProps {
   currentTab: ClientTab;
@@ -273,18 +274,14 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="relative shrink-0">
-                      {whatsappProfilePic ? (
-                        <img
-                          src={whatsappProfilePic}
-                          alt={displayName}
-                          referrerPolicy="no-referrer"
-                          className="w-8 h-8 rounded-full object-cover border-2 border-[#109353]/50"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-[#e8f7ee] border border-[#c4e6ce] flex items-center justify-center text-[#109353] font-bold text-xs">
-                          {displayName.charAt(0).toUpperCase()}
-                        </div>
-                      )}
+                      <SafeAvatar
+                        src={whatsappProfilePic}
+                        alt={displayName}
+                        fallbackText={displayName}
+                        shape="circle"
+                        sizeClassName="w-8 h-8"
+                        className="border-2 border-[#109353]/50"
+                      />
                       {whatsappIsConnected && (
                         <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#25d366] border-2 border-white" />
                       )}

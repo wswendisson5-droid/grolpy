@@ -297,20 +297,29 @@ app.get("/api/health", (_req, res) => {
 
 // Dynamic database loader that works seamlessly in local dev (TSX) and production (CJS bundle)
 let cachedDbModule: any = null;
+let initDbStarted = false;
 async function getDatabase(): Promise<any> {
-  if (cachedDbModule) return cachedDbModule;
+  if (cachedDbModule) {
+    if (!initDbStarted && cachedDbModule.initDatabase) {
+      initDbStarted = true;
+      cachedDbModule.initDatabase().catch((e: any) => console.warn("[DB] Background initDatabase:", e?.message || e));
+    }
+    return cachedDbModule;
+  }
   try {
     cachedDbModule = await import("./database.cjs");
-    return cachedDbModule;
   } catch {
     try {
       cachedDbModule = await import("./dist/database.cjs");
-      return cachedDbModule;
     } catch {
       cachedDbModule = await import("./server/database");
-      return cachedDbModule;
     }
   }
+  if (!initDbStarted && cachedDbModule?.initDatabase) {
+    initDbStarted = true;
+    cachedDbModule.initDatabase().catch((e: any) => console.warn("[DB] Background initDatabase:", e?.message || e));
+  }
+  return cachedDbModule;
 }
 
 // MySQL health check isolated from application startup.
@@ -742,9 +751,60 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
 // Avatar proxy route (bypasses browser CORS & hotlink protections from WhatsApp CDN)
 app.get("/api/whatsapp/avatar", async (req, res) => {
   try {
-    const rawUrl = (req.query.url as string) || "";
     const instance = (req.query.instance as string) || DEFAULT_INSTANCE_NAME;
-    let target = rawUrl;
+    let target = "";
+
+    // 1. Extract full URL safely even when WhatsApp CDN query parameters (oh, oe, etc.) are present
+    const originalUrl = req.originalUrl || req.url || "";
+    const urlIdx = originalUrl.indexOf("url=");
+    if (urlIdx !== -1) {
+      let extracted = originalUrl.slice(urlIdx + 4);
+      const instMatch = extracted.match(/&instance=[^&]*/);
+      if (instMatch && instMatch.index !== undefined) {
+        extracted = extracted.slice(0, instMatch.index) + extracted.slice(instMatch.index + instMatch[0].length);
+      }
+      try {
+        target = decodeURIComponent(extracted);
+      } catch {
+        target = extracted;
+      }
+    } else if (req.query.url) {
+      target = String(req.query.url);
+    }
+
+    // Helper to query Evolution API for fresh profile picture
+    const fetchFreshProfilePic = async (inst: string): Promise<string | null> => {
+      try {
+        const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3500, 0);
+        const list: any[] = Array.isArray(fetchRes.data) ? fetchRes.data : [];
+        let instData = list.find((i: any) => (i.name || i.instanceName) === inst);
+        if (!instData) {
+          instData = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
+        }
+        const pic = instData?.profilePicUrl || instData?.profilePictureUrl || instData?.avatarUrl || instData?.instance?.profilePicUrl;
+        if (pic && typeof pic === "string" && pic.startsWith("http")) {
+          profilePicCache.set(inst, pic);
+          return pic;
+        }
+      } catch {}
+      return null;
+    };
+
+    // Helper to fetch image from CDN
+    const fetchImage = async (url: string) => {
+      const imgRes = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+          "Referer": "https://web.whatsapp.com/",
+          "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+        },
+      });
+      if (!imgRes.ok) return null;
+      const buffer = await imgRes.arrayBuffer();
+      const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+      return { buffer, contentType };
+    };
+
     if (!target) {
       target = profilePicCache.get(instance) || "";
     }
@@ -756,34 +816,24 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
       } catch {}
     }
     if (!target) {
-      try {
-        const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3500, 0);
-        const list: any[] = Array.isArray(fetchRes.data) ? fetchRes.data : [];
-        let instData = list.find((i: any) => (i.name || i.instanceName) === instance);
-        if (!instData) {
-          instData = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
-        }
-        if (instData?.profilePicUrl && typeof instData.profilePicUrl === "string" && instData.profilePicUrl.startsWith("http")) {
-          target = instData.profilePicUrl;
-          profilePicCache.set(instance, target);
-        }
-      } catch {}
+      target = (await fetchFreshProfilePic(instance)) || "";
     }
 
     if (target && target.startsWith("http")) {
       try {
-        const imgRes = await fetch(target, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-          },
-        });
-        if (imgRes.ok) {
-          const buffer = await imgRes.arrayBuffer();
-          const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-          res.setHeader("Content-Type", contentType);
+        let result = await fetchImage(target);
+        if (!result) {
+          // Token may have expired: refresh from Evolution API
+          const fresh = await fetchFreshProfilePic(instance);
+          if (fresh && fresh !== target) {
+            target = fresh;
+            result = await fetchImage(target);
+          }
+        }
+        if (result) {
+          res.setHeader("Content-Type", result.contentType);
           res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
-          return res.send(Buffer.from(buffer));
+          return res.send(Buffer.from(result.buffer));
         }
       } catch {}
     }
@@ -3066,246 +3116,280 @@ app.post("/api/client/leads", async (req, res) => {
 
 // Get real campaigns
 app.get("/api/client/campaigns", async (req, res) => {
-  const own: any = await ownedInstance(req, false);
-  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
-  const campaigns = await own.db.listCampaignsForUser(own.user.id);
-  res.json({ success: true, campaigns });
+  try {
+    const own: any = await ownedInstance(req, false);
+    if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+    if (own.db?.ensureCampaignsTable) {
+      await own.db.ensureCampaignsTable().catch(() => {});
+    }
+    const campaigns = await own.db.listCampaignsForUser(own.user.id);
+    res.json({ success: true, campaigns: Array.isArray(campaigns) ? campaigns : [] });
+  } catch (err: any) {
+    console.error("[CAMPAIGNS] Erro ao listar campanhas:", err);
+    res.status(500).json({ success: false, error: err.message || "Erro ao carregar campanhas", campaigns: [] });
+  }
 });
 
 // Create new campaign with real schedule support
 app.post("/api/client/campaigns/create", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
-  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
-  const {
-    id,
-    title,
-    category,
-    scheduleMode,
-    scheduleDate,
-    scheduleDateText,
-    scheduleDays,
-    scheduleTime,
-    scheduleTimes,
-    intervalMinutes,
-    delaySeconds,
-    dailyLimit,
-    previewText,
-    imageUrl,
-    mediaList,
-    selectedGroupJids,
-    groupsCount,
-    active,
-    instanceName,
-  } = req.body;
+  try {
+    const own: any = await ownedInstance(req, false, true);
+    if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
 
-  const { isConnected, activeInstance } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
-  const targetInstance = activeInstance;
-  console.log(`\n[VALIDATION] Validando criação de divulgação '${title}' na instância ${targetInstance}...`);
+    if (own.db?.ensureCampaignsTable) {
+      await own.db.ensureCampaignsTable().catch(() => {});
+    }
 
-  if (!title || !previewText) {
-    console.log(`[VALIDATION] Falha: Título e texto da mensagem são obrigatórios.`);
-    return res.status(400).json({ error: "Título e texto da mensagem são obrigatórios." });
-  }
+    const {
+      id,
+      title,
+      category,
+      scheduleMode,
+      scheduleDate,
+      scheduleDateText,
+      scheduleDays,
+      scheduleTime,
+      scheduleTimes,
+      intervalMinutes,
+      delaySeconds,
+      dailyLimit,
+      previewText,
+      imageUrl,
+      mediaList,
+      selectedGroupJids,
+      groupsCount,
+      active,
+      instanceName,
+    } = req.body;
 
-  const incomingJids = Array.isArray(selectedGroupJids) ? selectedGroupJids : [];
-  if (incomingJids.length === 0) {
-    console.log(`[VALIDATION] Falha: Nenhum grupo selecionado.`);
-    return res.status(400).json({ error: "Você precisa selecionar pelo menos um grupo." });
-  }
+    const { isConnected, activeInstance } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+    const targetInstance = activeInstance;
+    console.log(`\n[VALIDATION] Validando criação de divulgação '${title}' na instância ${targetInstance}...`);
 
-  // If immediate dispatch is requested, WhatsApp MUST be connected
-  if (scheduleMode === 'imediato' && !isConnected) {
-    console.log(`[VALIDATION] Falha: Instância ${targetInstance} desconectada para disparo imediato.`);
-    return res.status(400).json({ error: "O WhatsApp selecionado está desconectado. Conecte seu WhatsApp antes de disparar agora." });
-  }
+    if (!title || !previewText) {
+      console.log(`[VALIDATION] Falha: Título e texto da mensagem são obrigatórios.`);
+      return res.status(400).json({ error: "Título e texto da mensagem são obrigatórios." });
+    }
 
-  const sub = await own.db.getSubscriptionForUser(own.user.id);
-  const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
-  const planDetails = await own.db.getPlanById(userPlanId);
-  const currentLimits: PlanEntitlementLimits = planDetails ? {
-    maxGroups: planDetails.maxGroups,
-    maxRoundsPerDay: planDetails.maxRoundsPerDay,
-    maxMonthlySends: planDetails.maxMonthlySends,
-    maxActiveCampaigns: planDetails.maxActiveCampaigns,
-    historyDays: planDetails.historyDays,
-  } : (CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start);
+    const incomingJids = Array.isArray(selectedGroupJids) ? selectedGroupJids : [];
+    if (incomingJids.length === 0) {
+      console.log(`[VALIDATION] Falha: Nenhum grupo selecionado.`);
+      return res.status(400).json({ error: "Você precisa selecionar pelo menos um grupo." });
+    }
 
-  const userCampaigns: any[] = await own.db.listCampaignsForUser(own.user.id);
-  const userHistory: any[] = await own.db.listHistoryForUser(own.user.id, currentLimits.historyDays || 31);
+    // If immediate dispatch is requested, WhatsApp MUST be connected
+    if (scheduleMode === 'imediato' && !isConnected) {
+      console.log(`[VALIDATION] Falha: Instância ${targetInstance} desconectada para disparo imediato.`);
+      return res.status(400).json({ error: "O WhatsApp selecionado está desconectado. Conecte seu WhatsApp antes de disparar agora." });
+    }
 
-  // 1. Validate Active Campaigns Limit
-  if (active !== false) {
-    const activeCount = userCampaigns.filter((c: any) => c.active && c.status !== 'concluida').length;
-    if (activeCount >= currentLimits.maxActiveCampaigns) {
-      console.log(`[VALIDATION] Falha: Limite de campanhas ativas excedido.`);
+    const sub = await own.db.getSubscriptionForUser(own.user.id).catch(() => null);
+    const userPlanId = (sub?.plan_id || own.user?.plan || "start") as 'start' | 'pro' | 'max';
+    const planDetails = await own.db.getPlanById(userPlanId).catch(() => null);
+    const currentLimits: PlanEntitlementLimits = planDetails ? {
+      maxGroups: planDetails.maxGroups,
+      maxRoundsPerDay: planDetails.maxRoundsPerDay,
+      maxMonthlySends: planDetails.maxMonthlySends,
+      maxActiveCampaigns: planDetails.maxActiveCampaigns,
+      historyDays: planDetails.historyDays,
+    } : (CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start);
+
+    const userCampaigns: any[] = (await own.db.listCampaignsForUser(own.user.id).catch(() => [])) || [];
+    const userHistory: any[] = (await own.db.listHistoryForUser(own.user.id, currentLimits.historyDays || 31).catch(() => [])) || [];
+
+    // 1. Validate Active Campaigns Limit
+    if (active !== false) {
+      const activeCount = userCampaigns.filter((c: any) => c && c.active && c.status !== 'concluida').length;
+      if (activeCount >= currentLimits.maxActiveCampaigns) {
+        console.log(`[VALIDATION] Falha: Limite de campanhas ativas excedido.`);
+        return res.status(403).json({
+          error: `Você atingiu o limite de ${currentLimits.maxActiveCampaigns} divulgações ativas do seu plano.`,
+          code: 'LIMIT_ACTIVE_CAMPAIGNS',
+          limit: currentLimits.maxActiveCampaigns,
+          activeCount,
+        });
+      }
+    }
+
+    // 2. Validate Unique Groups Limit
+    const reservedGroups = getUniqueGroupsInAutomations(userCampaigns);
+    const candidateUnique = new Set([...reservedGroups, ...incomingJids]);
+    if (candidateUnique.size > currentLimits.maxGroups) {
+      console.log(`[VALIDATION] Falha: Limite de grupos mensais excedido.`);
       return res.status(403).json({
-        error: `Você atingiu o limite de ${currentLimits.maxActiveCampaigns} divulgações ativas do seu plano.`,
-        code: 'LIMIT_ACTIVE_CAMPAIGNS',
-        limit: currentLimits.maxActiveCampaigns,
-        activeCount,
+        error: `Limite de grupos únicos atingido (${currentLimits.maxGroups} grupos permitidos no plano ${userPlanId.toUpperCase()}).`,
+        code: 'LIMIT_GROUPS',
+        limit: currentLimits.maxGroups,
+        used: candidateUnique.size,
       });
     }
-  }
+    
+    // 3. Validate Monthly Limit
+    const currentMonth = new Date().getMonth();
+    const sentThisMonth = userHistory.filter((h: any) => h && h.status === 'delivered' && new Date(h.timestamp).getMonth() === currentMonth).length;
+    if (sentThisMonth + incomingJids.length > currentLimits.maxMonthlySends) {
+      console.log(`[VALIDATION] Falha: Limite mensal de envios excedido.`);
+      return res.status(403).json({
+        error: `Esta divulgação excederia seu limite mensal de ${currentLimits.maxMonthlySends} envios.`,
+        code: 'LIMIT_MONTHLY',
+      });
+    }
 
-  // 2. Validate Unique Groups Limit
-  const reservedGroups = getUniqueGroupsInAutomations(userCampaigns);
-  const candidateUnique = new Set([...reservedGroups, ...incomingJids]);
-  if (candidateUnique.size > currentLimits.maxGroups) {
-    console.log(`[VALIDATION] Falha: Limite de grupos mensais excedido.`);
-    return res.status(403).json({
-      error: `Limite de grupos únicos atingido (${currentLimits.maxGroups} grupos permitidos no plano ${userPlanId.toUpperCase()}).`,
-      code: 'LIMIT_GROUPS',
-      limit: currentLimits.maxGroups,
-      used: candidateUnique.size,
-    });
-  }
-  
-  // 3. Validate Monthly Limit
-  const currentMonth = new Date().getMonth();
-  const sentThisMonth = userHistory.filter((h: any) => h.status === 'delivered' && new Date(h.timestamp).getMonth() === currentMonth).length;
-  if (sentThisMonth + incomingJids.length > currentLimits.maxMonthlySends) {
-    console.log(`[VALIDATION] Falha: Limite mensal de envios excedido.`);
-    return res.status(403).json({
-      error: `Esta divulgação excederia seu limite mensal de ${currentLimits.maxMonthlySends} envios.`,
-      code: 'LIMIT_MONTHLY',
-    });
-  }
+    console.log(`[VALIDATION] Limites validados: OK. Agendamento permitido.`);
 
-  console.log(`[VALIDATION] Limites validados: OK. Agendamento permitido.`);
+    // Process and save any base64 media to disk to avoid massive MySQL packets
+    let safeImageUrl = imageUrl;
+    if (safeImageUrl && typeof safeImageUrl === "string" && safeImageUrl.startsWith("data:")) {
+      safeImageUrl = saveBase64MediaToFile(safeImageUrl, "camp");
+    }
 
-  // Process and save any base64 media to disk to avoid massive MySQL packets
-  let safeImageUrl = imageUrl;
-  if (safeImageUrl && typeof safeImageUrl === "string" && safeImageUrl.startsWith("data:")) {
-    safeImageUrl = saveBase64MediaToFile(safeImageUrl, "camp");
-  }
+    let safeMediaList = undefined;
+    if (Array.isArray(mediaList)) {
+      safeMediaList = mediaList.map((m: any) => {
+        if (m && m.url && typeof m.url === "string" && m.url.startsWith("data:")) {
+          return { ...m, url: saveBase64MediaToFile(m.url, "camp") };
+        }
+        return m;
+      });
+    }
 
-  let safeMediaList = undefined;
-  if (Array.isArray(mediaList)) {
-    safeMediaList = mediaList.map((m: any) => {
-      if (m && m.url && typeof m.url === "string" && m.url.startsWith("data:")) {
-        return { ...m, url: saveBase64MediaToFile(m.url, "camp") };
-      }
-      return m;
-    });
-  }
+    const isScheduled = scheduleMode === 'agendar' || scheduleMode === 'recorrente';
+    const initialStatus: 'ativa' | 'agendada' | 'pausada' = active === false ? 'pausada' : (isScheduled ? 'agendada' : 'ativa');
+    const targetCount = incomingJids.length > 0 ? incomingJids.length : (groupsCount || 1);
 
-  const isScheduled = scheduleMode === 'agendar' || scheduleMode === 'recorrente';
-  const initialStatus: 'ativa' | 'agendada' | 'pausada' = active === false ? 'pausada' : (isScheduled ? 'agendada' : 'ativa');
-  const targetCount = incomingJids.length > 0 ? incomingJids.length : (groupsCount || 1);
+    const timesList = Array.isArray(scheduleTimes) && scheduleTimes.length > 0
+      ? scheduleTimes
+      : [scheduleTime || "14:00"];
 
-  const timesList = Array.isArray(scheduleTimes) && scheduleTimes.length > 0
-    ? scheduleTimes
-    : [scheduleTime || "14:00"];
+    const parsedDelaySeconds = delaySeconds !== undefined && delaySeconds !== null && !isNaN(Number(delaySeconds))
+      ? Number(delaySeconds)
+      : (intervalMinutes !== undefined && !isNaN(Number(intervalMinutes)) ? Number(intervalMinutes) * 60 : 30);
 
-  const parsedDelaySeconds = delaySeconds !== undefined && delaySeconds !== null && !isNaN(Number(delaySeconds))
-    ? Number(delaySeconds)
-    : (intervalMinutes !== undefined && !isNaN(Number(intervalMinutes)) ? Number(intervalMinutes) * 60 : 30);
+    const parsedIntervalMinutes = intervalMinutes !== undefined && !isNaN(Number(intervalMinutes))
+      ? Number(intervalMinutes)
+      : Math.max(1, Math.round(parsedDelaySeconds / 60));
 
-  const parsedIntervalMinutes = intervalMinutes !== undefined && !isNaN(Number(intervalMinutes))
-    ? Number(intervalMinutes)
-    : Math.max(1, Math.round(parsedDelaySeconds / 60));
+    const intervalText = parsedDelaySeconds < 60 ? `A cada ${parsedDelaySeconds}s` : `A cada ${parsedIntervalMinutes} min`;
 
-  const intervalText = parsedDelaySeconds < 60 ? `A cada ${parsedDelaySeconds}s` : `A cada ${parsedIntervalMinutes} min`;
+    const newCampaign: ClientCampaign = {
+      id: id || `camp-${Date.now()}`,
+      title: title.trim(),
+      category: category || "Vendas & Ofertas",
+      active: active !== false,
+      status: initialStatus,
+      scheduleMode: scheduleMode || 'agendar',
+      scheduleDate: scheduleDate || undefined,
+      scheduleDateText: scheduleDateText || (scheduleMode === "agendar" ? "Hoje" : "Recorrente"),
+      scheduleDays: scheduleDays || "Todos os dias",
+      scheduleTime: timesList[0],
+      scheduleTimes: timesList,
+      intervalMinutes: parsedIntervalMinutes,
+      delaySeconds: parsedDelaySeconds,
+      intervalText,
+      dailyLimit: dailyLimit || "Sem limite",
+      groupsCount: targetCount,
+      totalTarget: targetCount,
+      selectedGroupJids: Array.isArray(selectedGroupJids) ? selectedGroupJids : [],
+      totalSent: 0,
+      totalFailed: 0,
+      imageUrl: safeImageUrl || undefined,
+      mediaList: safeMediaList,
+      previewText: previewText.trim(),
+      tags: [category ? category.split("&")[0].trim() : "Divulgação", scheduleMode === 'agendar' ? 'Agendada' : (scheduleMode === 'recorrente' ? 'Recorrente' : 'Imediata')],
+      createdAt: new Date().toISOString(),
+      executed: false,
+      instanceName: targetInstance,
+    };
 
-  const newCampaign: ClientCampaign = {
-    id: id || `camp-${Date.now()}`,
-    title: title.trim(),
-    category: category || "Vendas & Ofertas",
-    active: active !== false,
-    status: initialStatus,
-    scheduleMode: scheduleMode || 'agendar',
-    scheduleDate: scheduleDate || undefined,
-    scheduleDateText: scheduleDateText || (scheduleMode === "agendar" ? "Hoje" : "Recorrente"),
-    scheduleDays: scheduleDays || "Todos os dias",
-    scheduleTime: timesList[0],
-    scheduleTimes: timesList,
-    intervalMinutes: parsedIntervalMinutes,
-    delaySeconds: parsedDelaySeconds,
-    intervalText,
-    dailyLimit: dailyLimit || "Sem limite",
-    groupsCount: targetCount,
-    totalTarget: targetCount,
-    selectedGroupJids: Array.isArray(selectedGroupJids) ? selectedGroupJids : [],
-    totalSent: 0,
-    totalFailed: 0,
-    imageUrl: safeImageUrl || undefined,
-    mediaList: safeMediaList,
-    previewText: previewText.trim(),
-    tags: [category ? category.split("&")[0].trim() : "Divulgação", scheduleMode === 'agendar' ? 'Agendada' : (scheduleMode === 'recorrente' ? 'Recorrente' : 'Imediata')],
-    createdAt: new Date().toISOString(),
-    executed: false,
-    instanceName: targetInstance,
-  };
+    try {
+      await own.db.saveCampaignForUser(own.user.id, newCampaign);
+    } catch (err: any) {
+      console.error("[CAMPAIGNS] Erro ao salvar campanha no MySQL:", err);
+      return res.status(500).json({ error: "Erro ao gravar divulgação no banco de dados: " + (err.message || err) });
+    }
 
-  try {
-    await own.db.saveCampaignForUser(own.user.id, newCampaign);
+    clientCampaignsStore.unshift(newCampaign);
+    saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
+    return res.json({ success: true, campaign: newCampaign });
   } catch (err: any) {
-    console.error("[CAMPAIGNS] Erro ao salvar campanha no MySQL:", err);
-    return res.status(500).json({ error: "Erro ao gravar divulgação no banco de dados: " + (err.message || err) });
+    console.error("[CAMPAIGNS] Erro fatal em /api/client/campaigns/create:", err);
+    return res.status(500).json({ error: "Erro ao criar divulgação: " + (err.message || "Erro desconhecido") });
   }
-
-  clientCampaignsStore.unshift(newCampaign);
-  saveJsonSafe(CAMPAIGNS_FILE, clientCampaignsStore);
-  res.json({ success: true, campaign: newCampaign });
 });
 
 // Toggle campaign active state
 app.post("/api/client/campaigns/toggle", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
-  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
-  const clientCampaignsStore: any[] = await own.db.listCampaignsForUser(own.user.id);
-  const sub = await own.db.getSubscriptionForUser(own.user.id);
-  const userPlanId = (sub?.plan_id || "start") as any;
-  const { id } = req.body;
-  const camp = clientCampaignsStore.find((c) => c.id === id);
-  if (!camp) {
-    return res.status(404).json({ error: "Campanha não encontrada" });
-  }
-
-  const currentLimits = CLIENT_PLAN_LIMITS[userPlanId];
-
-  if (!camp.active) {
-    // Activating: validate limits
-    const activeCount = clientCampaignsStore.filter((c) => c.active && c.id !== id && c.status !== 'concluida').length;
-    if (activeCount >= currentLimits.maxActiveCampaigns) {
-      return res.status(403).json({
-        error: `Você atingiu o limite de ${currentLimits.maxActiveCampaigns} divulgações ativas do seu plano.`,
-        code: 'LIMIT_ACTIVE_CAMPAIGNS',
-        limit: currentLimits.maxActiveCampaigns,
-      });
+  try {
+    const own: any = await ownedInstance(req, false, true);
+    if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+    if (own.db?.ensureCampaignsTable) {
+      await own.db.ensureCampaignsTable().catch(() => {});
+    }
+    const clientCampaignsStore: any[] = await own.db.listCampaignsForUser(own.user.id);
+    const sub = await own.db.getSubscriptionForUser(own.user.id);
+    const userPlanId = (sub?.plan_id || "start") as any;
+    const { id } = req.body;
+    const camp = clientCampaignsStore.find((c) => c.id === id);
+    if (!camp) {
+      return res.status(404).json({ error: "Campanha não encontrada" });
     }
 
-    const reservedGroups = getUniqueGroupsInAutomations(clientCampaignsStore, id);
-    const campJids = Array.isArray(camp.selectedGroupJids) ? camp.selectedGroupJids : [];
-    const combined = new Set([...reservedGroups, ...campJids]);
-    if (combined.size > currentLimits.maxGroups) {
-      return res.status(403).json({
-        error: `Limite de grupos únicos atingido (${currentLimits.maxGroups}).`,
-        code: 'LIMIT_GROUPS',
-        limit: currentLimits.maxGroups,
-        used: combined.size,
-      });
+    const currentLimits = CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start;
+
+    if (!camp.active) {
+      // Activating: validate limits
+      const activeCount = clientCampaignsStore.filter((c) => c.active && c.id !== id && c.status !== 'concluida').length;
+      if (activeCount >= currentLimits.maxActiveCampaigns) {
+        return res.status(403).json({
+          error: `Você atingiu o limite de ${currentLimits.maxActiveCampaigns} divulgações ativas do seu plano.`,
+          code: 'LIMIT_ACTIVE_CAMPAIGNS',
+          limit: currentLimits.maxActiveCampaigns,
+        });
+      }
+
+      const reservedGroups = getUniqueGroupsInAutomations(clientCampaignsStore, id);
+      const campJids = Array.isArray(camp.selectedGroupJids) ? camp.selectedGroupJids : [];
+      const combined = new Set([...reservedGroups, ...campJids]);
+      if (combined.size > currentLimits.maxGroups) {
+        return res.status(403).json({
+          error: `Limite de grupos únicos atingido (${currentLimits.maxGroups}).`,
+          code: 'LIMIT_GROUPS',
+          limit: currentLimits.maxGroups,
+          used: combined.size,
+        });
+      }
+
+      camp.active = true;
+      camp.status = camp.scheduleMode === 'agendar' ? 'agendada' : 'ativa';
+      camp.executed = false; // Reset executed flag if user re-activates
+    } else {
+      camp.active = false;
+      camp.status = 'pausada';
     }
 
-    camp.active = true;
-    camp.status = camp.scheduleMode === 'agendar' ? 'agendada' : 'ativa';
-    camp.executed = false; // Reset executed flag if user re-activates
-  } else {
-    camp.active = false;
-    camp.status = 'pausada';
+    await own.db.saveCampaignForUser(own.user.id, camp);
+    res.json({ success: true, campaign: camp });
+  } catch (err: any) {
+    console.error("[CAMPAIGNS] Erro ao alternar status da campanha:", err);
+    res.status(500).json({ error: err.message || "Erro ao alternar status da campanha" });
   }
-
-  await own.db.saveCampaignForUser(own.user.id, camp);
-  res.json({ success: true, campaign: camp });
 });
 
 // Delete campaign
 app.delete("/api/client/campaigns/:id", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
-  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
-  const ok = await own.db.deleteCampaignForUser(own.user.id, String(req.params.id));
-  if (!ok) return res.status(404).json({ error: "Campanha não encontrada" });
-  res.json({ success: true });
+  try {
+    const own: any = await ownedInstance(req, false, true);
+    if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+    if (own.db?.ensureCampaignsTable) {
+      await own.db.ensureCampaignsTable().catch(() => {});
+    }
+    const ok = await own.db.deleteCampaignForUser(own.user.id, String(req.params.id));
+    if (!ok) return res.status(404).json({ error: "Campanha não encontrada" });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("[CAMPAIGNS] Erro ao excluir campanha:", err);
+    res.status(500).json({ error: err.message || "Erro ao excluir campanha" });
+  }
 });
 
 // Helper to look up real group name

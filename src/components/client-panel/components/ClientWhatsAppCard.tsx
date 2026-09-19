@@ -1,5 +1,6 @@
 import React from 'react';
 import { Settings, ChevronRight, CheckCircle, Users, Activity, QrCode, AlertCircle, Loader2 } from 'lucide-react';
+import { SafeAvatar } from '../../common/SafeAvatar';
 
 interface ClientWhatsAppCardProps {
   onNavigateToConnection?: () => void;
@@ -38,17 +39,13 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
           {/* WhatsApp Connected Photo instead of generic icon */}
           <div className="relative shrink-0">
             {initialProfilePic || isConnected ? (
-              <img
+              <SafeAvatar
                 src={initialProfilePic || '/api/whatsapp/avatar'}
                 alt={displayName}
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  const target = e.currentTarget;
-                  if (!target.src.includes('/api/whatsapp/avatar')) {
-                    target.src = '/api/whatsapp/avatar';
-                  }
-                }}
-                className="w-13 h-13 rounded-full object-cover shadow-sm border-2 border-[#109353]/30"
+                fallbackText={displayName}
+                shape="circle"
+                sizeClassName="w-13 h-13"
+                className="border-2 border-[#109353]/30 shadow-sm"
               />
             ) : (
               <div className="w-13 h-13 rounded-full flex items-center justify-center text-white bg-[#25d366] shadow-sm">

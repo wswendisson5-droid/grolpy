@@ -10,6 +10,7 @@ import {
   Edit01Icon,
 } from '../icons/HugeIcon';
 import { ConnectedProfile } from '../../types/connection';
+import { SafeAvatar } from '../common/SafeAvatar';
 
 interface ConnectedStateViewProps {
   instanceName: string;
@@ -81,17 +82,14 @@ export const ConnectedStateView: React.FC<ConnectedStateViewProps> = ({
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-5 border-b border-[#edf3ef]">
             <div className="flex items-center gap-3.5">
               <div className="relative">
-                {displayAvatar ? (
-                  <img
-                    src={displayAvatar}
-                    alt={displayName}
-                    className="w-14 h-14 rounded-2xl object-cover border border-[#dce6df] shadow-2xs"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#10b981] to-[#047857] flex items-center justify-center text-white font-black text-lg border border-[#a7f3d0] shadow-2xs">
-                    <HugeIcon icon={WhatsappIcon} size={26} className="text-white fill-white" />
-                  </div>
-                )}
+                <SafeAvatar
+                  src={displayAvatar}
+                  alt={displayName}
+                  fallbackIcon={<HugeIcon icon={WhatsappIcon} size={26} className="text-white fill-white" />}
+                  shape="rounded-2xl"
+                  sizeClassName="w-14 h-14"
+                  className="border border-[#dce6df] shadow-2xs"
+                />
                 <button
                   className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white border border-[#dce6df] flex items-center justify-center text-[#4c5f54] hover:text-[#12382c] shadow-2xs"
                   title="Editar avatar"
