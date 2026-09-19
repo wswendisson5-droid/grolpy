@@ -186,6 +186,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
           failedMessages: statsRes.usage.failed || 0,
         });
       }
+      if (statsRes?.success && statsRes.stats?.activeGroups > 0 && groups.length === 0) {
+        refreshGroups();
+      }
     } catch {
       // silent
     }

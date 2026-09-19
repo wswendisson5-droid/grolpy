@@ -196,11 +196,6 @@ class ClientService {
 
   async getRealGroups(instance: string = this.defaultInstance, forceRefresh: boolean = false): Promise<ClientGroup[]> {
     const key = this.getGroupsStorageKey();
-    if (!this.isWhatsAppConnected()) {
-      this.cachedGroups = [];
-      if (typeof window !== 'undefined') localStorage.removeItem(key);
-      return [];
-    }
     try {
       const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
       const res = await fetch(url, { headers: this.authHeaders() });
@@ -210,7 +205,12 @@ class ClientService {
         if (typeof window !== 'undefined') localStorage.removeItem(key);
         return [];
       }
-      const groups = Array.isArray(data.groups) ? data.groups : [];
+      const rawGroups = Array.isArray(data.groups) ? data.groups : [];
+      // Keep only real WhatsApp groups (@g.us), strictly excluding broadcasts and channels
+      const groups = rawGroups.filter((g: any) => {
+        const jid = String(g.jid || g.id || '');
+        return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+      });
       this.cachedGroups = groups;
       if (typeof window !== 'undefined') {
         if (groups.length > 0) {

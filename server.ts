@@ -2402,9 +2402,10 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 
     for (const g of list) {
       if (!g || typeof g !== "object") continue;
-      const jid = g.id || g.jid || g.remoteJid || g.chatJid;
-      if (!jid || typeof jid !== "string") continue;
-      const isGroup = jid.includes("@g.us") || g.isGroup === true || (!jid.includes("@s.whatsapp.net") && !jid.includes("@lid"));
+      const jid = String(g.id || g.jid || g.remoteJid || g.chatJid || "").trim();
+      if (!jid) continue;
+      // Strictly WhatsApp groups ending or containing @g.us, NEVER broadcasts, channels/newsletters or personal contacts
+      const isGroup = jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid");
       if (!isGroup) continue;
 
       const name = g.subject || g.name || g.pushName || g.title || "Grupo WhatsApp";
@@ -2430,14 +2431,14 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 
   try {
     // 1. fetchAllGroups with getParticipants=false
-    const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 6000, 0);
+    const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 15000, 0);
     if (gRes1.ok && gRes1.data) {
       extractGroupsFromPayload(gRes1.data, instName);
     }
 
     // 2. fetchAllGroups direct
     if (collectedGroupsMap.size === 0) {
-      const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 6000, 0);
+      const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 15000, 0);
       if (gRes2.ok && gRes2.data) {
         extractGroupsFromPayload(gRes2.data, instName);
       }
@@ -2446,7 +2447,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
     // 3. findChats GET (fast in v2)
     if (collectedGroupsMap.size === 0) {
       try {
-        const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 5000, 0);
+        const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 8000, 0);
         if (cResGet.ok && cResGet.data) {
           extractGroupsFromPayload(cResGet.data, instName);
         }
@@ -2459,7 +2460,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
         const cRes = await callEvolution(`/chat/findChats/${instName}`, {
           method: "POST",
           body: JSON.stringify({ limit: 1000 }),
-        }, 6000, 0);
+        }, 8000, 0);
         if (cRes.ok && cRes.data) {
           extractGroupsFromPayload(cRes.data, instName);
         }
@@ -3355,15 +3356,37 @@ async function executeGroupDispatch(
   const instance = preferredInstance;
   console.log(`\n[Dispatch] 🚀 Dispatching '${campaignTitle}' to ${targets.length} groups via '${instance}' (hasImage: ${Boolean(imgToSend)}, intervalMs: ${intervalMs})`);
 
+  // Verify that the instance is actively connected before attempting dispatch
+  try {
+    const { isConnected } = await resolveActiveInstance(instance, userId, db);
+    if (!isConnected) {
+      console.warn(`[Dispatch] ⚠️ Instância ${instance} desconectada do WhatsApp. Cancelando disparo.`);
+      return targets.map((rawJid) => ({
+        jid: rawJid,
+        success: false,
+        error: "WhatsApp desconectado. Conecte seu WhatsApp para enviar divulgações.",
+      }));
+    }
+  } catch {}
+
   const dispatchResults: Array<{ jid: string; success: boolean; error?: string }> = [];
   let successfulCount = 0;
   let failedCount = 0;
 
   for (let i = 0; i < targets.length; i++) {
-    const rawJid = targets[i];
+    const rawJid = String(targets[i] || "").trim();
     const jid = rawJid.includes("@") ? rawJid : `${rawJid}@g.us`;
     const groupName = lookupGroupName(jid, instance);
     const startRequestTime = Date.now();
+
+    // Strict validation: target must be a real WhatsApp group (@g.us)
+    if (!jid.endsWith("@g.us") || jid.includes("@broadcast") || jid.includes("@newsletter") || jid.includes("@s.whatsapp.net") || jid.includes("@lid")) {
+      console.warn(`[Dispatch] ⚠️ Destino inválido ignorado: '${jid}'. Disparos de campanha são exclusivos para grupos.`);
+      dispatchResults.push({ jid, success: false, error: "Destino inválido: não é um grupo de WhatsApp." });
+      failedCount++;
+      if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+      continue;
+    }
 
     // If not the first group, apply interval between groups
     if (i > 0 && intervalMs > 0) {
@@ -3436,22 +3459,14 @@ async function executeGroupDispatch(
             media: cleanMedia,
             caption: textToSend || "",
             fileName,
-            delay: 1200, // Evolution V1
-            options: { // Evolution V2
-              delay: 1200
-            },
-            mediaMessage: { // Evolution V2 fallback structure
-              mediatype: isVideo ? "video" : "image",
-              caption: textToSend || "",
-              media: cleanMedia,
-              fileName
-            }
+            delay: 1000,
+            linkPreview: false,
           };
 
           const mediaRes = await callEvolution(endpointUsed, {
             method: "POST",
             body: JSON.stringify(mediaPayload),
-          }, 20000, 0);
+          }, 25000, 0);
 
           console.log(`[EVOLUTION RESPONSE]`);
           console.log(`status: ${mediaRes.status}`);
@@ -3471,7 +3486,6 @@ async function executeGroupDispatch(
 
       // 2. If text-only or (sendMedia failed AND we have text to fall back to), send via sendText
       if (!isOk && textToSend) {
-        // Reduced to 1 attempt to prevent retries obfuscating the real 400 error
         for (let attempt = 1; attempt <= 1 && !isOk; attempt++) {
           attemptCount++;
           console.log(`attempt: ${attemptCount} (sendText)`);
@@ -3481,27 +3495,19 @@ async function executeGroupDispatch(
             const sendTextPayload = {
               number: jid,
               text: textToSend,
-              delay: 1200, // Evolution V1
-              linkPreview: false, // Evolution V1
-              options: {
-                delay: 1200, // Evolution V2
-                linkPreview: false // Evolution V2 (Crucial to prevent 500 error / 53s timeout on mediaMessage)
-              },
-              textMessage: { // Evolution V2 fallback
-                text: textToSend
-              }
+              delay: 1000,
+              linkPreview: false,
             };
 
             console.log(`\n[SEND DIAGNOSTIC]`);
             console.log(`Target Instance: ${instance}`);
-            console.log(`Target JID (number): ${jid}`);
+            console.log(`Target Group JID: ${jid}`);
             console.log(`Endpoint: ${endpointUsed}`);
-            console.log(`Payload (no secrets): ${JSON.stringify(sendTextPayload, null, 2)}`);
 
             const sendRes = await callEvolution(endpointUsed, {
               method: "POST",
               body: JSON.stringify(sendTextPayload),
-            }, 40000);
+            }, 25000, 0);
 
             console.log(`[EVOLUTION DIAGNOSTIC RESPONSE]`);
             console.log(`status: ${sendRes.status}`);
@@ -3609,7 +3615,11 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
   const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
   const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);
   const sub=await own.db.getSubscriptionForUser(own.user.id); const userPlanId=(sub?.plan_id||"start") as any;
-  const instance = await getActiveConnectedInstance(instanceParam);
+  const { isConnected, activeInstance } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+  if (!isConnected) {
+    return res.status(400).json({ error: "O WhatsApp selecionado está desconectado. Conecte seu WhatsApp antes de disparar." });
+  }
+  const instance = activeInstance || own.instance;
 
   let camp = clientCampaignsStore.find((c) => c.id === campaignId);
   const textToSend = customMessage || camp?.previewText;
@@ -3619,12 +3629,16 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     return res.status(400).json({ error: "Texto da mensagem não fornecido." });
   }
 
-  let targets: string[] = customGroupJids || camp?.selectedGroupJids || [];
-  
-  if (targets.length === 0) {
+  let rawTargets: string[] = customGroupJids || camp?.selectedGroupJids || [];
+  if (rawTargets.length === 0) {
     const imported = clientImportedGroupsStore.get(instance) || [];
-    targets = imported.map((g: any) => g.jid || g.id).filter(Boolean);
+    rawTargets = imported.map((g: any) => g.jid || g.id).filter(Boolean);
   }
+
+  // Strictly filter for real WhatsApp groups (@g.us)
+  let targets = rawTargets.filter((jid: string) => {
+    return jid && jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net");
+  });
 
   // Filter out already successful targets if we are retrying a campaign
   if (camp && !customGroupJids && targets.length > 0) {
@@ -3642,7 +3656,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
 
   if (targets.length === 0) {
     return res.status(400).json({
-      error: "Nenhum grupo de destino selecionado para o disparo. Conecte seu WhatsApp e selecione ao menos um grupo.",
+      error: "Nenhum grupo de destino válido selecionado para o disparo. Conecte seu WhatsApp e selecione ao menos um grupo.",
     });
   }
 
@@ -3948,8 +3962,22 @@ app.get("/api/client/stats", async (req, res) => {
   const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
 
   const { isConnected } = await resolveActiveInstance(instance, own.user.id, own.db);
-  const cachedGroups = cachedGroupsByInstance.get(instance);
-  const realGroupsCount = isConnected ? (cachedGroups?.groups?.length || 0) : 0;
+  let realGroupsCount = 0;
+  if (isConnected) {
+    const cachedGroups = cachedGroupsByInstance.get(instance);
+    if (cachedGroups && Array.isArray(cachedGroups.groups) && cachedGroups.groups.length > 0) {
+      realGroupsCount = cachedGroups.groups.length;
+    } else {
+      const dbGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
+        realGroupsCount = dbGroups.length;
+        cachedGroupsByInstance.set(instance, { timestamp: Date.now(), groups: dbGroups });
+      } else {
+        const fresh = await syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => []);
+        realGroupsCount = fresh.length;
+      }
+    }
+  }
 
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   const deliveredHistory = clientHistoryStore.filter((h) => h.status === "delivered").length;

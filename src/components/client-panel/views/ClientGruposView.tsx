@@ -18,7 +18,12 @@ export const ClientGruposView: React.FC<ClientGruposViewProps> = ({
   const [search, setSearch] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const filtered = groups.filter(
+  const validGroups = groups.filter((g) => {
+    const jid = String(g.jid || g.id || '');
+    return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+  });
+
+  const filtered = validGroups.filter(
     (g) =>
       g.name.toLowerCase().includes(search.toLowerCase()) ||
       (g.category && g.category.toLowerCase().includes(search.toLowerCase()))
@@ -42,7 +47,7 @@ export const ClientGruposView: React.FC<ClientGruposViewProps> = ({
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-extrabold text-[#11241c]">Grupos do WhatsApp</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#e8f7ee] text-[#109353]">
-              {groups.length} sincronizados
+              {validGroups.length} sincronizados
             </span>
           </div>
           <p className="text-xs text-[#5f7368]">
@@ -73,7 +78,7 @@ export const ClientGruposView: React.FC<ClientGruposViewProps> = ({
       </div>
 
       {/* Search Bar */}
-      {groups.length > 0 && (
+      {validGroups.length > 0 && (
         <div className="relative max-w-md">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7f9287]" />
           <input
@@ -87,7 +92,7 @@ export const ClientGruposView: React.FC<ClientGruposViewProps> = ({
       )}
 
       {/* Main Content: List or Empty State */}
-      {groups.length === 0 ? (
+      {validGroups.length === 0 ? (
         <div className="bg-white rounded-3xl border border-[#e5ebe7] shadow-xs p-8 sm:p-12 text-center flex flex-col items-center justify-center gap-4">
           <div className="w-16 h-16 rounded-3xl bg-[#eaf6ef] text-[#109353] flex items-center justify-center font-bold shadow-xs">
             <Users size={32} />

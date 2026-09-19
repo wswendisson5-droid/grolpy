@@ -539,6 +539,9 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       INDEX idx_groups_user (user_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
 
+    // Purge any non-group entries (contacts, broadcasts, newsletters) from user_groups
+    await pool.query("DELETE FROM user_groups WHERE group_jid NOT LIKE '%@g.us' OR group_jid LIKE '%@broadcast%' OR group_jid LIKE '%@newsletter%' OR group_jid LIKE '%@s.whatsapp.net%'").catch(() => {});
+
     campaignsTableEnsured = true;
   } catch (err) {
     console.error("[DB] Falha ao verificar/criar tabelas de campanhas:", err);
@@ -713,7 +716,11 @@ export async function listHistoryForUser(userId:number,days=90){
 export async function saveGroupsForUser(userId:number,groups:any[]){
   await ensureCampaignsTable().catch(() => {});
   try {
-    for(const g of groups||[]){const jid=String(g.jid||g.id||g.groupJid||"");if(!jid)continue;await pool.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);}
+    for(const g of groups||[]){
+      const jid=String(g.jid||g.id||g.groupJid||"").trim();
+      if(!jid || !jid.includes("@g.us") || jid.includes("@broadcast") || jid.includes("@newsletter") || jid.includes("@s.whatsapp.net") || jid.includes("@lid")) continue;
+      await pool.execute(`INSERT INTO user_groups(user_id,group_jid,group_name,members_count,selected,payload_json) VALUES(?,?,?,?,?,?) ON DUPLICATE KEY UPDATE group_name=VALUES(group_name),members_count=VALUES(members_count),selected=VALUES(selected),payload_json=VALUES(payload_json)`,[userId,jid,g.name||g.subject||"Grupo",Number(g.membersCount||g.participants?.length||0),g.selected===false?0:1,JSON.stringify(g)]);
+    }
   } catch(err) {
     console.warn("[DB] Erro ao salvar grupos user=" + userId, err);
   }
@@ -729,8 +736,20 @@ export async function clearGroupsForUser(userId:number){
 export async function listGroupsForUser(userId:number){
   await ensureCampaignsTable().catch(() => {});
   try {
-    const [r]:any=await pool.execute("SELECT payload_json FROM user_groups WHERE user_id=? ORDER BY updated_at DESC",[userId]);
-    return r.map((x:any)=>{try{return JSON.parse(x.payload_json)}catch{return null}}).filter(Boolean);
+    const [r]:any=await pool.execute(
+      "SELECT payload_json FROM user_groups WHERE user_id=? AND group_jid LIKE '%@g.us' AND group_jid NOT LIKE '%@broadcast%' AND group_jid NOT LIKE '%@newsletter%' AND group_jid NOT LIKE '%@s.whatsapp.net%' ORDER BY updated_at DESC",
+      [userId]
+    );
+    return r.map((x:any)=>{
+      try{
+        const item = JSON.parse(x.payload_json);
+        const jid = String(item.jid || item.id || "");
+        if (!jid.includes("@g.us") || jid.includes("@broadcast") || jid.includes("@newsletter") || jid.includes("@s.whatsapp.net") || jid.includes("@lid")) return null;
+        return item;
+      }catch{
+        return null;
+      }
+    }).filter(Boolean);
   } catch(err) {
     console.warn("[DB] Erro ao listar grupos user=" + userId, err);
     return [];

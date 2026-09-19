@@ -97,7 +97,10 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   // ETAPA 2: Grupos reais do WhatsApp
   const [availableGroups, setAvailableGroups] = useState<ClientGroup[]>(() => {
-    return (groups && groups.length > 0) ? groups : [];
+    return (groups || []).filter((g) => {
+      const jid = String(g.jid || g.id || '');
+      return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+    });
   });
   const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>([]);
   const [groupSearch, setGroupSearch] = useState('');
@@ -108,8 +111,12 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   });
 
   useEffect(() => {
-    setAvailableGroups(groups || []);
-    if (groups && groups.length > 0) {
+    const valid = (groups || []).filter((g) => {
+      const jid = String(g.jid || g.id || '');
+      return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+    });
+    setAvailableGroups(valid);
+    if (valid.length > 0) {
       setIsWhatsappConnected(true);
     }
   }, [groups]);
@@ -153,22 +160,25 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   // Load real WhatsApp instance groups fast with 0ms delay
   const fetchRealGroups = async (force: boolean = false) => {
-    if (!clientService.isWhatsAppConnected()) {
-      setAvailableGroups([]);
-      setIsWhatsappConnected(false);
-      return;
-    }
     if (availableGroups.length === 0 && groups.length === 0) {
       setLoadingGroups(true);
     }
     try {
-      const real = await clientService.getRealGroups(clientService.getDefaultInstance(), force);
-      if (real && real.length > 0) {
+      const raw = await clientService.getRealGroups(clientService.getDefaultInstance(), force);
+      const real = (raw || []).filter((g) => {
+        const jid = String(g.jid || g.id || '');
+        return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+      });
+      if (real.length > 0) {
         setAvailableGroups(real);
         setIsWhatsappConnected(true);
       } else if (groups.length > 0) {
-        setAvailableGroups(groups);
-        setIsWhatsappConnected(true);
+        const validProp = groups.filter((g) => {
+          const jid = String(g.jid || g.id || '');
+          return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
+        });
+        setAvailableGroups(validProp);
+        setIsWhatsappConnected(validProp.length > 0);
       } else {
         setAvailableGroups([]);
       }
@@ -183,8 +193,10 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
     fetchRealGroups();
   }, []);
 
-  // Filter groups
+  // Filter groups: strictly WhatsApp groups (@g.us)
   const filteredGroups = availableGroups.filter((g) => {
+    const jid = String(g.jid || g.id || '');
+    if (!jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@newsletter')) return false;
     if (groupSearch.trim()) {
       const q = groupSearch.toLowerCase();
       const matchName = (g.name || '').toLowerCase().includes(q);
