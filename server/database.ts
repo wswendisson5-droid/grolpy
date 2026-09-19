@@ -448,6 +448,19 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       if (!campSet.has("total_failed")) {
         await pool.query("ALTER TABLE user_campaigns ADD COLUMN total_failed INT NOT NULL DEFAULT 0").catch(() => {});
       }
+      // Ensure UNIQUE KEY uq_user_campaign (user_id, campaign_key)
+      try {
+        const [campIndexes]: any = await pool.query("SHOW INDEX FROM user_campaigns WHERE Key_name = 'uq_user_campaign'");
+        if (!campIndexes || campIndexes.length === 0) {
+          await pool.query(`
+            DELETE c1 FROM user_campaigns c1
+            INNER JOIN user_campaigns c2
+            ON c1.user_id = c2.user_id AND c1.campaign_key = c2.campaign_key
+            WHERE c1.id < c2.id
+          `).catch(() => {});
+          await pool.query("ALTER TABLE user_campaigns ADD UNIQUE KEY uq_user_campaign (user_id, campaign_key)").catch(() => {});
+        }
+      } catch {}
     } catch {}
 
     // 2. user_history table
@@ -562,6 +575,24 @@ export async function saveCampaignForUser(userId: number, data: any) {
   const totalFailed = Number(data.totalFailed) || 0;
 
   try {
+    const [existingRows]: any = await pool.execute(
+      "SELECT id FROM user_campaigns WHERE user_id=? AND campaign_key=? ORDER BY id DESC LIMIT 1",
+      [userId, key]
+    ).catch(() => [[]]);
+
+    if (existingRows && existingRows.length > 0) {
+      const targetId = existingRows[0].id;
+      await pool.execute(
+        `UPDATE user_campaigns SET name=?, message=?, media_url=?, config_json=?, status=?, scheduled_at=?, interval_seconds=?, total_sent=?, total_failed=? WHERE id=?`,
+        [title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed, targetId]
+      );
+      await pool.execute(
+        "DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=? AND id != ?",
+        [userId, key, targetId]
+      ).catch(() => {});
+      return key;
+    }
+
     await pool.execute(`INSERT INTO user_campaigns(user_id,client_id,campaign_key,name,message,media_url,config_json,status,scheduled_at,interval_seconds,total_sent,total_failed)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name),message=VALUES(message),media_url=VALUES(media_url),config_json=VALUES(config_json),status=VALUES(status),scheduled_at=VALUES(scheduled_at),interval_seconds=VALUES(interval_seconds),total_sent=VALUES(total_sent),total_failed=VALUES(total_failed)`,
     [userId, clientId, key, title, message, mediaUrl, JSON.stringify(data), status, safeScheduledAt, intervalSeconds, totalSent, totalFailed]);
@@ -593,18 +624,22 @@ export async function saveCampaignForUser(userId: number, data: any) {
 export async function listCampaignsForUser(userId:number){
   await ensureCampaignsTable().catch(() => {});
   try {
-    const [r]:any=await pool.execute("SELECT status, total_sent, total_failed, config_json FROM user_campaigns WHERE user_id=? ORDER BY created_at DESC",[userId]);
-    return r.map((x:any)=>{
+    const [r]:any=await pool.execute("SELECT id, campaign_key, status, total_sent, total_failed, config_json FROM user_campaigns WHERE user_id=? ORDER BY id DESC",[userId]);
+    const seen = new Set<string>();
+    const list: any[] = [];
+    for (const x of (r || [])) {
       try {
         const c = JSON.parse(x.config_json);
+        const key = String(x.campaign_key || c.id || x.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
         if (x.status) c.status = x.status;
         if (x.total_sent !== null && x.total_sent !== undefined) c.totalSent = Number(x.total_sent);
         if (x.total_failed !== null && x.total_failed !== undefined) c.totalFailed = Number(x.total_failed);
-        return c;
-      } catch {
-        return {};
-      }
-    });
+        list.push(c);
+      } catch {}
+    }
+    return list;
   } catch(err) {
     console.warn("[DB] Erro ao listar campanhas user=" + userId, err);
     return [];
@@ -619,24 +654,29 @@ export async function listActiveScheduledCampaigns(): Promise<Array<{
   await ensureCampaignsTable().catch(() => {});
   try {
     const [rows]: any = await pool.query(
-      "SELECT user_id, campaign_key, status, total_sent, total_failed, config_json FROM user_campaigns WHERE status IN ('agendada', 'ativa', 'enviando')"
+      "SELECT id, user_id, campaign_key, status, total_sent, total_failed, config_json FROM user_campaigns WHERE status IN ('agendada', 'ativa', 'enviando') ORDER BY id DESC"
     );
-    return (rows || []).map((r: any) => {
+    const seen = new Set<string>();
+    const result: any[] = [];
+    for (const r of (rows || [])) {
       try {
         const config = JSON.parse(r.config_json);
+        const campKey = String(r.campaign_key || config.id || r.id);
+        const composite = `${r.user_id}_${campKey}`;
+        if (seen.has(composite)) continue;
+        seen.add(composite);
         if (r.status) config.status = r.status;
         if (r.total_sent !== null && r.total_sent !== undefined) config.totalSent = Number(r.total_sent);
         if (r.total_failed !== null && r.total_failed !== undefined) config.totalFailed = Number(r.total_failed);
-        return {
+        result.push({
           userId: Number(r.user_id),
           campaignKey: r.campaign_key,
           status: r.status,
           config,
-        };
-      } catch {
-        return null;
-      }
-    }).filter(Boolean);
+        });
+      } catch {}
+    }
+    return result;
   } catch (err) {
     console.warn("[DB] Erro ao listar campanhas agendadas:", err);
     return [];

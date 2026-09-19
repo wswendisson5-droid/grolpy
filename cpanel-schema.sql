@@ -246,6 +246,7 @@ ALTER TABLE `user_campaigns` ADD COLUMN `total_sent` INT NOT NULL DEFAULT 0;
 ALTER TABLE `user_campaigns` ADD COLUMN `total_failed` INT NOT NULL DEFAULT 0;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `media_url` LONGTEXT NULL;
 ALTER TABLE `user_campaigns` MODIFY COLUMN `config_json` LONGTEXT NULL;
+ALTER TABLE `user_campaigns` ADD UNIQUE KEY `uq_user_campaign` (`user_id`, `campaign_key`);
 
 -- Garante todas as colunas de user_history para instalacoes legadas
 ALTER TABLE `user_history` ADD COLUMN `client_id` VARCHAR(80) NOT NULL DEFAULT '' AFTER `user_id`;
