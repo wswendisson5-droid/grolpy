@@ -432,6 +432,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               onNavigateToConnection={() => setCurrentTab('conexao')}
               onNavigateToPlanos={() => setCurrentTab('planos')}
               campaigns={campaigns}
+              groups={groups}
+              isWhatsappConnected={whatsappProfile.isConnected}
             />
           )}
 

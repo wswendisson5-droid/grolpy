@@ -602,6 +602,8 @@ app.get("/api/evolution/status", async (req, res) => {
             prof.pictureUrl || currentInst.connectedProfile.pictureUrl
           );
         } catch {}
+        // Trigger background sync of groups
+        syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => {});
       } catch (e) {
         try { await own.db.setUserInstanceStatus(own.user.id, appState); } catch {}
       }
@@ -2091,8 +2093,8 @@ async function getActiveConnectedInstance(preferred?: string): Promise<string> {
   return targetInstance;
 }
 
-// Ultra-fast background sync for WhatsApp groups for a specific instance
-async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: string = "minhabagg-leads") {
+// Ultra-fast background sync for WhatsApp groups for a specific instance with full Evolution API v2 payload mapping
+async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: string = "minhabagg-leads", dbUser?: { id: number; db: any }): Promise<any[]> {
   const now = Date.now();
   
   // Try to get cached for this specific instance
@@ -2100,87 +2102,136 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   if (!force && cachedForInstance && now - cachedForInstance.timestamp < 15000 && cachedForInstance.groups.length > 0) {
     return cachedForInstance.groups;
   }
-  if (targetInstance === "minhabagg-leads") {
+  if (targetInstance === DEFAULT_INSTANCE_NAME) {
     lastSyncGroupsTimestamp = now;
   }
 
-  try {
-    const instName = targetInstance;
-    const collectedGroupsMap = new Map<string, any>();
-
-    // 1. fetchAllGroups
-    try {
-      const gRes = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 6000);
-      if (gRes.ok && Array.isArray(gRes.data)) {
-        gRes.data.forEach((g: any) => {
-          const jid = g.id || g.jid;
-          if (jid && (jid.endsWith("@g.us") || !jid.includes("@s.whatsapp.net"))) {
-            collectedGroupsMap.set(jid, {
-              id: jid,
-              jid: jid,
-              name: g.subject || g.name || "Grupo WhatsApp",
-              membersCount: g.size || g.participants?.length || 50,
-              category: "Vendas & Negócios",
-              status: "ativo",
-              totalPosts: 0,
-              lastPostTime: "Recente",
-              avatar: g.pictureUrl || g.profilePicUrl || "",
-              instanceName: instName,
-            });
-          }
-        });
-      }
-    } catch {}
-
-    // 2. findChats (to capture all active group chats)
-    try {
-      const cRes = await callEvolution(`/chat/findChats/${instName}`, {
-        method: "POST",
-        body: JSON.stringify({ limit: 1000 }),
-      }, 6000);
-      if (cRes.ok && Array.isArray(cRes.data)) {
-        const groupChats = cRes.data.filter((c: any) => c.remoteJid && (c.remoteJid.includes("@g.us") || c.isGroup));
-        groupChats.forEach((c: any) => {
-          const jid = c.remoteJid;
-          if (jid) {
-            const existing = collectedGroupsMap.get(jid);
-            const resolvedName = (existing && existing.name !== "Grupo WhatsApp") ? existing.name : (c.name || c.pushName || c.subject || existing?.name || "Grupo WhatsApp");
-            collectedGroupsMap.set(jid, {
-              id: jid,
-              jid: jid,
-              name: resolvedName,
-              membersCount: existing?.membersCount || c.participants?.length || c.size || 50,
-              category: "Vendas & Negócios",
-              status: "ativo",
-              totalPosts: existing?.totalPosts || 0,
-              lastPostTime: "Recente",
-              avatar: existing?.avatar || c.profilePicUrl || c.pictureUrl || "",
-              instanceName: instName,
-            });
-          }
-        });
-      }
-    } catch {}
-
-    if (collectedGroupsMap.size > 0) {
-      const freshGroups = Array.from(collectedGroupsMap.values());
-      cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
-      clientImportedGroupsStore.set(instName, freshGroups);
-      
-      if (instName === "minhabagg-leads") {
-        globalCachedGroups = freshGroups;
-        saveJsonSafe(GROUPS_CACHE_FILE, freshGroups);
-        saveJsonSafe(IMPORTED_GROUPS_FILE, freshGroups);
-      }
-      
-      console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} real WhatsApp groups for instance ${instName}.`);
-      return freshGroups;
-    }
-  } catch (err: any) {
-    console.warn(`[GroupsSync] Background sync notice for ${targetInstance}:`, err.message);
+  const collectedGroupsMap = new Map<string, any>();
+  const instancesToTry = [targetInstance];
+  if (DEFAULT_INSTANCE_NAME && targetInstance !== DEFAULT_INSTANCE_NAME) {
+    instancesToTry.push(DEFAULT_INSTANCE_NAME);
   }
 
-  // Fallback to cache for this instance, or empty
+  const extractGroupsFromPayload = (data: any, instName: string) => {
+    if (!data) return;
+    const list: any[] = Array.isArray(data)
+      ? data
+      : Array.isArray(data?.groups)
+      ? data.groups
+      : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.response)
+      ? data.response
+      : Array.isArray(data?.chats)
+      ? data.chats
+      : [];
+
+    for (const g of list) {
+      const jid = g.id || g.jid || g.remoteJid;
+      if (!jid) continue;
+      const isGroup = String(jid).includes("@g.us") || g.isGroup || (!String(jid).includes("@s.whatsapp.net") && !String(jid).includes("@lid"));
+      if (!isGroup) continue;
+
+      const name = g.subject || g.name || g.pushName || "Grupo WhatsApp";
+      const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 10;
+      const avatar = g.pictureUrl || g.profilePicUrl || g.avatarUrl || g.avatar || "";
+
+      if (!collectedGroupsMap.has(jid) || (name !== "Grupo WhatsApp" && collectedGroupsMap.get(jid)?.name === "Grupo WhatsApp")) {
+        collectedGroupsMap.set(jid, {
+          id: jid,
+          jid,
+          name,
+          membersCount,
+          category: "Vendas & Negócios",
+          status: "ativo",
+          totalPosts: 0,
+          lastPostTime: "Recente",
+          avatar,
+          instanceName: instName,
+        });
+      }
+    }
+  };
+
+  for (const instName of instancesToTry) {
+    try {
+      // 1. fetchAllGroups with getParticipants=false
+      const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 6000, 0);
+      if (gRes1.ok && gRes1.data) {
+        extractGroupsFromPayload(gRes1.data, instName);
+      }
+
+      // 2. fetchAllGroups direct
+      if (collectedGroupsMap.size === 0) {
+        const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 6000, 0);
+        if (gRes2.ok && gRes2.data) {
+          extractGroupsFromPayload(gRes2.data, instName);
+        }
+      }
+
+      // 3. findChats POST
+      try {
+        const cRes = await callEvolution(`/chat/findChats/${instName}`, {
+          method: "POST",
+          body: JSON.stringify({ limit: 1000 }),
+        }, 6000, 0);
+        if (cRes.ok && cRes.data) {
+          extractGroupsFromPayload(cRes.data, instName);
+        }
+      } catch {}
+
+      // 4. findChats GET
+      if (collectedGroupsMap.size === 0) {
+        try {
+          const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 5000, 0);
+          if (cResGet.ok && cResGet.data) {
+            extractGroupsFromPayload(cResGet.data, instName);
+          }
+        } catch {}
+      }
+
+      if (collectedGroupsMap.size > 0) {
+        break;
+      }
+    } catch (err: any) {
+      console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
+    }
+  }
+
+  if (collectedGroupsMap.size > 0) {
+    const freshGroups = Array.from(collectedGroupsMap.values());
+    cachedGroupsByInstance.set(targetInstance, { timestamp: now, groups: freshGroups });
+    clientImportedGroupsStore.set(targetInstance, freshGroups);
+    if (DEFAULT_INSTANCE_NAME) {
+      cachedGroupsByInstance.set(DEFAULT_INSTANCE_NAME, { timestamp: now, groups: freshGroups });
+      clientImportedGroupsStore.set(DEFAULT_INSTANCE_NAME, freshGroups);
+      globalCachedGroups = freshGroups;
+      saveJsonSafe(GROUPS_CACHE_FILE, freshGroups);
+      saveJsonSafe(IMPORTED_GROUPS_FILE, freshGroups);
+    }
+
+    if (dbUser?.db && dbUser?.id) {
+      try {
+        await dbUser.db.saveGroupsForUser(dbUser.id, freshGroups);
+      } catch {}
+    }
+
+    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} real WhatsApp groups for instance ${targetInstance}.`);
+    return freshGroups;
+  }
+
+  // If Evolution didn't return groups right now, check MySQL user_groups
+  if (dbUser?.db && dbUser?.id) {
+    try {
+      const dbGroups = await dbUser.db.listGroupsForUser(dbUser.id);
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
+        cachedGroupsByInstance.set(targetInstance, { timestamp: now, groups: dbGroups });
+        clientImportedGroupsStore.set(targetInstance, dbGroups);
+        return dbGroups;
+      }
+    } catch {}
+  }
+
   const fallbackCache = cachedGroupsByInstance.get(targetInstance);
   return fallbackCache ? fallbackCache.groups : [];
 }
@@ -2200,7 +2251,6 @@ const initialImported = loadJsonSafe(IMPORTED_GROUPS_FILE, []);
 if (Array.isArray(initialImported) && initialImported.length > 0) {
   clientImportedGroupsStore.set("default", initialImported);
   clientImportedGroupsStore.set("minhabagg-leads", initialImported);
-  clientImportedGroupsStore.set("cliente-wendisson", initialImported);
 }
 
 // Dedicated Client WhatsApp Status endpoint (Instant response + background check)
@@ -2246,13 +2296,13 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
 
 // Get imported groups saved for client instance (Instant response)
 app.get("/api/client/imported-groups", async (req,res)=>{
- const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const own:any=await ownedInstance(req, false, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
  const groups=await own.db.listGroupsForUser(own.user.id); res.json({success:true,instanceName:own.instance,total:groups.length,groups});
 });
 
 // Save/Update imported groups for client instance
 app.post("/api/client/imported-groups", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own:any=await ownedInstance(req, false, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const instance = own.instance;
   const { groups } = req.body;
   if (!Array.isArray(groups)) {
@@ -2260,7 +2310,7 @@ app.post("/api/client/imported-groups", async (req, res) => {
   }
   clientImportedGroupsStore.set(instance, groups);
   
-  if (instance === "minhabagg-leads") {
+  if (instance === DEFAULT_INSTANCE_NAME) {
     globalCachedGroups = groups;
     saveJsonSafe(IMPORTED_GROUPS_FILE, groups);
     saveJsonSafe(GROUPS_CACHE_FILE, groups);
@@ -2279,19 +2329,16 @@ app.post("/api/client/imported-groups", async (req, res) => {
 
 // Get real groups from connected WhatsApp instance with 0-ms instant response
 app.get("/api/client/groups", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
+  if (own.error) return res.status(402).json({ error: "Plano inativo." });
   const reqInstance = own.instance;
-  const forceRefresh = req.query.refresh === "true";
-
-  if (forceRefresh) {
-    // Trigger background refresh and return updated or cached list
-    syncAllWhatsAppGroups(true, reqInstance).catch(() => {});
-  }
+  const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
 
   // Check memory / disk cache first (Instant < 1ms)
   let groups = clientImportedGroupsStore.get(reqInstance) || [];
   
-  if (reqInstance === "minhabagg-leads" && groups.length === 0) {
+  if (reqInstance === DEFAULT_INSTANCE_NAME && groups.length === 0) {
     groups = globalCachedGroups;
   }
 
@@ -2305,13 +2352,24 @@ app.get("/api/client/groups", async (req, res) => {
     });
   }
 
-  // If memory was empty, perform fast sync
-  const fresh = await syncAllWhatsAppGroups(true, reqInstance);
+  // Perform sync with Evolution and persist to MySQL
+  const fresh = await syncAllWhatsAppGroups(true, reqInstance, { id: own.user.id, db: own.db });
+  if (fresh.length > 0) {
+    return res.json({
+      success: true,
+      instanceName: reqInstance,
+      total: fresh.length,
+      groups: fresh,
+    });
+  }
+
+  // Fallback to MySQL if sync returned empty
+  const dbGroups = await own.db.listGroupsForUser(own.user.id);
   res.json({
     success: true,
     instanceName: reqInstance,
-    total: fresh.length,
-    groups: fresh,
+    total: dbGroups.length,
+    groups: dbGroups,
   });
 });
 

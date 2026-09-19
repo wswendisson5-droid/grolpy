@@ -103,7 +103,7 @@ class ClientService {
   async getRealGroups(instance: string = this.defaultInstance, forceRefresh: boolean = false): Promise<ClientGroup[]> {
     try {
       const url = `/api/client/groups?instance=${safeEncodeURIComponent(instance)}${forceRefresh ? '&refresh=true' : ''}`;
-      const res = await fetch(url,{headers:this.authHeaders()});
+      const res = await fetch(url, { headers: this.authHeaders() });
       const data = await res.json();
       if (data.success && Array.isArray(data.groups) && data.groups.length > 0) {
         this.cachedGroups = data.groups;
@@ -112,11 +112,12 @@ class ClientService {
         }
         return data.groups;
       }
-      this.cachedGroups = [];
-      return [];
+      if (this.cachedGroups.length > 0 && !forceRefresh) {
+        return this.cachedGroups;
+      }
+      return data.groups || this.cachedGroups || [];
     } catch {
-      this.cachedGroups = [];
-      return [];
+      return this.cachedGroups;
     }
   }
 

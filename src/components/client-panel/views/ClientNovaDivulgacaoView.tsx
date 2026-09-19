@@ -43,6 +43,8 @@ interface ClientNovaDivulgacaoViewProps {
   onNavigateToConnection: () => void;
   onNavigateToPlanos?: () => void;
   campaigns?: DivulgacaoCard[];
+  groups?: ClientGroup[];
+  isWhatsappConnected?: boolean;
 }
 
 interface MediaItem {
@@ -58,6 +60,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   onNavigateToConnection,
   onNavigateToPlanos,
   campaigns = [],
+  groups = [],
+  isWhatsappConnected: propWhatsappConnected,
 }) => {
   // Stepper State (1: Mensagem, 2: Grupos, 3: Programação, 4: Revisar)
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -92,11 +96,31 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   const [addCaptionToMedia, setAddCaptionToMedia] = useState(true);
 
   // ETAPA 2: Grupos reais do WhatsApp
-  const [availableGroups, setAvailableGroups] = useState<ClientGroup[]>(() => clientService.getCachedGroups());
+  const [availableGroups, setAvailableGroups] = useState<ClientGroup[]>(() => {
+    if (groups && groups.length > 0) return groups;
+    return clientService.getCachedGroups();
+  });
   const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>([]);
   const [groupSearch, setGroupSearch] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
-  const [isWhatsappConnected, setIsWhatsappConnected] = useState(() => clientService.getCachedGroups().length > 0);
+  const [isWhatsappConnected, setIsWhatsappConnected] = useState<boolean>(() => {
+    if (propWhatsappConnected !== undefined) return propWhatsappConnected;
+    if (groups && groups.length > 0) return true;
+    return clientService.getCachedGroups().length > 0;
+  });
+
+  useEffect(() => {
+    if (groups && groups.length > 0) {
+      setAvailableGroups(groups);
+      setIsWhatsappConnected(true);
+    }
+  }, [groups]);
+
+  useEffect(() => {
+    if (propWhatsappConnected !== undefined) {
+      setIsWhatsappConnected(propWhatsappConnected);
+    }
+  }, [propWhatsappConnected]);
 
   // ETAPA 3: Programação
   const [scheduleMode, setScheduleMode] = useState<'agendar' | 'recorrente' | 'imediato'>('agendar');
@@ -131,13 +155,16 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   // Load real WhatsApp instance groups fast with 0ms delay
   const fetchRealGroups = async (force: boolean = false) => {
-    if (availableGroups.length === 0) {
+    if (availableGroups.length === 0 && groups.length === 0) {
       setLoadingGroups(true);
     }
     try {
-      const real = await clientService.getRealGroups('cliente-wendisson', force);
+      const real = await clientService.getRealGroups(clientService.getDefaultInstance(), force);
       if (real && real.length > 0) {
         setAvailableGroups(real);
+        setIsWhatsappConnected(true);
+      } else if (groups.length > 0) {
+        setAvailableGroups(groups);
         setIsWhatsappConnected(true);
       } else {
         const imported = await clientService.getImportedGroups();
