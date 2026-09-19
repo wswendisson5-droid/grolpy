@@ -147,24 +147,8 @@ async function callEvolution(endpoint: string, options: RequestInit = {}, timeou
 // Connect Evolution API caller to Radar Engine for real group messages polling
 radarEngine.setEvolutionCaller(callEvolution);
 
-// Preload real group metadata into radarEngine cache
-async function preloadRadarGroups() {
-  try {
-    const res = await callEvolution(`/group/fetchAllGroups/${memoryState.instanceName}?getParticipants=false`);
-    if (res.ok && Array.isArray(res.data)) {
-      for (const g of res.data) {
-        const jid = g.id || g.jid;
-        const name = g.subject || g.name || "Grupo WhatsApp";
-        const avatar = g.pictureUrl || g.profilePicUrl || "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=150&q=80";
-        radarEngine.updateGroupMetadata(jid, name, avatar);
-      }
-      console.log(`[Radar] Preloaded metadata for ${res.data.length} groups.`);
-    }
-  } catch (e) {
-    // silent catch
-  }
-}
-setTimeout(preloadRadarGroups, 1500);
+// Evolution metadata is loaded on demand. Never call Evolution during Passenger startup:
+// a slow/unreachable upstream must not block or destabilize the web worker.
 
 // In-memory cache for profile pictures to avoid repeated WhatsApp queries
 const profilePicCache = new Map<string, string>();
