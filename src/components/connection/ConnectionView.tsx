@@ -50,155 +50,81 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
-  // Fetch available instances from backend and check for open connection
+  // Initialize exactly once. Client mode must never call the ADM instances endpoint.
+  // The previous duplicate initialization created races: status/QR requests could
+  // overlap and the first QR attempt could be replaced by a second state update.
   useEffect(() => {
     let mounted = true;
-    connectionService.getInstances().then((res) => {
-      if (mounted && res.success && res.instances.length > 0) {
-        setAvailableInstances(res.instances);
-        const openInst = res.instances.find((i) => i.connectionStatus === 'open');
-        if (openInst && info.status !== 'connected') {
-          setInfo((prev) => ({
-            ...prev,
-            instanceName: openInst.name,
-          }));
-          fetchStatus(openInst.name);
-        }
-      }
-    });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
-  // Poll backend status to detect when user scans the QR code or instance connects
-  const fetchStatus = useCallback(async (targetInst?: string) => {
-    try {
-      const instToQuery = targetInst || info.instanceName || undefined;
-      const data = await connectionService.getStatus(instToQuery);
-      setInfo((prev) => ({
-        ...prev,
-        ...data,
-        instanceName: data.instanceName || prev.instanceName,
-        // Maintain existing QR if not returned fresh
-        qrCode: data.qrCode || prev.qrCode,
-      }));
-      if (onStatusChange) {
-        onStatusChange(data.status);
-      }
-      return data;
-    } catch (e) {
-      console.error('Error fetching connection status:', e);
-    }
-  }, [info.instanceName, onStatusChange]);
-
-  // Request fresh QR code from real Evolution API
-  const handleRefreshQr = async (targetInst?: string) => {
-    setIsLoadingQr(true);
-    const instToUse = targetInst || info.instanceName || undefined;
-    try {
-      const res = await connectionService.requestNewQrCode(instToUse);
-      if (res.success && res.qrCode) {
-        setInfo((prev) => ({
-          ...prev,
-          status: 'waiting_qr',
-          qrCode: res.qrCode,
-          instanceName: res.instanceName || prev.instanceName,
-        }));
-      } else {
-        await fetchStatus(instToUse);
-      }
-    } catch (err) {
-      console.error('Error refreshing QR:', err);
-    } finally {
-      setIsLoadingQr(false);
-    }
-  };
-
-  // Reset instance cleanly (recreates fresh Baileys session and generates count 1 QR)
-  const handleResetInstance = async () => {
-    setIsResetting(true);
-    try {
-      const res = await connectionService.resetInstance(info.instanceName || undefined);
-      if (res.success && res.qrCode) {
-        setInfo((prev) => ({
-          ...prev,
-          status: 'waiting_qr',
-          qrCode: res.qrCode,
-        }));
-      } else {
-        await fetchStatus();
-      }
-    } catch (err) {
-      console.error('Error resetting instance:', err);
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
-  // Restart connection
-  const handleRestart = async () => {
-    setIsRestarting(true);
-    setInfo((prev) => ({ ...prev, status: 'connecting' }));
-    try {
-      await connectionService.restartInstance(info.instanceName);
-      // Brief connection transition for smooth visual feedback
-      setTimeout(async () => {
-        await fetchStatus();
-        setIsRestarting(false);
-      }, 3000);
-    } catch {
-      setIsRestarting(false);
-    }
-  };
-
-  // Disconnect connection
-  const handleDisconnect = async () => {
-    setIsDisconnecting(true);
-    try {
-      await connectionService.disconnectInstance(info.instanceName);
-      setInfo((prev) => ({
-        ...prev,
-        status: 'disconnected',
-        profile: undefined,
-        webhookStatus: 'waiting',
-      }));
-      await handleRefreshQr();
-    } catch (err) {
-      console.error('Error disconnecting:', err);
-    } finally {
-      setIsDisconnecting(false);
-    }
-  };
-
-  // ADM: discover the real Evolution instance first. Never generate QR for a connected instance.
-  useEffect(() => {
-    let mounted = true;
     const init = async () => {
       try {
         if (!isClientView) {
           const res = await connectionService.getInstances();
           if (!mounted) return;
-          setAvailableInstances(res.instances || []);
-          const preferred = (res.instances || []).find((i:any)=>i.connectionStatus==='open') || (res.instances || []).find((i:any)=>i.name===res.currentInstance) || (res.instances || [])[0];
+
+          const instances = res.instances || [];
+          setAvailableInstances(instances);
+
+          const preferred =
+            instances.find((i: any) => i.connectionStatus === 'open') ||
+            instances.find((i: any) => i.name === res.currentInstance) ||
+            instances[0];
+
           if (preferred) {
-            setInfo(prev=>({...prev,instanceName:preferred.name,status:preferred.connectionStatus==='open'?'connected':'loading',qrCode:undefined}));
+            setInfo(prev => ({
+              ...prev,
+              instanceName: preferred.name,
+              status: preferred.connectionStatus === 'open' ? 'connected' : 'loading',
+              qrCode: undefined,
+            }));
+
             if (preferred.connectionStatus === 'open') {
-              setInfo(prev=>({...prev,status:'connected',webhookStatus:'active',qrCode:undefined,profile:{name:preferred.profileName||preferred.name,number:'',pictureUrl:'',connectedAt:'',lastSyncAt:new Date().toLocaleString('pt-BR'),version:''}}));
               onStatusChange?.('connected');
               return;
             }
+
             await connectionService.selectInstance(preferred.name);
-            const data=await fetchStatus(preferred.name);
-            if (mounted && data?.status!=='connected' && !data?.qrCode) await handleRefreshQr(preferred.name);
+            if (!mounted) return;
+            const data = await connectionService.getStatus(preferred.name);
+
+            if (!mounted) return;
+            setInfo(prev => ({
+              ...prev,
+              ...data,
+              instanceName: data.instanceName || preferred.name,
+              qrCode: data.qrCode || prev.qrCode,
+            }));
+
+            if (data.status !== 'connected' && !data.qrCode) {
+              await handleRefreshQr(preferred.name);
+            }
             return;
           }
         }
-        const data=await fetchStatus();
-        if(mounted && data?.status!=='connected' && !data?.qrCode) await handleRefreshQr(data?.instanceName);
-      } catch { if(mounted)setInfo(prev=>({...prev,status:'disconnected'})); }
+
+        const data = await connectionService.getStatus();
+        if (!mounted) return;
+
+        setInfo(prev => ({
+          ...prev,
+          ...data,
+          instanceName: data.instanceName || prev.instanceName,
+          qrCode: data.qrCode || prev.qrCode,
+        }));
+
+        if (data.status !== 'connected' && !data.qrCode) {
+          await handleRefreshQr(data.instanceName);
+        }
+      } catch (e) {
+        console.error('Error initializing WhatsApp connection:', e);
+        if (mounted) {
+          setInfo(prev => ({ ...prev, status: 'disconnected' }));
+        }
+      }
     };
-    init(); return ()=>{mounted=false};
+
+    init();
+    return () => { mounted = false; };
   }, []);
 
   // Polling when waiting for QR scan
