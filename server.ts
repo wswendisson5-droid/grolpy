@@ -275,11 +275,24 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Dynamic database loader that works seamlessly in local dev (TSX) and production (CJS bundle)
+async function getDatabase(): Promise<any> {
+  try {
+    return await import("./database.cjs");
+  } catch {
+    try {
+      return await import("./dist/database.cjs");
+    } catch {
+      return await import("./server/database");
+    }
+  }
+}
+
 // MySQL health check isolated from application startup.
 // mysql2 is loaded lazily so a database/driver failure never takes the Groply process down.
 app.get("/api/database/health", async (_req, res) => {
   try {
-    const mysqlModule: any = await import("./database.cjs");
+    const mysqlModule: any = await getDatabase();
     await mysqlModule.initDatabase();
     const mysql: any = mysqlModule.mysql || mysqlModule.default || mysqlModule;
     const connection = await mysql.createConnection({
@@ -323,94 +336,135 @@ app.get("/api/database/health", async (_req, res) => {
 });
 
 
-async function authenticatedUser(req:any){
-  const token=String(req.headers.authorization||"").replace(/^Bearer\s+/i,"").trim();
-  if(!token) return null;
-  const db:any=await import("./database.cjs");
+async function authenticatedUser(req: any) {
+  const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return null;
+  const db: any = await getDatabase();
   return db.getUserByToken(token);
 }
 
-const ADMIN_EMAILS=new Set(["wswendisson5@gmail.com","mateus@gmail.com"]);
-async function requireAdmin(req:any){ const user:any=await authenticatedUser(req); return user?.role==="admin"&&ADMIN_EMAILS.has(String(user.email||"").trim().toLowerCase())?user:null; }
+const ADMIN_EMAILS = new Set(["wswendisson5@gmail.com", "mateus@gmail.com"]);
 
-async function ownedInstance(req:any, requireActive=true, createIfMissing=true){
-  const user:any=await authenticatedUser(req); if(!user) return {error:"UNAUTHORIZED"};
-  if(requireActive && user.status!=="active") return {error:"PAYMENT_REQUIRED",user};
-  const db:any=await import("./database.cjs");
-  const inst=createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
-  if(!inst) return {error:"INSTANCE_NOT_FOUND",user,db};
-  return {user,db,instance:inst.instance_name,record:inst};
+async function requireAdmin(req: any) {
+  const user: any = await authenticatedUser(req);
+  return (user?.role === "admin" || (user?.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()))) ? user : null;
+}
+
+async function ownedInstance(req: any, requireActive = true, createIfMissing = true) {
+  const user: any = await authenticatedUser(req);
+  if (!user) return { error: "UNAUTHORIZED" };
+  const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
+  if (requireActive && !isAdmin && user.status !== "active") return { error: "PAYMENT_REQUIRED", user };
+  const db: any = await getDatabase();
+  const inst = createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
+  if (!inst) return { error: "INSTANCE_NOT_FOUND", user, db };
+  return { user, db, instance: inst.instance_name, record: inst, isAdmin };
 }
 
 // Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
 app.post("/api/auth/register", async (req, res) => {
   try {
-    const { registerUser } = await import("./database.cjs");
+    const { registerUser } = await getDatabase();
     const { name, email, phone, password } = req.body || {};
-    if (!name || !email || !password) return res.status(400).json({ success:false, error:"Preencha nome, e-mail e senha." });
+    if (!name || !email || !password) return res.status(400).json({ success: false, error: "Preencha nome, e-mail e senha." });
     const user = await registerUser(String(name), String(email), String(phone || ""), String(password));
-    res.status(201).json({ success:true, user });
-  } catch (err:any) {
+    res.status(201).json({ success: true, user });
+  } catch (err: any) {
     const duplicate = err?.code === "ER_DUP_ENTRY";
-    res.status(duplicate ? 409 : 500).json({ success:false, error: duplicate ? "Este e-mail já está cadastrado." : "Não foi possível criar a conta." });
+    res.status(duplicate ? 409 : 500).json({ success: false, error: duplicate ? "Este e-mail já está cadastrado." : "Não foi possível criar a conta." });
   }
 });
 
-app.post("/api/auth/bootstrap-admin", async (req,res)=>{
- try{
-  const key=String(req.headers["x-bootstrap-key"]||""); if(!process.env.ADMIN_BOOTSTRAP_KEY||key!==process.env.ADMIN_BOOTSTRAP_KEY)return res.status(404).json({error:"Not found"});
-  const db:any=await import("./database.cjs"); const {name,email,password}=req.body||{}; if(!name||!email||!password)return res.status(400).json({error:"Dados obrigatórios"});
-  await db.ensureAdminAccount(String(name),String(email),String(password)); res.json({success:true});
- }catch(e:any){res.status(500).json({success:false,error:"ADMIN_BOOTSTRAP_FAILED"});}
+app.post("/api/auth/bootstrap-admin", async (req, res) => {
+  try {
+    const key = String(req.headers["x-bootstrap-key"] || "");
+    if (!process.env.ADMIN_BOOTSTRAP_KEY || key !== process.env.ADMIN_BOOTSTRAP_KEY) return res.status(404).json({ error: "Not found" });
+    const db: any = await getDatabase();
+    const { name, email, password } = req.body || {};
+    if (!name || !email || !password) return res.status(400).json({ error: "Dados obrigatórios" });
+    await db.ensureAdminAccount(String(name), String(email), String(password));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: "ADMIN_BOOTSTRAP_FAILED" });
+  }
 });
 
 app.post("/api/auth/login", async (req, res) => {
   try {
-    const { loginUser } = await import("./database.cjs");
+    const { loginUser } = await getDatabase();
     const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ success:false, error:"Informe e-mail e senha." });
-    const result = await loginUser(String(email), String(password));
-    if (!result) return res.status(401).json({ success:false, error:"E-mail ou senha incorretos." });
-    res.json({ success:true, ...result });
-  } catch (err:any) {
+    if (!email || !password) return res.status(400).json({ success: false, error: "Informe e-mail e senha." });
+    const auth = await loginUser(String(email), String(password));
+    if (!auth) return res.status(401).json({ success: false, error: "E-mail ou senha incorretos." });
+    res.json({ success: true, token: auth.token, user: auth.user });
+  } catch (err: any) {
     console.error("[AUTH] login:", err?.code || err?.message || err);
-    res.status(500).json({ success:false, error:"Não foi possível entrar agora." });
+    res.status(500).json({ success: false, error: "Não foi possível entrar agora." });
   }
 });
 
-app.post("/api/auth/self-test", async (_req,res)=>{
-  if(process.env.NODE_ENV==="production") return res.status(404).json({error:"Not found"});
-  try{
-    const db:any=await import("./database.cjs"); const tag=Date.now(); const email=`auth-test-${tag}@grolpy.local`; const password=`Test-${tag}-Aa1`;
-    await db.registerUser("Auth Test",email,"",password); const login=await db.loginUser(email,password);
-    res.json({success:Boolean(login?.token)});
-  }catch(e:any){res.status(500).json({success:false,error:e?.code||e?.message});}
+app.post("/api/auth/self-test", async (_req, res) => {
+  if (process.env.NODE_ENV === "production") return res.status(404).json({ error: "Not found" });
+  try {
+    const db: any = await getDatabase();
+    const tag = Date.now();
+    const email = `auth-test-${tag}@grolpy.local`;
+    const password = `Test-${tag}-Aa1`;
+    await db.registerUser("Auth Test", email, "", password);
+    const login = await db.loginUser(email, password);
+    res.json({ success: Boolean(login?.token) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: e?.code || e?.message });
+  }
 });
 
-app.get("/api/auth/diagnostic", async (_req,res)=>{
- try{
-  const db:any=await import("./database.cjs");
-  const result=await db.authDiagnostic();
-  res.json({success:true,...result});
- }catch(e:any){console.error("[AUTH-DIAGNOSTIC]",e?.code||e?.message);res.status(500).json({success:false,error:"AUTH_DATABASE_ERROR"});}
+app.get("/api/auth/diagnostic", async (_req, res) => {
+  try {
+    const db: any = await getDatabase();
+    const result = await db.authDiagnostic();
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    console.error("[AUTH-DIAGNOSTIC]", e?.code || e?.message);
+    res.status(500).json({ success: false, error: "AUTH_DATABASE_ERROR" });
+  }
 });
 
-app.post("/api/admin/test-subscriber", async (req,res)=>{
- const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
- try{const db:any=await import("./database.cjs");const user=await db.createPendingTestSubscriber(req.body||{});res.status(201).json({success:true,user});}
- catch(e:any){res.status(e?.code==="ER_DUP_ENTRY"?409:500).json({success:false,error:"Não foi possível criar assinante de teste."});}
+app.post("/api/admin/test-subscriber", async (req, res) => {
+  const admin = await requireAdmin(req);
+  if (!admin) return res.status(403).json({ error: "ADMIN_REQUIRED" });
+  try {
+    const db: any = await getDatabase();
+    const user = await db.createPendingTestSubscriber(req.body || {});
+    res.status(201).json({ success: true, user });
+  } catch (e: any) {
+    res.status(e?.code === "ER_DUP_ENTRY" ? 409 : 500).json({ success: false, error: "Não foi possível criar assinante de teste." });
+  }
 });
 
-app.get("/api/admin/subscriptions", async (req,res)=>{
- const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
- try{const db:any=await import("./database.cjs");res.json({success:true,subscriptions:await db.listAdminSubscriptions()});}
- catch(e:any){console.error("[ADMIN-SUBSCRIPTIONS]",e?.code||e?.message);res.status(500).json({success:false,error:"Não foi possível carregar assinaturas."});}
+app.get("/api/admin/subscriptions", async (req, res) => {
+  const admin = await requireAdmin(req);
+  if (!admin) return res.status(403).json({ error: "ADMIN_REQUIRED" });
+  try {
+    const db: any = await getDatabase();
+    res.json({ success: true, subscriptions: await db.listAdminSubscriptions() });
+  } catch (e: any) {
+    console.error("[ADMIN-SUBSCRIPTIONS]", e?.code || e?.message);
+    res.status(500).json({ success: false, error: "Não foi possível carregar assinaturas." });
+  }
 });
-app.post("/api/admin/subscriptions/:userId/action", async (req,res)=>{
- const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
- try{const action=String(req.body?.action||"");if(!["approve","renew","suspend"].includes(action))return res.status(400).json({error:"Ação inválida"});
- const db:any=await import("./database.cjs");await db.adminSetSubscription(Number(req.params.userId),action);res.json({success:true});}
- catch(e:any){res.status(500).json({success:false,error:"Não foi possível atualizar a assinatura."});}
+
+app.post("/api/admin/subscriptions/:userId/action", async (req, res) => {
+  const admin = await requireAdmin(req);
+  if (!admin) return res.status(403).json({ error: "ADMIN_REQUIRED" });
+  try {
+    const action = String(req.body?.action || "");
+    if (!["approve", "renew", "suspend"].includes(action)) return res.status(400).json({ error: "Ação inválida" });
+    const db: any = await getDatabase();
+    await db.adminSetSubscription(Number(req.params.userId), action);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ success: false, error: "Não foi possível atualizar a assinatura." });
+  }
 });
 
 // 2. Fetch all instances available on the Evolution server
@@ -2426,7 +2480,7 @@ function getUniqueGroupsInAutomations(campaigns: ClientCampaign[], excludeId?: s
 // Plan endpoints (100% MySQL backed)
 app.get("/api/client/plans", async (_req, res) => {
   try {
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const plans = await db.listPlans();
     res.json({ success: true, plans });
   } catch (err: any) {
@@ -2479,7 +2533,7 @@ app.get("/api/onboarding/payment-status", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const sub = await db.getSubscriptionForUser(user.id);
     if (!sub?.current_payment_id) return res.json({ success: true, status: "pending", access: false });
     const pay: any = await asaasEngine.getPayment(sub.current_payment_id);
@@ -2500,7 +2554,7 @@ app.get("/api/account/status", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const subscription = await db.getSubscriptionForUser(user.id);
     const instance = await db.getUserInstance(user.id);
     res.json({
@@ -2524,7 +2578,7 @@ app.post("/api/onboarding/subscribe", async (req, res) => {
     const prices: Record<string, number> = { start: 39.9, pro: 69.9, max: 119.9 };
     const names: Record<string, string> = { start: "Start", pro: "Pro", max: "Max" };
     if (!prices[planId] || !cpfCnpj) return res.status(400).json({ success: false, error: "Plano e CPF são obrigatórios." });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     await db.setUserBillingIdentity(user.id, String(cpfCnpj));
     const sub: any = await asaasEngine.createMonthlyPixSubscription({
       planId,
@@ -2563,7 +2617,7 @@ app.post("/api/onboarding/subscribe", async (req, res) => {
 app.post("/api/client/checkout/create", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const { planId, billingType, customer, creditCard } = req.body;
     const planPrices: Record<string, number> = {
       start: 39.9,
@@ -2628,7 +2682,7 @@ app.post("/api/client/checkout/create", async (req, res) => {
 app.get("/api/client/checkout/status/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const inv = await db.getInvoiceByPaymentId(id);
     const payment = asaasEngine.getPayment(id);
 
@@ -2668,7 +2722,7 @@ app.get("/api/client/checkout/status/:id", async (req, res) => {
 app.post("/api/client/checkout/simulate-confirm/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     await db.confirmInvoicePayment(id, "SIMULATED_CONFIRM");
     const payment = asaasEngine.confirmPayment(id);
 
@@ -2695,7 +2749,7 @@ app.post("/api/client/checkout/simulate-confirm/:id", async (req, res) => {
 // Asaas Webhook: Receives official Asaas webhooks and persists to MySQL
 app.post("/api/webhook/asaas", async (req, res) => {
   try {
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const { event, payment } = req.body || {};
     const paymentId = payment?.id;
     console.log(`[Asaas Webhook] Event received: ${event}`, paymentId);
@@ -2722,7 +2776,7 @@ app.get("/api/client/invoices", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const invoices = await db.getUserInvoices(user.id);
     res.json({ success: true, invoices });
   } catch (err: any) {
@@ -2736,7 +2790,7 @@ app.get("/api/client/leads", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     const leads = await db.listLeadsForUser(user.id);
     res.json({ success: true, leads });
   } catch (err: any) {
@@ -2748,7 +2802,7 @@ app.post("/api/client/leads", async (req, res) => {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
-    const db: any = await import("./database.cjs");
+    const db: any = await getDatabase();
     await db.saveLeadForUser(user.id, req.body);
     res.json({ success: true });
   } catch (err: any) {
@@ -2757,9 +2811,11 @@ app.post("/api/client/leads", async (req, res) => {
 });
 
 // Get real campaigns
-app.get("/api/client/campaigns", async (req,res)=>{
- const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
- const campaigns=await own.db.listCampaignsForUser(own.user.id); res.json({success:true,campaigns});
+app.get("/api/client/campaigns", async (req, res) => {
+  const own: any = await ownedInstance(req, false);
+  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const campaigns = await own.db.listCampaignsForUser(own.user.id);
+  res.json({ success: true, campaigns });
 });
 
 // Create new campaign with real schedule support
@@ -3480,25 +3536,25 @@ setInterval(async () => {
 }, 3000);
 
 // Get real history
-app.get("/api/client/history", async (req,res)=>{
- const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({success:false,error:"UNAUTHORIZED"});
- const db:any=await import("./database.cjs");
- const sub=await db.getSubscriptionForUser(user.id);
- if(!sub || user.status!=="active")return res.status(402).json({success:false,error:"SUBSCRIPTION_REQUIRED"});
- const planId=(sub?.plan_id||"start") as 'start'|'pro'|'max';
- const days=CLIENT_PLAN_LIMITS[planId].historyDays;
- const history=await db.listHistoryForUser(user.id,days);
- res.json({success:true,total:history.length,history});
+app.get("/api/client/history", async (req, res) => {
+  const own: any = await ownedInstance(req, false);
+  if (own.error) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+  const sub = await own.db.getSubscriptionForUser(own.user.id);
+  const planId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
+  const days = CLIENT_PLAN_LIMITS[planId]?.historyDays || 30;
+  const history = await own.db.listHistoryForUser(own.user.id, days);
+  res.json({ success: true, total: history.length, history });
 });
 
 // Client Dashboard Unified Stats - 100% REAL DATA, 0 MOCK
 app.get("/api/client/stats", async (req, res) => {
-  const own:any=await ownedInstance(req); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own: any = await ownedInstance(req, false);
+  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
   const instance = own.instance;
-  const clientCampaignsStore:any[]=await own.db.listCampaignsForUser(own.user.id);
-  const clientHistoryStore:any[]=await own.db.listHistoryForUser(own.user.id,31);
-  const sub=await own.db.getSubscriptionForUser(own.user.id);
-  const userPlanId=(sub?.plan_id||"start") as 'start'|'pro'|'max';
+  const clientCampaignsStore: any[] = await own.db.listCampaignsForUser(own.user.id);
+  const clientHistoryStore: any[] = await own.db.listHistoryForUser(own.user.id, 31);
+  const sub = await own.db.getSubscriptionForUser(own.user.id);
+  const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
 
   const importedGroups = clientImportedGroupsStore.get(instance) || [];
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
