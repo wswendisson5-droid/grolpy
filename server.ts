@@ -2328,14 +2328,11 @@ interface ClientHistoryLog {
 // In-memory cache for active instance and groups to eliminate latency
 let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
-let globalCachedGroups: any[] = [];
 let lastSyncGroupsTimestamp = 0;
 
 // Disk persistence file paths
-const GROUPS_CACHE_FILE = path.join(process.cwd(), "groups_cache.json");
 const CAMPAIGNS_FILE = path.join(process.cwd(), "campaigns_data.json");
 const HISTORY_FILE = path.join(process.cwd(), "history_data.json");
-const IMPORTED_GROUPS_FILE = path.join(process.cwd(), "imported_groups.json");
 
 // Helper to safely load JSON from disk
 function loadJsonSafe(filePath: string, fallback: any) {
