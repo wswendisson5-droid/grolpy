@@ -292,6 +292,11 @@ export async function ensureUserInstance(userId:number){
   await pool.execute("INSERT INTO evolution_instances(user_id,instance_name,status) VALUES(?,?,'disconnected')",[userId,name]);
   return getUserInstance(userId);
 }
+export async function updateUserInstanceName(userId:number, instanceName:string){
+  try {
+    await pool.execute("UPDATE evolution_instances SET instance_name=? WHERE user_id=?", [instanceName, userId]);
+  } catch {}
+}
 export async function setUserInstanceStatus(userId:number,status:string,phone?:string,profileName?:string,profilePicUrl?:string){
   const isConnected = status === 'connected' || status === 'open';
   try {

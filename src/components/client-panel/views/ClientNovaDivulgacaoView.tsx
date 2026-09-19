@@ -826,7 +826,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
             <div className="flex items-center gap-2 self-start sm:self-auto">
               <button
-                onClick={fetchRealGroups}
+                type="button"
+                onClick={() => fetchRealGroups(true)}
                 disabled={loadingGroups}
                 className="px-3 py-2 bg-[#f0f4f1] hover:bg-[#e4ede8] text-[#2d4036] text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
               >
@@ -909,12 +910,24 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
                   Conecte seu WhatsApp com QR Code na aba de conexão para que seus grupos reais sejam listados automaticamente.
                 </p>
               </div>
-              <button
-                onClick={onNavigateToConnection}
-                className="mt-2 px-4 py-2 bg-[#109353] hover:bg-[#0e8048] text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
-              >
-                Conectar WhatsApp Agora
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
+                <button
+                  type="button"
+                  onClick={() => fetchRealGroups(true)}
+                  disabled={loadingGroups}
+                  className="px-4 py-2 bg-[#f0f4f1] hover:bg-[#e4ede8] text-[#2d4036] text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+                >
+                  <RefreshCw size={14} className={loadingGroups ? 'animate-spin' : ''} />
+                  <span>Sincronizar Grupos Agora</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onNavigateToConnection}
+                  className="px-4 py-2 bg-[#109353] hover:bg-[#0e8048] text-white text-xs font-bold rounded-xl transition-all cursor-pointer"
+                >
+                  Conectar WhatsApp
+                </button>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-1">

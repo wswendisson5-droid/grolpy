@@ -47,12 +47,11 @@ class ClientService {
   private lastFetchTime: number = 0;
 
   constructor() {
-    // Dados de cliente nunca são restaurados de cache global.
-    // Cada sessão começa vazia e o backend autenticado decide o que pertence ao usuário.
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('groply_cached_groups');
-      localStorage.removeItem('groply_cached_campaigns');
-      localStorage.removeItem('groply_whatsapp_profile');
+      try {
+        const g = localStorage.getItem('groply_cached_groups');
+        if (g) this.cachedGroups = JSON.parse(g);
+      } catch {}
     }
   }
 
@@ -60,6 +59,12 @@ class ClientService {
   private authHeaders(extra:Record<string,string>={}) { const token=typeof window!=='undefined'?localStorage.getItem('groply_token')||'':''; return {...extra,...(token?{Authorization:`Bearer ${token}`}:{})}; }
 
   getCachedGroups(): ClientGroup[] {
+    if (this.cachedGroups.length === 0 && typeof window !== 'undefined') {
+      try {
+        const g = localStorage.getItem('groply_cached_groups');
+        if (g) this.cachedGroups = JSON.parse(g);
+      } catch {}
+    }
     return this.cachedGroups;
   }
 
@@ -76,22 +81,52 @@ class ClientService {
   }> {
     try {
       const res = await fetch('/api/evolution/status', { headers: this.authHeaders() });
-      const data = await res.json();
-      
-      const isConn = data.state === 'connected' || data.state === 'open' || data.status === 'CONNECTED';
-      const profile = isConn
-        ? (data.connectedProfile || {
+      if (res.ok) {
+        const data = await res.json();
+        const isConn =
+          data.state === 'connected' ||
+          data.state === 'open' ||
+          data.status === 'CONNECTED' ||
+          Boolean(data.connectedProfile?.number || data.connectedProfile?.pictureUrl);
+
+        if (data.instanceName) {
+          this.defaultInstance = data.instanceName;
+        }
+
+        let profile = data.connectedProfile;
+        if (isConn && !profile) {
+          profile = {
             name: 'WhatsApp Conectado',
             instanceName: data.instanceName || instance,
-          })
-        : (data.connectedProfile?.pictureUrl ? data.connectedProfile : null);
+          };
+        }
 
-      return {
-        isConnected: isConn,
-        state: data.state || 'disconnected',
-        profile,
-      };
+        if (isConn && profile && typeof window !== 'undefined') {
+          localStorage.setItem('groply_whatsapp_profile', JSON.stringify(profile));
+        }
+
+        return {
+          isConnected: isConn,
+          state: data.state || (isConn ? 'connected' : 'disconnected'),
+          profile,
+        };
+      }
     } catch {}
+
+    // Resilient fallback to cached profile in localStorage if network blips
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('groply_whatsapp_profile');
+        if (saved) {
+          const profile = JSON.parse(saved);
+          return {
+            isConnected: true,
+            state: 'connected',
+            profile,
+          };
+        }
+      } catch {}
+    }
 
     return {
       isConnected: false,
@@ -117,7 +152,7 @@ class ClientService {
       }
       return data.groups || this.cachedGroups || [];
     } catch {
-      return this.cachedGroups;
+      return this.getCachedGroups();
     }
   }
 

@@ -44,7 +44,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
-      {whatsappIsConnected === false && (
+      {whatsappIsConnected === false && groupsCount === 0 && !whatsappPhoneNumber && !whatsappProfilePic && (
         <div className="bg-white border border-[#dce8e1] rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xs">
           <div className="min-w-0">
             <p className="text-sm font-bold text-[#173126]">WhatsApp ainda não conectado</p>

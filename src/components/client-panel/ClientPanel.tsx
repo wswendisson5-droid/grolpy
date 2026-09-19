@@ -41,7 +41,13 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   // Core Client Data State
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>([]);
-  const [groups, setGroups] = useState<ClientGroup[]>([]);
+  const [groups, setGroups] = useState<ClientGroup[]>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('groply_cached_groups') : null;
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return clientService.getCachedGroups();
+  });
   const [planUsage, setPlanUsage] = useState(INITIAL_PLAN_USAGE);
 
   // WhatsApp Profile State (Connected photo & real phone number)
@@ -52,9 +58,25 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     connectedAt?: string;
     isConnected: boolean;
     isLoading: boolean;
-  }>({
-    isConnected: false,
-    isLoading: true,
+  }>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('groply_whatsapp_profile') : null;
+      if (saved) {
+        const p = JSON.parse(saved);
+        return {
+          name: p.name || 'WhatsApp Conectado',
+          number: p.number,
+          pictureUrl: p.pictureUrl,
+          connectedAt: p.connectedAt,
+          isConnected: true,
+          isLoading: false,
+        };
+      }
+    } catch {}
+    return {
+      isConnected: false,
+      isLoading: true,
+    };
   });
 
   // Fetch real data from backend
@@ -180,7 +202,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         isConnected: statusData.isConnected,
         isLoading: false,
       });
-      if (statusData.isConnected && groups.length === 0) {
+      if (statusData.isConnected) {
         refreshGroups();
       }
     } catch {

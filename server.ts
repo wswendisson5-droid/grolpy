@@ -521,6 +521,21 @@ app.post("/api/evolution/select-instance", async (req, res) => {
   });
 });
 
+// Helper: robust check for connected state across all Evolution API v2 payload schemas
+function isEvolutionStateConnected(data: any): boolean {
+  if (!data) return false;
+  const val = String(
+    data?.instance?.state ||
+    data?.state ||
+    data?.instance?.connectionStatus ||
+    data?.connectionStatus ||
+    data?.instance?.status ||
+    data?.status ||
+    ""
+  ).toLowerCase().trim();
+  return val === "open" || val === "connected";
+}
+
 // Helper: fetch instance WhatsApp profile with profilePictureUrl and fallback endpoint
 async function fetchInstanceProfile(instance: string, stateData?: any): Promise<{ name: string; number: string; pictureUrl: string; connectedAt?: string }> {
   let name = stateData?.instance?.profileName || stateData?.profileName || "";
@@ -532,13 +547,29 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
   }
 
   try {
-    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
-    if (fetchRes.ok && Array.isArray(fetchRes.data)) {
-      const instData = fetchRes.data.find((i: any) => i.name === instance);
+    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3500, 0);
+    const list: any[] = Array.isArray(fetchRes.data)
+      ? fetchRes.data
+      : Array.isArray(fetchRes.data?.instances)
+      ? fetchRes.data.instances
+      : Array.isArray(fetchRes.data?.data)
+      ? fetchRes.data.data
+      : [];
+
+    if (list.length > 0) {
+      let instData = list.find((i: any) => {
+        const iName = i.name || i.instanceName || i.instance?.instanceName || i.id;
+        return iName === instance;
+      });
+
+      if (!instData) {
+        instData = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
+      }
+
       if (instData) {
-        name = instData.profileName || instData.name || name;
-        rawOwner = instData.ownerJid || instData.owner || rawOwner;
-        pictureUrl = instData.profilePictureUrl || instData.profilePicUrl || pictureUrl;
+        name = instData.profileName || instData.name || instData.instance?.profileName || name;
+        rawOwner = instData.ownerJid || instData.owner || instData.instance?.ownerJid || instData.instance?.owner || rawOwner;
+        pictureUrl = instData.profilePictureUrl || instData.profilePicUrl || instData.avatarUrl || instData.instance?.profilePictureUrl || instData.instance?.profilePicUrl || pictureUrl;
       }
     }
   } catch {}
@@ -548,12 +579,32 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
   // If pictureUrl is still missing, query Evolution /chat/fetchProfilePictureUrl/{instance}
   if (!pictureUrl && cleanDigits) {
     try {
-      const picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
+      let picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
         method: "POST",
         body: JSON.stringify({ number: cleanDigits }),
       }, 3500, 0);
-      if (picRes.ok && (picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl)) {
-        pictureUrl = picRes.data.profilePictureUrl || picRes.data.pictureUrl || picRes.data.profilePicUrl;
+      if (!picRes.ok || !(picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl)) {
+        picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
+          method: "POST",
+          body: JSON.stringify({ number: `${cleanDigits}@s.whatsapp.net` }),
+        }, 3500, 0);
+      }
+      if (picRes.ok) {
+        pictureUrl = picRes.data?.profilePictureUrl || picRes.data?.pictureUrl || picRes.data?.profilePicUrl || pictureUrl;
+      }
+    } catch {}
+  }
+
+  // Fallback to /chat/fetchProfile/{instance}
+  if (!pictureUrl || !name) {
+    try {
+      const pRes = await callEvolution(`/chat/fetchProfile/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({ number: cleanDigits || "self" }),
+      }, 3000, 0);
+      if (pRes.ok && pRes.data) {
+        pictureUrl = pRes.data.pictureUrl || pRes.data.profilePictureUrl || pictureUrl;
+        name = pRes.data.name || pRes.data.profileName || name;
       }
     } catch {}
   }
@@ -578,22 +629,21 @@ app.get("/api/evolution/status", async (req, res) => {
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.json({ configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
   let instance = own.instance;
+  let activeInstance = instance;
   let currentInst = getInstanceCache(instance);
 
   try {
     // 1. Fetch connection state for the user's primary instance
     let stateRes = await callEvolution(`/instance/connectionState/${instance}`, {}, 4000, 0);
-    let rawState = stateRes.data?.instance?.state || stateRes.data?.state || "close";
-    let activeInstance = instance;
+    let isConnected = isEvolutionStateConnected(stateRes.data);
 
     // 2. Fallback: If primary instance is not open, check DEFAULT_INSTANCE_NAME
-    if (rawState !== "open" && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
+    if (!isConnected && DEFAULT_INSTANCE_NAME && DEFAULT_INSTANCE_NAME !== instance) {
       try {
         const defRes = await callEvolution(`/instance/connectionState/${DEFAULT_INSTANCE_NAME}`, {}, 3000, 0);
-        const defState = defRes.data?.instance?.state || defRes.data?.state;
-        if (defState === "open") {
+        if (isEvolutionStateConnected(defRes.data)) {
           stateRes = defRes;
-          rawState = "open";
+          isConnected = true;
           activeInstance = DEFAULT_INSTANCE_NAME;
           currentInst = getInstanceCache(activeInstance);
         }
@@ -601,30 +651,42 @@ app.get("/api/evolution/status", async (req, res) => {
     }
 
     // 3. Fallback: Query all instances on Evolution server to discover any open connected WhatsApp
-    if (rawState !== "open") {
+    if (!isConnected) {
       try {
         const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
-        if (fetchRes.ok && Array.isArray(fetchRes.data)) {
-          const openInst = fetchRes.data.find((i: any) => i.connectionStatus === "open" || i.state === "open");
-          if (openInst?.name) {
-            activeInstance = openInst.name;
-            rawState = "open";
-            currentInst = getInstanceCache(activeInstance);
-            stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
+        const list: any[] = Array.isArray(fetchRes.data)
+          ? fetchRes.data
+          : Array.isArray(fetchRes.data?.instances)
+          ? fetchRes.data.instances
+          : Array.isArray(fetchRes.data?.data)
+          ? fetchRes.data.data
+          : [];
+
+        if (list.length > 0) {
+          const openInst = list.find((i: any) => isEvolutionStateConnected(i) || isEvolutionStateConnected(i.instance));
+          if (openInst) {
+            const oName = openInst.name || openInst.instanceName || openInst.instance?.instanceName || openInst.id;
+            if (oName) {
+              activeInstance = oName;
+              isConnected = true;
+              currentInst = getInstanceCache(activeInstance);
+              stateRes = { ok: true, status: 200, data: { instance: { state: "open", ...openInst } } };
+            }
           }
         }
       } catch {}
     }
 
-    let appState: EvolutionLocalCache["state"] = "disconnected";
-
-    if (rawState === "open") {
-      appState = "connected";
-    } else if (currentInst.qrCode?.base64 || currentInst.qrCode?.pairingCode) {
-      appState = "waiting_qr";
-    } else {
-      appState = "disconnected";
+    // 4. Update user's instance in MySQL if activeInstance changed
+    if (isConnected && activeInstance && activeInstance !== own.instance) {
+      try {
+        await own.db.updateUserInstanceName(own.user.id, activeInstance);
+      } catch {}
     }
+
+    let appState: EvolutionLocalCache["state"] = isConnected
+      ? "connected"
+      : (currentInst.qrCode?.base64 || currentInst.qrCode?.pairingCode ? "waiting_qr" : "disconnected");
 
     currentInst.state = appState;
     currentInst.lastUpdated = new Date().toISOString();
@@ -633,10 +695,14 @@ app.get("/api/evolution/status", async (req, res) => {
     if (appState === "connected") {
       try {
         const prof = await fetchInstanceProfile(activeInstance, stateRes.data);
+        const realPictureUrl = prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || own.record?.profile_pic_url || "";
+        const realNumber = prof.number || currentInst.connectedProfile?.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : "");
+        const realName = prof.name || currentInst.connectedProfile?.name || own.record?.profile_name || "WhatsApp Conectado";
+
         currentInst.connectedProfile = {
-          name: prof.name || currentInst.connectedProfile?.name || "WhatsApp Conectado",
-          number: prof.number || currentInst.connectedProfile?.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : ""),
-          pictureUrl: prof.pictureUrl || currentInst.connectedProfile?.pictureUrl || own.record?.profile_pic_url || "",
+          name: realName,
+          number: realNumber,
+          pictureUrl: realPictureUrl,
           connectedAt: currentInst.connectedProfile?.connectedAt || (own.record?.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : prof.connectedAt),
           lastSyncAt: new Date().toLocaleString("pt-BR"),
           version: "v2.3.7",
@@ -646,9 +712,9 @@ app.get("/api/evolution/status", async (req, res) => {
           await own.db.setUserInstanceStatus(
             own.user.id,
             appState,
-            prof.number || currentInst.connectedProfile.number,
-            prof.name || currentInst.connectedProfile.name,
-            prof.pictureUrl || currentInst.connectedProfile.pictureUrl
+            realNumber,
+            realName,
+            realPictureUrl
           );
         } catch {}
         // Trigger background sync of groups
@@ -660,11 +726,11 @@ app.get("/api/evolution/status", async (req, res) => {
       try { await own.db.setUserInstanceStatus(own.user.id, appState); } catch {}
     }
 
-    if (!currentInst.connectedProfile && own.record?.profile_pic_url) {
+    if (!currentInst.connectedProfile && (own.record?.profile_pic_url || own.record?.owner_phone)) {
       currentInst.connectedProfile = {
         name: own.record.profile_name || "WhatsApp Conectado",
         number: own.record.owner_phone ? formatPhone(own.record.owner_phone) : "",
-        pictureUrl: own.record.profile_pic_url,
+        pictureUrl: own.record.profile_pic_url || "",
         connectedAt: own.record.last_connected_at ? new Date(own.record.last_connected_at).toLocaleString("pt-BR") : undefined,
         lastSyncAt: new Date().toLocaleString("pt-BR"),
         version: "v2.3.7",
@@ -674,7 +740,7 @@ app.get("/api/evolution/status", async (req, res) => {
     res.json({
       configured: true,
       instanceExists: true,
-      instanceName: instance,
+      instanceName: activeInstance,
       platform: "Evolution API",
       state: appState,
       qrCode: currentInst.qrCode,
@@ -2156,33 +2222,69 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   }
 
   const collectedGroupsMap = new Map<string, any>();
-  const instancesToTry = [targetInstance];
-  if (DEFAULT_INSTANCE_NAME && targetInstance !== DEFAULT_INSTANCE_NAME) {
+  const instancesToTry: string[] = [];
+  if (targetInstance) instancesToTry.push(targetInstance);
+  if (DEFAULT_INSTANCE_NAME && !instancesToTry.includes(DEFAULT_INSTANCE_NAME)) {
     instancesToTry.push(DEFAULT_INSTANCE_NAME);
   }
+  if (cachedActiveInstance?.name && !instancesToTry.includes(cachedActiveInstance.name)) {
+    instancesToTry.push(cachedActiveInstance.name);
+  }
+
+  // Also discover any open instances from Evolution API
+  try {
+    const fetchRes = await callEvolution("/instance/fetchInstances", {}, 3000, 0);
+    const list: any[] = Array.isArray(fetchRes.data)
+      ? fetchRes.data
+      : Array.isArray(fetchRes.data?.instances)
+      ? fetchRes.data.instances
+      : Array.isArray(fetchRes.data?.data)
+      ? fetchRes.data.data
+      : [];
+
+    for (const inst of list) {
+      const iName = inst.name || inst.instanceName || inst.instance?.instanceName || inst.id;
+      if (iName && isEvolutionStateConnected(inst) && !instancesToTry.includes(iName)) {
+        instancesToTry.push(iName);
+      }
+    }
+  } catch {}
 
   const extractGroupsFromPayload = (data: any, instName: string) => {
     if (!data) return;
-    const list: any[] = Array.isArray(data)
-      ? data
-      : Array.isArray(data?.groups)
-      ? data.groups
-      : Array.isArray(data?.data)
-      ? data.data
-      : Array.isArray(data?.response)
-      ? data.response
-      : Array.isArray(data?.chats)
-      ? data.chats
-      : [];
+    let list: any[] = [];
+    if (Array.isArray(data)) {
+      list = data;
+    } else if (Array.isArray(data?.groups)) {
+      list = data.groups;
+    } else if (Array.isArray(data?.data)) {
+      list = data.data;
+    } else if (Array.isArray(data?.response)) {
+      list = data.response;
+    } else if (Array.isArray(data?.chats)) {
+      list = data.chats;
+    } else if (Array.isArray(data?.result)) {
+      list = data.result;
+    } else if (Array.isArray(data?.data?.groups)) {
+      list = data.data.groups;
+    } else if (Array.isArray(data?.data?.chats)) {
+      list = data.data.chats;
+    } else if (typeof data === "object" && data !== null) {
+      const values = Object.values(data);
+      if (values.length > 0 && typeof values[0] === "object") {
+        list = values;
+      }
+    }
 
     for (const g of list) {
-      const jid = g.id || g.jid || g.remoteJid;
-      if (!jid) continue;
-      const isGroup = String(jid).includes("@g.us") || g.isGroup || (!String(jid).includes("@s.whatsapp.net") && !String(jid).includes("@lid"));
+      if (!g || typeof g !== "object") continue;
+      const jid = g.id || g.jid || g.remoteJid || g.chatJid;
+      if (!jid || typeof jid !== "string") continue;
+      const isGroup = jid.includes("@g.us") || g.isGroup === true || (!jid.includes("@s.whatsapp.net") && !jid.includes("@lid"));
       if (!isGroup) continue;
 
-      const name = g.subject || g.name || g.pushName || "Grupo WhatsApp";
-      const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 10;
+      const name = g.subject || g.name || g.pushName || g.title || "Grupo WhatsApp";
+      const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 15;
       const avatar = g.pictureUrl || g.profilePicUrl || g.avatarUrl || g.avatar || "";
 
       if (!collectedGroupsMap.has(jid) || (name !== "Grupo WhatsApp" && collectedGroupsMap.get(jid)?.name === "Grupo WhatsApp")) {
@@ -2218,23 +2320,25 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
         }
       }
 
-      // 3. findChats POST
-      try {
-        const cRes = await callEvolution(`/chat/findChats/${instName}`, {
-          method: "POST",
-          body: JSON.stringify({ limit: 1000 }),
-        }, 6000, 0);
-        if (cRes.ok && cRes.data) {
-          extractGroupsFromPayload(cRes.data, instName);
-        }
-      } catch {}
-
-      // 4. findChats GET
+      // 3. findChats GET (fast in v2)
       if (collectedGroupsMap.size === 0) {
         try {
           const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 5000, 0);
           if (cResGet.ok && cResGet.data) {
             extractGroupsFromPayload(cResGet.data, instName);
+          }
+        } catch {}
+      }
+
+      // 4. findChats POST
+      if (collectedGroupsMap.size === 0) {
+        try {
+          const cRes = await callEvolution(`/chat/findChats/${instName}`, {
+            method: "POST",
+            body: JSON.stringify({ limit: 1000 }),
+          }, 6000, 0);
+          if (cRes.ok && cRes.data) {
+            extractGroupsFromPayload(cRes.data, instName);
           }
         } catch {}
       }
@@ -2249,15 +2353,17 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
 
   if (collectedGroupsMap.size > 0) {
     const freshGroups = Array.from(collectedGroupsMap.values());
-    cachedGroupsByInstance.set(targetInstance, { timestamp: now, groups: freshGroups });
-    clientImportedGroupsStore.set(targetInstance, freshGroups);
+    for (const inst of instancesToTry) {
+      cachedGroupsByInstance.set(inst, { timestamp: now, groups: freshGroups });
+      clientImportedGroupsStore.set(inst, freshGroups);
+    }
     if (DEFAULT_INSTANCE_NAME) {
       cachedGroupsByInstance.set(DEFAULT_INSTANCE_NAME, { timestamp: now, groups: freshGroups });
       clientImportedGroupsStore.set(DEFAULT_INSTANCE_NAME, freshGroups);
-      globalCachedGroups = freshGroups;
-      saveJsonSafe(GROUPS_CACHE_FILE, freshGroups);
-      saveJsonSafe(IMPORTED_GROUPS_FILE, freshGroups);
     }
+    globalCachedGroups = freshGroups;
+    saveJsonSafe(GROUPS_CACHE_FILE, freshGroups);
+    saveJsonSafe(IMPORTED_GROUPS_FILE, freshGroups);
 
     if (dbUser?.db && dbUser?.id) {
       try {
@@ -2265,7 +2371,7 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
       } catch {}
     }
 
-    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} real WhatsApp groups for instance ${targetInstance}.`);
+    console.log(`[GroupsSync] ✅ Synced ${freshGroups.length} real WhatsApp groups.`);
     return freshGroups;
   }
 
@@ -2279,6 +2385,10 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
         return dbGroups;
       }
     } catch {}
+  }
+
+  if (globalCachedGroups.length > 0) {
+    return globalCachedGroups;
   }
 
   const fallbackCache = cachedGroupsByInstance.get(targetInstance);
@@ -2384,12 +2494,8 @@ app.get("/api/client/groups", async (req, res) => {
   const reqInstance = own.instance;
   const forceRefresh = req.query.refresh === "true" || req.query.force === "true";
 
-  // Check memory / disk cache first (Instant < 1ms)
-  let groups = clientImportedGroupsStore.get(reqInstance) || [];
-  
-  if (reqInstance === DEFAULT_INSTANCE_NAME && groups.length === 0) {
-    groups = globalCachedGroups;
-  }
+  // 1. Check memory / disk cache first (Instant < 1ms)
+  let groups = clientImportedGroupsStore.get(reqInstance) || clientImportedGroupsStore.get(DEFAULT_INSTANCE_NAME) || (globalCachedGroups.length > 0 ? globalCachedGroups : []);
 
   if (groups.length > 0 && !forceRefresh) {
     return res.json({
@@ -2401,7 +2507,24 @@ app.get("/api/client/groups", async (req, res) => {
     });
   }
 
-  // Perform sync with Evolution and persist to MySQL
+  // 2. Check MySQL if not forced
+  if (!forceRefresh) {
+    try {
+      const dbGroups = await own.db.listGroupsForUser(own.user.id);
+      if (Array.isArray(dbGroups) && dbGroups.length > 0) {
+        syncAllWhatsAppGroups(false, reqInstance, { id: own.user.id, db: own.db }).catch(() => {});
+        return res.json({
+          success: true,
+          instanceName: reqInstance,
+          total: dbGroups.length,
+          groups: dbGroups,
+          cached: true,
+        });
+      }
+    } catch {}
+  }
+
+  // 3. Perform sync with Evolution and persist to MySQL
   const fresh = await syncAllWhatsAppGroups(true, reqInstance, { id: own.user.id, db: own.db });
   if (fresh.length > 0) {
     return res.json({
@@ -2412,13 +2535,14 @@ app.get("/api/client/groups", async (req, res) => {
     });
   }
 
-  // Fallback to MySQL if sync returned empty
+  // 4. Fallback to MySQL or global cache
   const dbGroups = await own.db.listGroupsForUser(own.user.id);
+  const resultGroups = (Array.isArray(dbGroups) && dbGroups.length > 0) ? dbGroups : globalCachedGroups;
   res.json({
     success: true,
     instanceName: reqInstance,
-    total: dbGroups.length,
-    groups: dbGroups,
+    total: resultGroups.length,
+    groups: resultGroups,
   });
 });
 
