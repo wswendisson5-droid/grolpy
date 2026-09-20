@@ -3,6 +3,7 @@ import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import { atendimentoEngine } from './atendimentoEngine';
 import { arePhonesEquivalent, cleanPhoneDigits } from './phoneUtils';
+import { createOpenAIStructuredResponse, getAiRuntimeInfo } from './openaiClient';
 
 export function safeUnicodeTruncate(text: string, maxChars: number): string {
   if (!text) return '';
@@ -603,8 +604,6 @@ class RadarEngine {
   private evolutionCaller: ((endpoint: string, options?: any) => Promise<any>) | null = null;
   private geminiClient: GoogleGenAI | null = null;
   private aiProvider: 'openai' | 'gemini' = 'openai';
-  private openAiApiKey = '';
-  private openAiModel = 'gpt-5.6-luna';
   private persistenceHandler?: (payload: any) => Promise<void> | void;
 
   // Real-time typing tracking (remoteJid -> expiry timestamp)
@@ -672,12 +671,13 @@ class RadarEngine {
   }
 
   private initAIProviders() {
-    const provider = String(process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
-    this.aiProvider = provider === 'gemini' ? 'gemini' : 'openai';
-    this.openAiApiKey = String(process.env.OPENAI_API_KEY || '').trim();
-    this.openAiModel = String(process.env.OPENAI_MODEL || 'gpt-5.6-luna').trim();
-    if (this.openAiApiKey) console.log(`[Radar] OpenAI configured (${this.openAiModel}); active provider: ${this.aiProvider}.`);
-    else if (this.aiProvider === 'openai') console.warn('[Radar] OPENAI_API_KEY not found. AI fallback will be used.');
+    const runtime = getAiRuntimeInfo();
+    this.aiProvider = runtime.provider;
+    if (runtime.provider === 'openai' && runtime.configured) {
+      console.log(`[Radar] OpenAI configurada (${runtime.model}).`);
+    } else if (runtime.provider === 'openai') {
+      console.warn('[Radar] OPENAI_API_KEY não encontrada. Serão usadas somente regras determinísticas.');
+    }
 
     const key = process.env.GEMINI_API_KEY;
     if (key) {
@@ -695,7 +695,7 @@ class RadarEngine {
         console.warn('[Radar] Gemini AI initialization warning:', err.message);
       }
     } else {
-      console.warn('[Radar] GEMINI_API_KEY not found. Fallback semantic engine active.');
+      console.warn('[Radar] GEMINI_API_KEY não encontrada. Serão usadas somente regras determinísticas.');
     }
   }
 
@@ -1054,22 +1054,16 @@ class RadarEngine {
     let evaluation: RadarAIEvaluation;
 
     try {
-      if (this.aiProvider === 'openai' && this.openAiApiKey) {
+      const runtime = getAiRuntimeInfo();
+      if (this.aiProvider === 'openai' && runtime.configured) {
         evaluation = await this.callOpenAIAnalysis(candidate);
       } else if (this.aiProvider === 'gemini' && this.geminiClient) {
-        evaluation = await this.callGeminiAnalysis(candidate);
-      } else if (this.openAiApiKey) {
-        evaluation = await this.callOpenAIAnalysis(candidate);
-      } else if (this.geminiClient) {
         evaluation = await this.callGeminiAnalysis(candidate);
       } else {
         evaluation = this.deterministicQualification(candidate);
       }
-    } catch (_err: any) {
-      // Graceful fallback during Gemini API high-demand spikes
-      console.log(
-        `[Radar Worker] AI model high demand; qualified candidate ${candidate.senderPhone} seamlessly via deterministic AI engine.`
-      );
+    } catch (err: any) {
+      console.warn(`[Radar Worker] Provedor de IA indisponível (${err?.message || 'erro desconhecido'}). Aplicando regras determinísticas.`);
       evaluation = this.deterministicQualification(candidate);
     }
 
@@ -1120,28 +1114,25 @@ class RadarEngine {
   }
 
   private async callOpenAIAnalysis(candidate: CandidateMessage): Promise<RadarAIEvaluation> {
-    if (!this.openAiApiKey) throw new Error('OpenAI API key not configured');
-    const prompt = `Você é o motor de qualificação B2B do Grolpy Radar. Identifique se a mensagem é de uma pessoa ou pequeno negócio divulgando manualmente produto ou serviço em grupo de WhatsApp e que poderia usar divulgação automática em grupos.
-
-Priorize prestadores locais, beleza, moda, alimentação, lojas e pequenos negócios. Rejeite conversa social, desapego pessoal pontual, afiliados, renda extra, apostas, maquininhas e revenda institucional de grandes operadoras.
-
-Contato: ${candidate.senderName}
-Grupo: ${candidate.groupName}
-Mensagem: """${candidate.messageText}"""
-
-Responda SOMENTE JSON válido com: isOpportunity (boolean), confidence (0-100), segment, businessType, recommendedService, reason e signals (array de strings).`;
-
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.openAiApiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: this.openAiModel, input: prompt, max_output_tokens: 900 }),
+    const parsed = await createOpenAIStructuredResponse<any>({
+      name: 'radar_opportunity_evaluation',
+      instructions: 'Você é o motor de qualificação B2B do Grolpy Radar. Priorize pequenos negócios divulgando produtos ou serviços manualmente em grupos. Rejeite conversa social, desapego pontual, afiliados, apostas, maquininhas e revenda institucional de operadoras.',
+      input: `Contato: ${candidate.senderName}\nGrupo: ${candidate.groupName}\nMensagem: ${candidate.messageText}`,
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          isOpportunity: { type: 'boolean' },
+          confidence: { type: 'number', minimum: 0, maximum: 100 },
+          segment: { type: 'string' },
+          businessType: { type: 'string' },
+          recommendedService: { type: 'string' },
+          reason: { type: 'string' },
+          signals: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['isOpportunity', 'confidence', 'segment', 'businessType', 'recommendedService', 'reason', 'signals'],
+      },
     });
-    const data: any = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}: ${data?.error?.message || 'request failed'}`);
-    const text = (data.output || []).flatMap((item: any) => item?.content || [])
-      .filter((item: any) => item?.type === 'output_text').map((item: any) => item?.text || '').join('').trim();
-    if (!text) throw new Error('OpenAI returned no text output');
-    const parsed = JSON.parse(text.replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, ''));
     const conf = Math.min(100, Math.max(0, Number(parsed.confidence) || 0));
     return {
       isOpportunity: Boolean(parsed.isOpportunity) && conf >= 65,
@@ -1756,6 +1747,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
   // ----------------------------------------------------
 
   public getStatus() {
+    const ai = getAiRuntimeInfo();
     return {
       status: this.status,
       activationTimestamp: this.activationTimestamp,
@@ -1766,6 +1758,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       lastProcessedAt: this.lastProcessedTimestamp,
       currentScan: this.currentScanState,
       prefilterMetrics: this.prefilterMetrics,
+      ai,
     };
   }
 

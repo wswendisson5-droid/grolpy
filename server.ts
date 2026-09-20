@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
@@ -5,15 +6,12 @@ import http from "http";
 import https from "https";
 import net from "net";
 import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
 import QRCode from "qrcode";
 import { radarEngine } from "./server/radarEngine";
 import { atendimentoEngine } from "./server/atendimentoEngine";
 import { asaasEngine } from "./server/asaasEngine";
 import { cleanPhoneDigits } from "./server/phoneUtils";
 
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -2307,6 +2305,9 @@ app.post("/api/atendimento/assume", requireAdminRoute, (req, res) => {
 // Toggle AI on/off for specific contact
 app.post("/api/atendimento/toggle-ai", requireAdminRoute, (req, res) => {
   const { leadId, active, userName } = req.body;
+  if (Boolean(active) && !atendimentoEngine.getAiRuntimeInfo().configured) {
+    return res.status(409).json({ error: "Configure um provedor de IA antes de ativar a automação." });
+  }
   const updated = atendimentoEngine.toggleAiForContact(leadId, Boolean(active), (req as any).adminUser?.name || userName || "Administrador");
   if (!updated) return res.status(404).json({ error: "Lead não encontrado" });
   res.json({ success: true, lead: updated });
@@ -2317,13 +2318,17 @@ app.get("/api/atendimento/config", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     config: atendimentoEngine.config,
+    ai: atendimentoEngine.getAiRuntimeInfo(),
   });
 });
 
 // Update AI Agent configuration
 app.post("/api/atendimento/config", requireAdminRoute, (req, res) => {
+  if (req.body?.enabled === true && !atendimentoEngine.getAiRuntimeInfo().configured) {
+    return res.status(409).json({ error: "Configure OPENAI_API_KEY (ou GEMINI_API_KEY) no servidor antes de ativar a automação." });
+  }
   const updated = atendimentoEngine.updateConfig(req.body);
-  res.json({ success: true, config: updated });
+  res.json({ success: true, config: updated, ai: atendimentoEngine.getAiRuntimeInfo() });
 });
 
 // Token saver metrics

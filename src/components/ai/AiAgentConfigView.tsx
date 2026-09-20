@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   atendimentoService,
   AIAgentConfig,
+  AIRuntimeInfo,
   TokenMetrics,
 } from '../../services/atendimentoService';
 import {
@@ -33,8 +34,8 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
   onNavigateToRadar,
 }) => {
   const [config, setConfig] = useState<AIAgentConfig>({
-    enabled: true,
-    mode: 'auto',
+    enabled: false,
+    mode: 'copilot',
     agentName: 'Sofia',
     companyName: 'Nxs Divulgação',
     companyPitch:
@@ -71,6 +72,8 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
 
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [aiRuntime, setAiRuntime] = useState<AIRuntimeInfo | null>(null);
 
   // Simulator state
   const [simName, setSimName] = useState('Carlos');
@@ -80,7 +83,10 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
   // Load config & metrics on mount
   useEffect(() => {
     atendimentoService.getConfig().then((res) => {
-      if (res) setConfig(res);
+      if (res) {
+        setConfig(res.config);
+        setAiRuntime(res.ai);
+      }
     });
 
     atendimentoService.getTokenMetrics().then((res) => {
@@ -100,15 +106,18 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       const updated = await atendimentoService.updateConfig(config);
       if (updated) {
-        setConfig(updated);
+        setConfig(updated.config);
+        setAiRuntime(updated.ai);
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
       }
     } catch (err) {
       console.error('Error saving config:', err);
+      setSaveError(err instanceof Error ? err.message : 'Falha ao salvar configuração');
     } finally {
       setSaving(false);
     }
@@ -175,6 +184,12 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
 
       {/* Content Container */}
       <div className="p-8 max-w-6xl mx-auto w-full space-y-8">
+        <section className={`rounded-xl border px-4 py-3 text-xs ${aiRuntime?.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+          {aiRuntime?.configured
+            ? `IA conectada: ${aiRuntime.provider.toUpperCase()} · ${aiRuntime.model}`
+            : 'IA não configurada no servidor. A automação permanece bloqueada e nenhuma resposta automática será enviada.'}
+          {saveError && <p className="mt-1 font-semibold text-red-700">{saveError}</p>}
+        </section>
         {/* Banner: Token-Saver Intelligence Telemetry */}
         <section className="bg-linear-to-r from-emerald-900 to-teal-950 rounded-2xl p-6 text-white shadow-sm border border-emerald-800">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
@@ -232,6 +247,7 @@ export const AiAgentConfigView: React.FC<AiAgentConfigViewProps> = ({
                 type="checkbox"
                 checked={config.enabled}
                 onChange={(e) => setConfig({ ...config, enabled: e.target.checked })}
+                disabled={!aiRuntime?.configured}
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>

@@ -21,6 +21,12 @@ export interface AIAgentConfig {
   saveMemories?: boolean;
 }
 
+export interface AIRuntimeInfo {
+  provider: 'openai' | 'gemini';
+  configured: boolean;
+  model: string;
+}
+
 export interface InternalNote {
   id: string;
   timestamp: number;
@@ -149,29 +155,32 @@ export const atendimentoService = {
     }
   },
 
-  async getConfig(): Promise<AIAgentConfig | null> {
+  async getConfig(): Promise<{ config: AIAgentConfig; ai: AIRuntimeInfo } | null> {
     try {
       const res = await fetch('/api/atendimento/config');
       if (!res.ok) return null;
       const data = await res.json();
-      return data.config;
+      return { config: data.config, ai: data.ai };
     } catch {
       return null;
     }
   },
 
-  async updateConfig(newConfig: Partial<AIAgentConfig>): Promise<AIAgentConfig | null> {
+  async updateConfig(newConfig: Partial<AIAgentConfig>): Promise<{ config: AIAgentConfig; ai: AIRuntimeInfo } | null> {
     try {
       const res = await fetch('/api/atendimento/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Falha ao salvar configuração');
+      }
       const data = await res.json();
-      return data.config;
-    } catch {
-      return null;
+      return { config: data.config, ai: data.ai };
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Falha ao salvar configuração');
     }
   },
 

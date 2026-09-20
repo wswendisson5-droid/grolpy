@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { arePhonesEquivalent, cleanPhoneDigits } from './phoneUtils';
+import { createOpenAIStructuredResponse, getAiRuntimeInfo } from './openaiClient';
 
 export function safeUnicodeTruncate(text: string, maxChars: number): string {
   if (!text) return '';
@@ -250,6 +251,10 @@ export class AtendimentoEngine {
     return this.config;
   }
 
+  public getAiRuntimeInfo() {
+    return getAiRuntimeInfo();
+  }
+
   /**
    * Busca um lead pelo ID, JID ou número de telefone (com correspondência inteligente)
    */
@@ -302,6 +307,7 @@ export class AtendimentoEngine {
 
     const now = Date.now();
     const timeFormatted = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const automaticAiEnabled = this.config.enabled && this.config.mode === 'auto' && getAiRuntimeInfo().configured;
 
     if (existing) {
       return existing;
@@ -321,10 +327,10 @@ export class AtendimentoEngine {
       recommendedService: opportunity.recommendedService || 'Consultoria Digital',
       score: opportunity.score,
       urgency: opportunity.urgency || 'Alta',
-      status: this.config.enabled && this.config.mode === 'auto' ? 'ia_em_atendimento' : 'aberto',
-      aiActiveForContact: this.config.enabled && this.config.mode === 'auto',
-      conversationStep: this.config.enabled && this.config.mode === 'auto' ? 'greeting_sent' : 'human_control',
-      assignedTo: this.config.enabled && this.config.mode === 'auto' ? `IA ${this.config.agentName}` : undefined,
+      status: automaticAiEnabled ? 'ia_em_atendimento' : 'aberto',
+      aiActiveForContact: automaticAiEnabled,
+      conversationStep: automaticAiEnabled ? 'greeting_sent' : 'human_control',
+      assignedTo: automaticAiEnabled ? `IA ${this.config.agentName}` : undefined,
       createdAt: now,
       lastInteractionAt: now,
       clientReplied: false,
@@ -344,7 +350,7 @@ export class AtendimentoEngine {
 
     // Só dispara automaticamente quando a IA estiver habilitada em modo auto.
     // A saudação acompanha o horário local do servidor e não inclui o nome do contato.
-    if (this.config.enabled && this.config.mode === 'auto') {
+    if (automaticAiEnabled) {
       const currentHour = new Date().getHours();
       let greetingText = 'Bom dia!';
       if (currentHour >= 12 && currentHour < 18) greetingText = 'Boa tarde!';
@@ -618,6 +624,7 @@ export class AtendimentoEngine {
    */
   private async generateContextualAiReply(lead: CRMAtendimentoLead, latestMessage: string) {
     const apiKey = process.env.GEMINI_API_KEY;
+    const aiRuntime = getAiRuntimeInfo();
     const now = Date.now();
     const timeFormatted = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
@@ -644,7 +651,56 @@ export class AtendimentoEngine {
     let detectedName = '';
     let extractedMemories: Record<string, string> = {};
 
-    if (apiKey) {
+    if (aiRuntime.provider === 'openai' && aiRuntime.configured) {
+      try {
+        const parsed = await createOpenAIStructuredResponse<{
+          replyText: string;
+          detectedName: string;
+          memories: Array<{ key: string; value: string }>;
+          needsHumanTransfer: boolean;
+        }>({
+          name: 'crm_whatsapp_reply',
+          instructions: `Você é ${this.config.agentName}, consultora comercial da empresa ${this.config.companyName}. Escreva como uma pessoa no WhatsApp, em português brasileiro, com no máximo duas frases. Não invente preços, promessas ou fatos. Não repita perguntas já respondidas. Se houver pedido de humano, negociação sensível ou dúvida sem resposta no contexto, sinalize transferência humana.`,
+          input: `Proposta da empresa: ${this.config.companyPitch}\nGrupo de origem: ${lead.groupName}\nMensagem original: ${lead.originalMessage}\nDemanda: ${lead.demandSummary}\nSolução: ${lead.recommendedService}\nNome conhecido: ${knownName || 'não informado'}\nMemórias: ${JSON.stringify(lead.collectedInfo)}\nHistórico:\n${messagesHistory}\nÚltima mensagem: ${latestMessage}`,
+          schema: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              replyText: { type: 'string' },
+              detectedName: { type: 'string' },
+              memories: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: { key: { type: 'string' }, value: { type: 'string' } },
+                  required: ['key', 'value'],
+                },
+              },
+              needsHumanTransfer: { type: 'boolean' },
+            },
+            required: ['replyText', 'detectedName', 'memories', 'needsHumanTransfer'],
+          },
+        });
+
+        replyText = String(parsed.replyText || '').trim();
+        detectedName = String(parsed.detectedName || '').trim();
+        extractedMemories = Object.fromEntries(
+          (Array.isArray(parsed.memories) ? parsed.memories : [])
+            .filter((item) => item?.key && item?.value)
+            .map((item) => [String(item.key), String(item.value)])
+        );
+        if (parsed.needsHumanTransfer) {
+          lead.aiActiveForContact = false;
+          lead.status = 'humano_assumiu';
+          lead.conversationStep = 'human_control';
+        }
+      } catch (err: any) {
+        console.warn('[AtendimentoEngine] Falha segura na OpenAI:', err?.message || err);
+      }
+    }
+
+    if (!replyText && aiRuntime.provider === 'gemini' && apiKey) {
       const candidateModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite'];
       const ai = new GoogleGenAI({ apiKey });
 
@@ -739,12 +795,20 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       }
     }
 
-    // Se Gemini não gerou resposta (sem API key ou limite excedido), usar fallback determinístico contextual
+    // Nunca simula uma resposta de IA: sem provedor/resposta válida, entrega para um humano.
     if (!replyText) {
-      const fallbackResult = this.generateDeterministicContextualReply(lead, latestMessage, knownName);
-      replyText = fallbackResult.replyText;
-      if (fallbackResult.detectedName) detectedName = fallbackResult.detectedName;
-      if (fallbackResult.extractedMemories) extractedMemories = fallbackResult.extractedMemories;
+      lead.aiActiveForContact = false;
+      lead.status = 'respondido_cliente';
+      lead.conversationStep = 'human_control';
+      lead.notes.push({
+        id: `note-${Date.now()}-ai-unavailable`,
+        timestamp: now,
+        timeFormatted,
+        author: 'Sistema',
+        text: 'IA indisponível ou sem configuração válida. Nenhuma resposta automática foi enviada; atendimento aguardando revisão humana.',
+        type: 'system',
+      });
+      return;
     }
 
     // Atualizar nome do cliente se identificado
@@ -957,7 +1021,7 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
   }
 
   private async checkFollowUps() {
-    if (!this.config.enabled || this.config.mode !== 'auto' || !this.evolutionSender) return;
+    if (!this.config.enabled || this.config.mode !== 'auto' || !this.evolutionSender || !getAiRuntimeInfo().configured) return;
 
     const now = Date.now();
     const f1ThresholdMs = (this.config.followUp1Hours || 2) * 60 * 60 * 1000;
