@@ -1664,15 +1664,24 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         if (!messageText.trim()) continue;
         if (Boolean(msg.key?.fromMe)) continue;
 
+        // Em grupos com LID, participant pode ser um identificador interno do WhatsApp.
+        // participantAlt normalmente contém o JID telefônico real; também aceite os formatos
+        // alternativos devolvidos por versões diferentes da Evolution.
+        const senderCandidates = [
+          msg.key?.participantAlt,
+          msg.participantAlt,
+          msg.key?.participant,
+          msg.participant,
+          msg.sender,
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0);
         const senderJid =
-          msg.key?.participantAlt ||
-          msg.key?.participant ||
-          msg.participant ||
+          senderCandidates.find((value) => value.includes('@s.whatsapp.net')) ||
+          senderCandidates.find((value) => !value.includes('@lid')) ||
+          senderCandidates[0] ||
           '';
-
         const senderPhone = senderJid.split('@')[0];
         const cleanPhone = (senderPhone || '').replace(/\D/g, '');
-        if (!cleanPhone || cleanPhone.length < 8) continue;
+        if (!cleanPhone || cleanPhone.length < 8 || senderJid.includes('@lid')) continue;
 
         // Skip se o telefone já foi analisado ou já possui oportunidade no sistema
         if (this.isPhoneAlreadyProcessedOrOpportunity(cleanPhone) || this.isPhoneAlreadyProcessedOrOpportunity(senderJid)) {
