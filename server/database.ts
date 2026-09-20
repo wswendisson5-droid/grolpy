@@ -298,6 +298,18 @@ export async function initDatabase() {
       await c.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(()=>{});
       await c.query("INSERT INTO migrations(name) VALUES (?)",["012_campaign_longtext"]).catch(()=>{});
     }
+    if (!done.has("017_outbound_protected_numbers")) {
+      await c.query(`CREATE TABLE IF NOT EXISTS outbound_protected_numbers (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        phone VARCHAR(30) NOT NULL UNIQUE,
+        source VARCHAR(40) NOT NULL DEFAULT 'manual',
+        label VARCHAR(190) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX(phone)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["017_outbound_protected_numbers"]);
+    }
     if (!done.has("016_admin_state")) {
       await c.query(`CREATE TABLE IF NOT EXISTS admin_state (
         state_key VARCHAR(80) PRIMARY KEY,
@@ -1166,6 +1178,24 @@ export async function listLeadsForUser(userId: number) {
     try { tags = r.tagsJson ? JSON.parse(r.tagsJson) : []; } catch {}
     return { ...r, tags };
   });
+}
+
+export async function isOutboundProtectedNumber(phoneOrJid: string) {
+  const phone = String(phoneOrJid || '').replace(/\D/g, '');
+  if (phone.length < 8) return false;
+  const [rows]: any = await pool.execute(
+    `SELECT 1 AS blocked FROM (
+       SELECT phone FROM users WHERE phone IS NOT NULL AND phone <> ''
+       UNION ALL
+       SELECT phone FROM evolution_instances WHERE phone IS NOT NULL AND phone <> ''
+       UNION ALL
+       SELECT phone FROM outbound_protected_numbers
+     ) protected
+     WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(protected.phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
+     LIMIT 1`,
+    [phone]
+  );
+  return Boolean(rows[0]?.blocked);
 }
 
 export async function getAdminState(stateKey: string) {

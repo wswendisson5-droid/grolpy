@@ -64,6 +64,18 @@ CREATE TABLE IF NOT EXISTS `subscriptions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Estado persistente compartilhado do painel administrativo (Radar, CRM e IA)
+-- Números que nunca podem receber prospecção automática/IA.
+-- users.phone e evolution_instances.phone também são protegidos em tempo real pelo backend.
+CREATE TABLE IF NOT EXISTS `outbound_protected_numbers` (
+  `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `phone` VARCHAR(30) NOT NULL UNIQUE,
+  `source` VARCHAR(40) NOT NULL DEFAULT 'manual',
+  `label` VARCHAR(190) NULL,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (`phone`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `admin_state` (
   `state_key` VARCHAR(80) PRIMARY KEY,
   `payload_json` LONGTEXT NOT NULL,

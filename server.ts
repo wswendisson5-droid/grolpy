@@ -2275,6 +2275,11 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => 
   try {
     const instance = memoryState.instanceName;
     const cleanNumber = targetJid.replace(/\D/g, "");
+    const db = await getDatabase();
+    if (await db.isOutboundProtectedNumber(cleanNumber || targetJid)) {
+      console.warn("[AtendimentoEngine] Envio bloqueado: número protegido/registrado no banco.");
+      return false;
+    }
     const sendRes = await callEvolution(`/message/sendText/${instance}`, {
       method: "POST",
       body: JSON.stringify({
