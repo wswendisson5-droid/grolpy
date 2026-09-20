@@ -2086,6 +2086,7 @@ app.post("/api/crm/send-message", requireAdminRoute, async (req, res) => {
 
 // Status & Metrics
 app.get("/api/radar/status", requireAdminRoute, (_req, res) => {
+  radarEngine.ensureMonitoringStarted();
   res.json(radarEngine.getStatus());
 });
 

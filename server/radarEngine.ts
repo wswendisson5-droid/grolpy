@@ -701,8 +701,14 @@ class RadarEngine {
 
   public setEvolutionCaller(caller: (endpoint: string, options?: any) => Promise<any>) {
     this.evolutionCaller = caller;
-    // Start polling listener for monitored groups in addition to webhooks
-    this.startLiveGroupListener();
+    // A conexão fica apenas registrada. O polling só começa após uma ação
+    // autenticada no painel administrativo ou ativação explícita do Radar.
+  }
+
+  public ensureMonitoringStarted() {
+    if (this.status === 'active' && !this.listenerIntervalTimer) {
+      this.startLiveGroupListener();
+    }
   }
 
   public isOpportunityDisqualified(opp: Partial<RadarOpportunity>): boolean {
@@ -744,12 +750,17 @@ class RadarEngine {
     this.status = newStatus;
     if (newStatus === 'active') {
       this.activationTimestamp = Date.now();
+      this.ensureMonitoringStarted();
       this.addActivity({
         title: 'Radar ativado',
         subtitle: 'Iniciando escuta e análise das novas mensagens em tempo real.',
         type: 'radar_active',
       });
     } else {
+      if (this.listenerIntervalTimer) {
+        clearInterval(this.listenerIntervalTimer);
+        this.listenerIntervalTimer = null;
+      }
       this.addActivity({
         title: 'Radar pausado',
         subtitle: 'Monitoramento de grupos suspenso temporariamente.',
@@ -1552,7 +1563,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
   // REAL-TIME SEQUENTIAL GROUP SCANNER (ONE BY ONE ROUND-ROBIN)
   // ----------------------------------------------------
   private startLiveGroupListener() {
-    if (this.listenerIntervalTimer) clearInterval(this.listenerIntervalTimer);
+    if (this.listenerIntervalTimer) return;
 
     // Initial immediate scan
     setTimeout(() => {
