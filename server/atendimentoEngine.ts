@@ -835,7 +835,38 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       lead.collectedInfo = { ...lead.collectedInfo, ...extractedMemories };
     }
 
-    // Registrar nota de atendimento
+    // Só registra a resposta no CRM depois de confirmação real da Evolution.
+    // Assim o IA Chat nunca exibe como enviada uma mensagem que não chegou ao WhatsApp.
+    if (!this.evolutionSender) {
+      lead.notes.push({
+        id: `note-${Date.now()}-send-unavailable`,
+        timestamp: now,
+        timeFormatted,
+        author: 'Sistema',
+        text: 'Resposta da IA gerada, mas não enviada: Evolution sender indisponível.',
+        type: 'system',
+      });
+      return;
+    }
+
+    let delivered = false;
+    try {
+      delivered = await this.evolutionSender(lead.contactJid, replyText);
+    } catch (err) {
+      console.error('[AtendimentoEngine] Falha ao enviar resposta contextual:', err);
+    }
+    if (!delivered) {
+      lead.notes.push({
+        id: `note-${Date.now()}-send-failed`,
+        timestamp: now,
+        timeFormatted,
+        author: 'Sistema',
+        text: 'Resposta da IA gerada, mas a Evolution não confirmou o envio. Mensagem não adicionada ao chat.',
+        type: 'system',
+      });
+      return;
+    }
+
     lead.notes.push({
       id: `note-${Date.now()}`,
       timestamp: now,
@@ -844,27 +875,16 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       text: `🤖 IA ${this.config.agentName} analisou o contexto e respondeu:\n\n"${replyText}"`,
       type: 'ai',
     });
-
-    const aiMsg: CRMLeadMessage = {
+    lead.messages.push({
       id: `msg-ia-dialogue-${now}`,
       sender: 'ai',
       senderName: `IA ${this.config.agentName}`,
       text: replyText,
       timestamp: now,
       time: timeFormatted,
-      status: 'sent',
+      status: 'delivered',
       type: 'text',
-    };
-    lead.messages.push(aiMsg);
-
-    if (this.evolutionSender) {
-      try {
-        await this.evolutionSender(lead.contactJid, replyText);
-        aiMsg.status = 'delivered';
-      } catch (err) {
-        console.error('[AtendimentoEngine] Falha ao enviar resposta contextual:', err);
-      }
-    }
+    });
   }
 
   /**
