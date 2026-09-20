@@ -1608,10 +1608,17 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
           msg.message?.videoMessage?.caption ||
           "";
 
+        const senderCandidates = [
+          msg.key?.participantAlt,
+          msg.participantAlt,
+          msg.key?.participant,
+          msg.participant,
+          msg.sender,
+        ].filter((value) => typeof value === "string" && value.length > 0);
         const senderJid =
-          msg.key?.participantAlt ||
-          msg.key?.participant ||
-          msg.participant ||
+          senderCandidates.find((value) => value.includes("@s.whatsapp.net")) ||
+          senderCandidates.find((value) => !value.includes("@lid")) ||
+          senderCandidates[0] ||
           "";
         const senderPhone = senderJid.split("@")[0];
         const senderName = msg.pushName || `WhatsApp ${senderPhone.slice(-4)}`;
