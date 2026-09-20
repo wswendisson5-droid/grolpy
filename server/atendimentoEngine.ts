@@ -145,7 +145,7 @@ export class AtendimentoEngine {
   public config: AIAgentConfig = { ...DEFAULT_CONFIG };
   public atendimentos: CRMAtendimentoLead[] = [];
   private workerTimer: NodeJS.Timeout | null = null;
-  private evolutionSender?: (targetJid: string, text: string) => Promise<boolean>;
+  private evolutionSender?: (targetJid: string, text: string, kind?: 'proactive' | 'reply') => Promise<boolean>;
   private persistenceHandler?: (payload: any) => Promise<void> | void;
   private incomingMessageQueues = new Map<string, Promise<void>>();
 
@@ -185,7 +185,7 @@ export class AtendimentoEngine {
     }
   }
 
-  public setEvolutionSender(sender: (targetJid: string, text: string) => Promise<boolean>) {
+  public setEvolutionSender(sender: (targetJid: string, text: string, kind?: 'proactive' | 'reply') => Promise<boolean>) {
     this.evolutionSender = sender;
   }
 
@@ -851,7 +851,7 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
 
     let delivered = false;
     try {
-      delivered = await this.evolutionSender(lead.contactJid, replyText);
+      delivered = await this.evolutionSender(lead.contactJid, replyText, 'reply');
     } catch (err) {
       console.error('[AtendimentoEngine] Falha ao enviar resposta contextual:', err);
     }

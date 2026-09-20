@@ -2216,14 +2216,16 @@ app.get("/api/crm/typing-status", requireAdminRoute, (req, res) => {
 // ----------------------------------------------------
 
 // Wire up real Evolution sender for AI Agent follow-ups
-atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => {
+atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string, kind = "proactive") => {
   try {
     const instance = memoryState.instanceName;
     const cleanNumber = targetJid.replace(/\D/g, "");
-    const db = await getDatabase();
-    if (await db.isOutboundProtectedNumber(cleanNumber || targetJid)) {
-      console.warn("[AtendimentoEngine] Envio bloqueado: número protegido/registrado no banco.");
-      return false;
+    if (kind !== "reply") {
+      const db = await getDatabase();
+      if (await db.isOutboundProtectedNumber(cleanNumber || targetJid)) {
+        console.warn("[AtendimentoEngine] Envio proativo bloqueado: número protegido/registrado no banco.");
+        return false;
+      }
     }
     const sendRes = await callEvolution(`/message/sendText/${instance}`, {
       method: "POST",
