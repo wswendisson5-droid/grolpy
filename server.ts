@@ -11,6 +11,12 @@ import { radarEngine } from "./server/radarEngine";
 import { atendimentoEngine } from "./server/atendimentoEngine";
 import { asaasEngine } from "./server/asaasEngine";
 import { cleanPhoneDigits } from "./server/phoneUtils";
+import {
+  extractWhatsAppMessageText,
+  getWhatsAppMessageTimestamp,
+  resolveWhatsAppGroupSender,
+  unwrapWhatsAppMessage,
+} from "./server/whatsappMessageUtils";
 
 
 const app = express();
@@ -1479,7 +1485,15 @@ app.post("/api/evolution/set-webhook", async (req, res) => {
 });
 
 // 10. Webhook endpoint
-app.post("/api/evolution/webhook", (req: Request, res: Response) => {
+app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
+  try {
+    // O MySQL é a fonte de verdade dos grupos monitorados. Nunca processe o
+    // primeiro webhook de um worker Passenger antes de hidratar esse estado.
+    await getDatabase();
+  } catch (error: any) {
+    console.error("[RadarWebhook] Estado do Radar indisponível:", error?.code || error?.message || "DB_ERROR");
+    return res.status(503).json({ received: false, error: "RADAR_STATE_UNAVAILABLE" });
+  }
   const event = req.body;
   const eventType = event?.event || event?.type || "unknown";
   const instanceName = event?.instance || event?.data?.instance || event?.sender || DEFAULT_INSTANCE_NAME;
@@ -1601,35 +1615,20 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
       const remoteJid = msg.key?.remoteJid || "";
       // Only process group messages for Radar
       if (remoteJid.endsWith("@g.us")) {
-        const text =
-          msg.message?.conversation ||
-          msg.message?.extendedTextMessage?.text ||
-          msg.message?.imageMessage?.caption ||
-          msg.message?.videoMessage?.caption ||
-          "";
-
-        const senderCandidates = [
-          msg.key?.participantAlt,
-          msg.participantAlt,
-          msg.key?.participant,
-          msg.participant,
-          msg.sender,
-        ].filter((value) => typeof value === "string" && value.length > 0);
-        const senderJid =
-          senderCandidates.find((value) => value.includes("@s.whatsapp.net")) ||
-          senderCandidates.find((value) => !value.includes("@lid")) ||
-          senderCandidates[0] ||
-          "";
-        const senderPhone = senderJid.split("@")[0];
+        const text = extractWhatsAppMessageText(msg);
+        const sender = resolveWhatsAppGroupSender(msg);
+        const senderJid = sender.jid;
+        const senderPhone = sender.phone;
         const senderName = msg.pushName || `WhatsApp ${senderPhone.slice(-4)}`;
+        const message = unwrapWhatsAppMessage(msg.message);
 
         // Extract real attached image from WhatsApp message if present
         let attachedImageUrl: string | undefined = undefined;
         const msgId = msg.key?.id;
         const instance = memoryState.instanceName || "nexus-radar";
 
-        if (msg.message?.imageMessage) {
-          const imgMsg = msg.message.imageMessage;
+        if (message?.imageMessage) {
+          const imgMsg = message.imageMessage;
           if (imgMsg.url && typeof imgMsg.url === "string" && imgMsg.url.startsWith("http")) {
             attachedImageUrl = imgMsg.url;
           } else if (imgMsg.jpegThumbnail) {
@@ -1650,11 +1649,12 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
           senderJid,
           senderPhone,
           senderName,
-          messageId: msgId || `msg-${Date.now()}`,
+          messageId: String(msgId || ""),
           messageText: text,
           attachedImageUrl,
           fromMe: Boolean(msg.key?.fromMe),
-          timestamp: Number(msg.messageTimestamp || msg.timestamp) || Math.floor(Date.now() / 1000),
+          timestamp: getWhatsAppMessageTimestamp(msg),
+          senderSource: sender.source,
         });
       } else if (!msg.key?.fromMe) {
         // Direct message from lead - clear typing indicator and process multi-step AI response

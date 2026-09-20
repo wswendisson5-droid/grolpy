@@ -1,6 +1,7 @@
 import * as mysql from "mysql2/promise";
 export { mysql };
 import crypto from "crypto";
+import { arePhonesEquivalent } from "./phoneUtils";
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
@@ -1184,18 +1185,15 @@ export async function isOutboundProtectedNumber(phoneOrJid: string) {
   const phone = String(phoneOrJid || '').replace(/\D/g, '');
   if (phone.length < 8) return false;
   const [rows]: any = await pool.execute(
-    `SELECT 1 AS blocked FROM (
+    `SELECT phone FROM (
        SELECT phone FROM users WHERE phone IS NOT NULL AND phone <> ''
        UNION ALL
-       SELECT phone FROM evolution_instances WHERE phone IS NOT NULL AND phone <> ''
+       SELECT owner_phone AS phone FROM evolution_instances WHERE owner_phone IS NOT NULL AND owner_phone <> ''
        UNION ALL
        SELECT phone FROM outbound_protected_numbers
-     ) protected
-     WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(protected.phone, '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
-     LIMIT 1`,
-    [phone]
+     ) protected`
   );
-  return Boolean(rows[0]?.blocked);
+  return rows.some((row: any) => arePhonesEquivalent(phone, String(row.phone || '')));
 }
 
 export async function getAdminState(stateKey: string) {

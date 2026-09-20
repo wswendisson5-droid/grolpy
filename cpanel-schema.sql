@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS `subscriptions` (
 
 -- Estado persistente compartilhado do painel administrativo (Radar, CRM e IA)
 -- Números que nunca podem receber prospecção automática/IA.
--- users.phone e evolution_instances.phone também são protegidos em tempo real pelo backend.
+-- users.phone e evolution_instances.owner_phone também são protegidos em tempo real pelo backend.
 CREATE TABLE IF NOT EXISTS `outbound_protected_numbers` (
   `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `phone` VARCHAR(30) NOT NULL UNIQUE,

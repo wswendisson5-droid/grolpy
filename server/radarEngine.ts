@@ -1,9 +1,14 @@
-import fs from 'fs';
-import path from 'path';
 import { GoogleGenAI, Type } from '@google/genai';
 import { atendimentoEngine } from './atendimentoEngine';
 import { arePhonesEquivalent, cleanPhoneDigits } from './phoneUtils';
 import { createOpenAIStructuredResponse, getAiRuntimeInfo } from './openaiClient';
+import {
+  extractWhatsAppMessageText,
+  getWhatsAppMessageTimestamp,
+  maskWhatsAppSender,
+  resolveWhatsAppGroupSender,
+  unwrapWhatsAppMessage,
+} from './whatsappMessageUtils';
 
 export function safeUnicodeTruncate(text: string, maxChars: number): string {
   if (!text) return '';
@@ -116,10 +121,6 @@ export interface RadarActivity {
   time: string;
   opportunityId?: string;
 }
-
-// File persistence paths
-const DATA_DIR = path.join(process.cwd(), 'data');
-const STORAGE_FILE = path.join(DATA_DIR, 'radar_storage.json');
 
 /**
  * 1. STRICT DISQUALIFICATION PATTERNS
@@ -566,6 +567,7 @@ class RadarEngine {
   public activationTimestamp: number = Date.now();
   public monitoredGroupJids: Set<string> = new Set();
   public analyzedPhones: Map<string, { analyzedAt: number; result: any }> = new Map();
+  private processedMessageIds: Map<string, number> = new Map();
   public analysisQueue: CandidateMessage[] = [];
   public opportunities: RadarOpportunity[] = [];
   public activities: RadarActivity[] = [];
@@ -613,6 +615,7 @@ class RadarEngine {
   private geminiClient: GoogleGenAI | null = null;
   private aiProvider: 'openai' | 'gemini' = 'openai';
   private persistenceHandler?: (payload: any) => Promise<void> | void;
+  private persistenceChain: Promise<void> = Promise.resolve();
 
   // Real-time typing tracking (remoteJid -> expiry timestamp)
   private typingMap: Map<string, number> = new Map();
@@ -635,6 +638,7 @@ class RadarEngine {
       activationTimestamp: this.activationTimestamp,
       monitoredGroupJids: Array.from(this.monitoredGroupJids),
       analyzedPhones: Array.from(this.analyzedPhones.entries()),
+      processedMessageIds: Array.from(this.processedMessageIds.entries()),
       opportunities: this.opportunities,
       activities: this.activities.slice(0, 100),
       contactStages: Array.from(this.contactStages.entries()),
@@ -648,6 +652,8 @@ class RadarEngine {
     this.activationTimestamp = Number(data.activationTimestamp || Date.now());
     this.monitoredGroupJids = new Set(Array.isArray(data.monitoredGroupJids) ? data.monitoredGroupJids : []);
     this.analyzedPhones = new Map(Array.isArray(data.analyzedPhones) ? data.analyzedPhones : []);
+    this.processedMessageIds = new Map(Array.isArray(data.processedMessageIds) ? data.processedMessageIds : []);
+    this.pruneProcessedMessageIds();
     const loadedOpps = Array.isArray(data.opportunities) ? data.opportunities : [];
     this.opportunities = loadedOpps.filter((opp: RadarOpportunity) => !this.isOpportunityDisqualified(opp));
     for (const opp of this.opportunities) {
@@ -662,20 +668,8 @@ class RadarEngine {
   }
 
   constructor() {
-    this.ensureDataDir();
-    this.loadFromDisk();
     this.initAIProviders();
     this.startWorker();
-  }
-
-  private ensureDataDir() {
-    try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-      }
-    } catch (e) {
-      console.error('[Radar] Error creating data directory:', e);
-    }
   }
 
   private initAIProviders() {
@@ -724,33 +718,26 @@ class RadarEngine {
     return DISQUALIFIED_PATTERNS.some((disq) => combined.includes(disq));
   }
 
-  private loadFromDisk() {
-    try {
-      if (fs.existsSync(STORAGE_FILE)) {
-        const raw = fs.readFileSync(STORAGE_FILE, 'utf-8');
-        const data = JSON.parse(raw);
-        this.hydrateFromState(data);
-        console.log(
-          `[Radar] Loaded state: ${this.monitoredGroupJids.size} monitored groups, ${this.opportunities.length} opportunities, ${this.analyzedPhones.size} analyzed phones.`
-        );
-      }
-    } catch (e) {
-      console.error('[Radar] Failed to load stored state:', e);
+  public persistState() {
+    const payload = this.exportState();
+    if (this.persistenceHandler) {
+      this.persistenceChain = this.persistenceChain
+        .catch(() => {})
+        .then(() => this.persistenceHandler?.(payload))
+        .then(() => undefined)
+        .catch((e) => console.error('[Radar] Failed to persist state in database:', e));
     }
   }
 
-  public saveToDisk() {
-    const payload = this.exportState();
-    try {
-      this.ensureDataDir();
-      fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('[Radar] Failed to save state to disk:', e);
+  private pruneProcessedMessageIds() {
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    for (const [messageId, processedAt] of this.processedMessageIds) {
+      if (processedAt < cutoff) this.processedMessageIds.delete(messageId);
     }
-    if (this.persistenceHandler) {
-      Promise.resolve(this.persistenceHandler(payload)).catch((e) =>
-        console.error('[Radar] Failed to persist state in database:', e)
-      );
+    while (this.processedMessageIds.size > 5000) {
+      const oldest = this.processedMessageIds.keys().next().value;
+      if (!oldest) break;
+      this.processedMessageIds.delete(oldest);
     }
   }
 
@@ -775,7 +762,7 @@ class RadarEngine {
         type: 'system',
       });
     }
-    this.saveToDisk();
+    this.persistState();
   }
 
   public addActivity(act: Omit<RadarActivity, 'id' | 'timestamp' | 'time'>) {
@@ -794,7 +781,7 @@ class RadarEngine {
     if (this.activities.length > 80) {
       this.activities.pop();
     }
-    this.saveToDisk();
+    this.persistState();
   }
 
   // Set / Check typing presence for contact
@@ -846,11 +833,8 @@ class RadarEngine {
         return true;
       }
     }
-
-    // 2. Já existe no CRM de Atendimento (contatos com oportunidades)?
-    if (atendimentoEngine.hasContactPhone(clean) || Boolean(atendimentoEngine.findLead(phoneOrJid))) {
-      return true;
-    }
+    // Estar no CRM ou ter conversa privada nao bloqueia o Radar.
+    // A deduplicacao aqui considera oportunidade do Radar e mensagem na fila.
 
     // 3. Já está na fila para ser analisado?
     if (
@@ -864,6 +848,32 @@ class RadarEngine {
     }
 
     return false;
+  }
+
+  private logMessageDecision(params: {
+    messageId: string;
+    groupJid: string;
+    fromMe: boolean;
+    senderPhone?: string;
+    senderSource?: string;
+    textLength: number;
+    accepted: boolean;
+    reason: string;
+    heuristicScore?: number;
+  }) {
+    console.log('[RadarDecision]', {
+      messageId: params.messageId || 'missing',
+      groupJid: params.groupJid || 'missing',
+      monitored: this.monitoredGroupJids.has(params.groupJid),
+      fromMe: params.fromMe,
+      sender: maskWhatsAppSender(params.senderPhone || ''),
+      senderSource: params.senderSource || 'unknown',
+      textExtracted: params.textLength > 0,
+      textLength: params.textLength,
+      classification: params.accepted ? 'candidate' : 'discarded',
+      reason: params.reason,
+      heuristicScore: params.heuristicScore || 0,
+    });
   }
 
   /**
@@ -886,12 +896,8 @@ class RadarEngine {
     attachedImageUrl?: string;
     fromMe: boolean;
     timestamp: number;
+    senderSource?: string;
   }) {
-    // 0. Radar must be ACTIVE
-    if (this.status !== 'active') {
-      return { accepted: false, reason: 'radar_paused' };
-    }
-
     const {
       groupJid,
       groupName = 'Grupo WhatsApp',
@@ -903,36 +909,64 @@ class RadarEngine {
       messageText,
       fromMe,
       timestamp,
+      senderSource,
     } = params;
+
+    const reject = (reason: string, heuristicScore = 0) => {
+      this.logMessageDecision({
+        messageId,
+        groupJid,
+        fromMe,
+        senderPhone: senderPhone || senderJid,
+        senderSource,
+        textLength: (messageText || '').trim().length,
+        accepted: false,
+        reason,
+        heuristicScore,
+      });
+      return { accepted: false, reason };
+    };
+
+    // 0. Radar must be ACTIVE
+    if (this.status !== 'active') return reject('radar_paused');
 
     // Lookback window: analyze messages up to 14 days old
     if (timestamp && timestamp * 1000 < Date.now() - 14 * 24 * 60 * 60 * 1000) {
-      return { accepted: false, reason: 'message_older_than_14_days' };
+      return reject('message_older_than_14_days');
     }
 
     // Stage 2a: Must be in monitored groups
     if (!this.monitoredGroupJids.has(groupJid)) {
-      return { accepted: false, reason: 'group_not_monitored' };
+      return reject('group_not_monitored');
     }
 
     // Stage 2b: Never analyze messages sent by the instance itself
     if (fromMe) {
-      return { accepted: false, reason: 'message_from_me' };
+      return reject('message_from_me');
     }
 
     // Clean phone format
     const cleanPhone = (senderPhone || senderJid || '').replace(/\D/g, '');
     if (!cleanPhone || cleanPhone.length < 8) {
-      return { accepted: false, reason: 'invalid_phone' };
+      return reject('invalid_phone');
     }
 
     this.prefilterMetrics.totalInspected++;
+
+    if (messageId && this.processedMessageIds.has(messageId)) {
+      return reject('duplicate_message_id');
+    }
+    if (messageId) {
+      this.processedMessageIds.set(messageId, Date.now());
+      this.pruneProcessedMessageIds();
+      this.persistState();
+    }
 
     // STAGE 1: DEDUPLICATION ESTRITA
     // "Não podemos pegar a mesma oportunidade usando o mesmo número. Se tiver o mesmo número não pode nem analisar ok."
     if (this.isPhoneAlreadyProcessedOrOpportunity(cleanPhone) || this.isPhoneAlreadyProcessedOrOpportunity(senderJid)) {
       this.prefilterMetrics.totalTokensSaved += 450;
-      return { accepted: false, reason: 'phone_already_has_opportunity_or_analyzed' };
+      return reject('phone_already_has_opportunity');
     }
 
     // STAGE 2: DETERMINISTIC TOKEN-SAVER RULES
@@ -943,7 +977,7 @@ class RadarEngine {
     if (textLower.length < 12 || words.length < 3) {
       this.prefilterMetrics.rejectedTooShort++;
       this.prefilterMetrics.totalTokensSaved += 450;
-      return { accepted: false, reason: 'text_too_short_or_low_density' };
+      return reject('text_too_short_or_low_density');
     }
 
     // Check pure social banter (greetings, 'bom dia', 'valeu', 'amém', etc.)
@@ -953,7 +987,7 @@ class RadarEngine {
     if (isSocialBanter && !hasAnyCommercialKeyword) {
       this.prefilterMetrics.rejectedSocial++;
       this.prefilterMetrics.totalTokensSaved += 450;
-      return { accepted: false, reason: 'social_banter_filtered' };
+      return reject('social_banter_filtered');
     }
 
     // STAGE 2.1: STRICT DISQUALIFICATION CHECK
@@ -962,7 +996,7 @@ class RadarEngine {
       if (textLower.includes(disqTerm)) {
         this.prefilterMetrics.rejectedSpam++;
         this.prefilterMetrics.totalTokensSaved += 450;
-        return { accepted: false, reason: `disqualified_category: ${disqTerm}` };
+        return reject(`disqualified_category:${disqTerm}`);
       }
     }
 
@@ -981,7 +1015,7 @@ class RadarEngine {
     if (detectedKeywords.length === 0 || heuristicScore < 20) {
       this.prefilterMetrics.rejectedNoCommercial++;
       this.prefilterMetrics.totalTokensSaved += 450;
-      return { accepted: false, reason: 'no_commercial_intent_detected' };
+      return reject('no_commercial_intent_detected', heuristicScore);
     }
 
     this.prefilterMetrics.acceptedCandidates++;
@@ -1018,6 +1052,18 @@ class RadarEngine {
     console.log(
       `[Radar Queue] Candidate enqueued: ${cleanPhone} from "${groupName}" (Score: ${heuristicScore}, Queue: ${this.analysisQueue.length})`
     );
+
+    this.logMessageDecision({
+      messageId,
+      groupJid,
+      fromMe,
+      senderPhone: cleanPhone,
+      senderSource,
+      textLength: messageText.trim().length,
+      accepted: true,
+      reason: 'commercial_candidate_enqueued',
+      heuristicScore,
+    });
 
     return { accepted: true, queuePosition: this.analysisQueue.length, heuristicScore };
   }
@@ -1071,8 +1117,10 @@ class RadarEngine {
     try {
       const runtime = getAiRuntimeInfo();
       if (this.aiProvider === 'openai' && runtime.configured) {
+        this.prefilterMetrics.totalAiCalls++;
         evaluation = await this.callOpenAIAnalysis(candidate);
       } else if (this.aiProvider === 'gemini' && this.geminiClient) {
+        this.prefilterMetrics.totalAiCalls++;
         evaluation = await this.callGeminiAnalysis(candidate);
       } else {
         evaluation = this.deterministicQualification(candidate);
@@ -1088,6 +1136,18 @@ class RadarEngine {
     this.analyzedPhones.set(candidate.senderPhone, {
       analyzedAt: Date.now(),
       result: evaluation,
+    });
+
+    console.log('[RadarClassification]', {
+      messageId: candidate.messageId || 'missing',
+      groupJid: candidate.groupJid,
+      sender: maskWhatsAppSender(candidate.senderPhone),
+      isOpportunity: evaluation.isOpportunity,
+      confidence: evaluation.confidence,
+      decision:
+        evaluation.isOpportunity && evaluation.confidence >= 70
+          ? 'opportunity_created'
+          : 'model_rejected_or_below_threshold',
     });
 
     // If evaluated as valid opportunity with confidence >= 70 (high selectivity)
@@ -1127,7 +1187,7 @@ class RadarEngine {
       );
     }
 
-    this.saveToDisk();
+    this.persistState();
   }
 
   private async callOpenAIAnalysis(candidate: CandidateMessage): Promise<RadarAIEvaluation> {
@@ -1650,49 +1710,16 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
       const records = res.data.messages?.records || (Array.isArray(res.data) ? res.data : []);
       let analyzedCount = 0;
-      let foundOpportunityInThisGroup = false;
+      let foundCandidateInThisGroup = false;
 
       for (const msg of records) {
-        // Extract message body
-        const messageText =
-          msg.message?.conversation ||
-          msg.message?.extendedTextMessage?.text ||
-          msg.message?.imageMessage?.caption ||
-          msg.message?.videoMessage?.caption ||
-          '';
-
-        if (!messageText.trim()) continue;
-        if (Boolean(msg.key?.fromMe)) continue;
-
-        // Em grupos com LID, participant pode ser um identificador interno do WhatsApp.
-        // participantAlt normalmente contém o JID telefônico real; também aceite os formatos
-        // alternativos devolvidos por versões diferentes da Evolution.
-        const senderCandidates = [
-          msg.key?.participantAlt,
-          msg.participantAlt,
-          msg.key?.participant,
-          msg.participant,
-          msg.sender,
-        ].filter((value): value is string => typeof value === 'string' && value.length > 0);
-        const senderJid =
-          senderCandidates.find((value) => value.includes('@s.whatsapp.net')) ||
-          senderCandidates.find((value) => !value.includes('@lid')) ||
-          senderCandidates[0] ||
-          '';
-        const senderPhone = senderJid.split('@')[0];
-        const cleanPhone = (senderPhone || '').replace(/\D/g, '');
-        if (!cleanPhone || cleanPhone.length < 8 || senderJid.includes('@lid')) continue;
-
-        // Skip se o telefone já foi analisado ou já possui oportunidade no sistema
-        if (this.isPhoneAlreadyProcessedOrOpportunity(cleanPhone) || this.isPhoneAlreadyProcessedOrOpportunity(senderJid)) {
-          continue;
-        }
-
-        const msgTimestamp = Number(msg.messageTimestamp || msg.timestamp) || Math.floor(Date.now() / 1000);
-        // Look back up to 14 days
-        if (msgTimestamp * 1000 < Date.now() - 14 * 24 * 60 * 60 * 1000) continue;
-
-        analyzedCount++;
+        const messageText = extractWhatsAppMessageText(msg);
+        const sender = resolveWhatsAppGroupSender(msg);
+        const senderJid = sender.jid;
+        const senderPhone = sender.phone;
+        const msgTimestamp = getWhatsAppMessageTimestamp(msg);
+        const fromMe = Boolean(msg.key?.fromMe);
+        const message = unwrapWhatsAppMessage(msg.message);
 
         const senderName = msg.pushName || `WhatsApp ${senderPhone.slice(-4)}`;
 
@@ -1701,8 +1728,8 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         const msgId = msg.key?.id;
         const instance = this.instanceName || 'nexus-radar';
 
-        if (msg.message?.imageMessage) {
-          const imgMsg = msg.message.imageMessage;
+        if (message?.imageMessage) {
+          const imgMsg = message.imageMessage;
           if (imgMsg.url && typeof imgMsg.url === 'string' && imgMsg.url.startsWith('http')) {
             attachedImageUrl = imgMsg.url;
           } else if (imgMsg.jpegThumbnail) {
@@ -1725,33 +1752,26 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
           senderJid,
           senderPhone,
           senderName,
-          messageId: msg.key?.id || `msg-${Date.now()}`,
+          messageId: String(msg.key?.id || ''),
           messageText,
           attachedImageUrl,
-          fromMe: false,
+          fromMe,
           timestamp: msgTimestamp,
+          senderSource: sender.source,
         });
 
+        analyzedCount++;
         if (result.accepted) {
-          foundOpportunityInThisGroup = true;
-          // Immediately process this candidate to provide instant result as requested!
-          const candidate = this.analysisQueue.shift();
-          if (candidate) {
-            await this.processCandidateWithAI(candidate);
-            const latestOpp = this.opportunities[0];
-            if (latestOpp && latestOpp.groupJid === groupJid) {
-              this.currentScanState.status = 'opportunity_found';
-              this.currentScanState.foundOpportunitySummary = `${latestOpp.contactName} - ${latestOpp.title}`;
-              this.currentScanState.statusMessage = `✨ Oportunidade detectada em "${groupName}": ${latestOpp.contactName} (${latestOpp.title})! Avançando para o próximo grupo...`;
-            }
-          }
-          break; // Advance sequentially to next group after processing result
+          foundCandidateInThisGroup = true;
         }
       }
 
       this.currentScanState.analyzedInCurrentGroup = analyzedCount;
 
-      if (!foundOpportunityInThisGroup) {
+      if (foundCandidateInThisGroup) {
+        this.currentScanState.status = 'scanning';
+        this.currentScanState.statusMessage = `Grupo ${groupIndex} de ${totalGroups} ("${groupName}") verificado: candidato(s) enviado(s) para classificação.`;
+      } else {
         this.currentScanState.status = 'completed_no_lead';
         this.currentScanState.statusMessage = `Grupo ${groupIndex} de ${totalGroups} ("${groupName}") verificado: ${records.length} msgs analisadas. Nenhuma nova solicitação no momento. Avançando...`;
       }
@@ -1790,7 +1810,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
   public setMonitoredGroups(groupJids: string[]) {
     this.monitoredGroupJids = new Set(groupJids);
-    this.saveToDisk();
+    this.persistState();
     return Array.from(this.monitoredGroupJids);
   }
 
@@ -1800,7 +1820,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
     } else {
       this.monitoredGroupJids.delete(groupJid);
     }
-    this.saveToDisk();
+    this.persistState();
     return this.monitoredGroupJids.has(groupJid);
   }
 
@@ -1833,7 +1853,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       type: 'user',
     });
 
-    this.saveToDisk();
+    this.persistState();
     return opp;
   }
 
@@ -1887,7 +1907,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       opportunityId: opp.id,
     });
 
-    this.saveToDisk();
+    this.persistState();
 
     // Register assumption in Atendimento Engine
     try {
@@ -1908,7 +1928,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
   public setContactStage(jid: string, stage: string) {
     this.contactStages.set(jid, stage);
-    this.saveToDisk();
+    this.persistState();
   }
 
   public getContactStage(jid: string): string | undefined {
