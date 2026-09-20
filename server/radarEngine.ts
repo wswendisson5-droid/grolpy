@@ -602,6 +602,7 @@ class RadarEngine {
   public instanceName: string = 'nexus-radar';
   private evolutionCaller: ((endpoint: string, options?: any) => Promise<any>) | null = null;
   private geminiClient: GoogleGenAI | null = null;
+  private persistenceHandler?: (payload: any) => Promise<void> | void;
 
   // Real-time typing tracking (remoteJid -> expiry timestamp)
   private typingMap: Map<string, number> = new Map();
@@ -610,8 +611,44 @@ class RadarEngine {
     if (!jid) return;
     this.groupMetadataCache.set(jid, {
       name: name || 'Grupo WhatsApp',
-      avatar: avatar || 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=150&q=80',
+      avatar: avatar || '',
     });
+  }
+
+  public setPersistenceHandler(handler: (payload: any) => Promise<void> | void) {
+    this.persistenceHandler = handler;
+  }
+
+  public exportState() {
+    return {
+      status: this.status,
+      activationTimestamp: this.activationTimestamp,
+      monitoredGroupJids: Array.from(this.monitoredGroupJids),
+      analyzedPhones: Array.from(this.analyzedPhones.entries()),
+      opportunities: this.opportunities,
+      activities: this.activities.slice(0, 100),
+      contactStages: Array.from(this.contactStages.entries()),
+      contactTags: Array.from(this.contactTags.entries()),
+    };
+  }
+
+  public hydrateFromState(data: any) {
+    if (!data || typeof data !== 'object') return;
+    this.status = data.status === 'paused' ? 'paused' : 'active';
+    this.activationTimestamp = Number(data.activationTimestamp || Date.now());
+    this.monitoredGroupJids = new Set(Array.isArray(data.monitoredGroupJids) ? data.monitoredGroupJids : []);
+    this.analyzedPhones = new Map(Array.isArray(data.analyzedPhones) ? data.analyzedPhones : []);
+    const loadedOpps = Array.isArray(data.opportunities) ? data.opportunities : [];
+    this.opportunities = loadedOpps.filter((opp: RadarOpportunity) => !this.isOpportunityDisqualified(opp));
+    for (const opp of this.opportunities) {
+      if (opp.image && opp.image.includes('unsplash.com')) {
+        opp.image = '';
+        opp.hasAttachedImage = false;
+      }
+    }
+    this.activities = Array.isArray(data.activities) ? data.activities : [];
+    this.contactStages = new Map(Array.isArray(data.contactStages) ? data.contactStages : []);
+    this.contactTags = new Map(Array.isArray(data.contactTags) ? data.contactTags : []);
   }
 
   constructor() {
@@ -668,29 +705,7 @@ class RadarEngine {
       if (fs.existsSync(STORAGE_FILE)) {
         const raw = fs.readFileSync(STORAGE_FILE, 'utf-8');
         const data = JSON.parse(raw);
-        this.status = data.status || 'active';
-        this.activationTimestamp = data.activationTimestamp || Date.now();
-        this.monitoredGroupJids = new Set(data.monitoredGroupJids || []);
-        if (Array.isArray(data.analyzedPhones)) {
-          this.analyzedPhones = new Map(data.analyzedPhones);
-        }
-        const loadedOpps = Array.isArray(data.opportunities) ? data.opportunities : [];
-        // Filter out any opportunities that match disqualified patterns (resellers, maquininhas, informal freight, etc.)
-        this.opportunities = loadedOpps.filter((opp: RadarOpportunity) => !this.isOpportunityDisqualified(opp));
-        // Strict anti-fabrication: clean up any legacy stock photos (Unsplash) from loaded opportunities
-        for (const opp of this.opportunities) {
-          if (opp.image && opp.image.includes('unsplash.com')) {
-            opp.image = '';
-            opp.hasAttachedImage = false;
-          }
-        }
-        this.activities = Array.isArray(data.activities) ? data.activities : [];
-        if (Array.isArray(data.contactStages)) {
-          this.contactStages = new Map(data.contactStages);
-        }
-        if (Array.isArray(data.contactTags)) {
-          this.contactTags = new Map(data.contactTags);
-        }
+        this.hydrateFromState(data);
         console.log(
           `[Radar] Loaded state: ${this.monitoredGroupJids.size} monitored groups, ${this.opportunities.length} opportunities, ${this.analyzedPhones.size} analyzed phones.`
         );
@@ -701,21 +716,17 @@ class RadarEngine {
   }
 
   public saveToDisk() {
+    const payload = this.exportState();
     try {
       this.ensureDataDir();
-      const payload = {
-        status: this.status,
-        activationTimestamp: this.activationTimestamp,
-        monitoredGroupJids: Array.from(this.monitoredGroupJids),
-        analyzedPhones: Array.from(this.analyzedPhones.entries()),
-        opportunities: this.opportunities,
-        activities: this.activities.slice(0, 100),
-        contactStages: Array.from(this.contactStages.entries()),
-        contactTags: Array.from(this.contactTags.entries()),
-      };
       fs.writeFileSync(STORAGE_FILE, JSON.stringify(payload, null, 2), 'utf-8');
     } catch (e) {
       console.error('[Radar] Failed to save state to disk:', e);
+    }
+    if (this.persistenceHandler) {
+      Promise.resolve(this.persistenceHandler(payload)).catch((e) =>
+        console.error('[Radar] Failed to persist state in database:', e)
+      );
     }
   }
 
@@ -1463,9 +1474,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       timestamp: timeStr,
       relativeTime: 'Agora há pouco',
       createdAt: Date.now(),
-      avatar:
-        candidate.senderAvatar ||
-        `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80`,
+      avatar: candidate.senderAvatar || '',
       image: realAttachedImage,
       hasAttachedImage: isRealImage,
       radarCoords: { x, y },
@@ -1540,7 +1549,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
     const groupJid = groupList[this.currentScanIndex];
     const meta = this.groupMetadataCache.get(groupJid) || {
       name: `Grupo WhatsApp (${this.currentScanIndex + 1})`,
-      avatar: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=150&q=80',
+      avatar: '',
     };
 
     const groupName = meta.name;

@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import path from "path";
 import fs from "fs";
 import http from "http";
@@ -299,28 +299,46 @@ app.get("/api/health", (_req, res) => {
 
 // Dynamic database loader that works seamlessly in local dev (TSX) and production (CJS bundle)
 let cachedDbModule: any = null;
-let initDbStarted = false;
+let initDbPromise: Promise<any> | null = null;
+let adminStateHydrationPromise: Promise<void> | null = null;
 async function getDatabase(): Promise<any> {
-  if (cachedDbModule) {
-    if (!initDbStarted && cachedDbModule.initDatabase) {
-      initDbStarted = true;
-      cachedDbModule.initDatabase().catch((e: any) => console.warn("[DB] Background initDatabase:", e?.message || e));
-    }
-    return cachedDbModule;
-  }
-  try {
-    cachedDbModule = await import("./dist/database.cjs");
-  } catch {
-    try {
-      cachedDbModule = await import("./database.cjs");
-    } catch {
+  if (!cachedDbModule) {
+    if (process.env.NODE_ENV !== "production") {
+      // In local development, always execute the current TypeScript source.
+      // Loading dist first made migrations/tests silently use a stale build.
       cachedDbModule = await import("./server/database");
+    } else {
+      try {
+        cachedDbModule = await import("./dist/database.cjs");
+      } catch {
+        cachedDbModule = await import("./database.cjs");
+      }
     }
   }
-  if (!initDbStarted && cachedDbModule?.initDatabase) {
-    initDbStarted = true;
-    cachedDbModule.initDatabase().catch((e: any) => console.warn("[DB] Background initDatabase:", e?.message || e));
+
+  // Routes must never race migrations. Await the single shared initialization.
+  if (!initDbPromise && cachedDbModule?.initDatabase) {
+    initDbPromise = Promise.resolve(cachedDbModule.initDatabase());
   }
+  if (initDbPromise) await initDbPromise;
+
+  if (!adminStateHydrationPromise && cachedDbModule?.getAdminState && cachedDbModule?.setAdminState) {
+    adminStateHydrationPromise = (async () => {
+      const [radarState, atendimentoState] = await Promise.all([
+        cachedDbModule.getAdminState("radar"),
+        cachedDbModule.getAdminState("atendimento"),
+      ]);
+      if (radarState) radarEngine.hydrateFromState(radarState);
+      if (atendimentoState) atendimentoEngine.hydrateFromState(atendimentoState);
+
+      radarEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("radar", payload));
+      atendimentoEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("atendimento", payload));
+
+      if (!radarState) await cachedDbModule.setAdminState("radar", radarEngine.exportState());
+      if (!atendimentoState) await cachedDbModule.setAdminState("atendimento", atendimentoEngine.exportState());
+    })();
+  }
+  if (adminStateHydrationPromise) await adminStateHydrationPromise;
   return cachedDbModule;
 }
 
@@ -398,17 +416,27 @@ async function authenticatedUser(req: any) {
   return db.getUserByToken(token);
 }
 
-const ADMIN_EMAILS = new Set(["wendisson@gmail.com", "mateus@gmail.com"]);
-
 async function requireAdmin(req: any) {
   const user: any = await authenticatedUser(req);
-  return (user?.role === "admin" || (user?.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()))) ? user : null;
+  return user?.role === "admin" ? user : null;
+}
+
+async function requireAdminRoute(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
+    if (user.role !== "admin") return res.status(403).json({ error: "ADMIN_REQUIRED" });
+    (req as any).adminUser = user;
+    next();
+  } catch {
+    res.status(500).json({ error: "AUTHORIZATION_CHECK_FAILED" });
+  }
 }
 
 async function ownedInstance(req: any, requireActive = true, createIfMissing = true) {
   const user: any = await authenticatedUser(req);
   if (!user) return { error: "UNAUTHORIZED" };
-  const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
+  const isAdmin = user.role === "admin";
   const db: any = await getDatabase();
   const sub = await db.getSubscriptionForUser(user.id).catch(() => null);
   // Account activation is not proof of payment. Some legacy accounts are
@@ -490,7 +518,7 @@ app.post("/api/auth/self-test", async (_req, res) => {
   }
 });
 
-app.get("/api/auth/diagnostic", async (_req, res) => {
+app.get("/api/auth/diagnostic", requireAdminRoute, async (_req, res) => {
   try {
     const db: any = await getDatabase();
     const result = await db.authDiagnostic();
@@ -1647,7 +1675,7 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
 // ----------------------------------------------------
 
 // 11. Fetch REAL CRM conversations strictly focused on saved opportunity contacts
-app.get("/api/crm/conversations", async (req, res) => {
+app.get("/api/crm/conversations", requireAdminRoute, async (req, res) => {
   const instance = (req.query.instance as string) || memoryState.instanceName;
 
   try {
@@ -1656,7 +1684,7 @@ app.get("/api/crm/conversations", async (req, res) => {
 
     // Se temos oportunidades captadas, transformar em conversas do CRM
     if (leads.length > 0) {
-      const conversations = leads.map((lead, idx) => {
+      const conversations = leads.map((lead) => {
         const lastMsg = lead.messages && lead.messages.length > 0 ? lead.messages[lead.messages.length - 1] : null;
         const isFromMe = lastMsg ? (lastMsg.sender === "agent" || lastMsg.sender === "ai") : false;
         const timestamp = lastMsg ? lastMsg.time : new Date(lead.lastInteractionAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -1673,11 +1701,11 @@ app.get("/api/crm/conversations", async (req, res) => {
             avatar: lead.contactAvatar || profilePicCache.get(lead.contactJid) || "",
             status: "online",
             stage,
-            dealValue: 2500 + ((idx * 850) % 15000),
+            dealValue: 0,
             tags: ["Radar IA", lead.recommendedService || "Oportunidade", lead.aiActiveForContact ? "IA Ativa 🤖" : "Humano 👤"],
-            assignedTo: lead.assignedTo || "Enzo Santos",
+            assignedTo: lead.assignedTo || "",
             lastContactDate: timestamp,
-            notesCount: lead.notes?.length || 1,
+            notesCount: lead.notes?.length || 0,
             tasksCount: 0,
             isGroup: false,
             remoteJid: lead.contactJid,
@@ -1721,7 +1749,7 @@ app.get("/api/crm/conversations", async (req, res) => {
 });
 
 // Endpoint to fetch profile picture dynamically for any WhatsApp JID / number
-app.get("/api/crm/profile-picture", async (req, res) => {
+app.get("/api/crm/profile-picture", requireAdminRoute, async (req, res) => {
   const instance = (req.query.instance as string) || memoryState.instanceName;
   const number = req.query.number as string;
 
@@ -1757,7 +1785,7 @@ app.get("/api/crm/profile-picture", async (req, res) => {
 const mediaMemoryCache = new Map<string, { buffer: Buffer; mimetype: string }>();
 
 // 12a. Serve/Stream REAL WhatsApp Media: GET /api/crm/media/:messageId
-app.get("/api/crm/media/:messageId", async (req, res) => {
+app.get("/api/crm/media/:messageId", requireAdminRoute, async (req, res) => {
   const { messageId } = req.params;
   const instance = (req.query.instance as string) || memoryState.instanceName;
 
@@ -1811,7 +1839,7 @@ app.get("/api/crm/media/:messageId", async (req, res) => {
 });
 
 // 12. Fetch REAL messages for a specific WhatsApp contact/chat: POST /chat/findMessages/{instance}
-app.get("/api/crm/messages", async (req, res) => {
+app.get("/api/crm/messages", requireAdminRoute, async (req, res) => {
   let instance = (req.query.instance as string) || memoryState.instanceName;
   const jid = req.query.jid as string;
 
@@ -2007,7 +2035,7 @@ app.get("/api/crm/messages", async (req, res) => {
 });
 
 // 13. SEND REAL WhatsApp Message via Evolution API: POST /message/sendText/{instance}
-app.post("/api/crm/send-message", async (req, res) => {
+app.post("/api/crm/send-message", requireAdminRoute, async (req, res) => {
   const { instanceName, jid, text } = req.body;
   const instance = instanceName || memoryState.instanceName;
 
@@ -2032,8 +2060,9 @@ app.post("/api/crm/send-message", async (req, res) => {
     }
 
     // Se houver atendimento para este contato, salvar mensagem humana no histórico permanente e registrar assunção
-    atendimentoEngine.addHumanMessage(jid, text, "Enzo Santos");
-    atendimentoEngine.assumeLead(jid, "Enzo Santos");
+    const adminName = (req as any).adminUser?.name || "Administrador";
+    atendimentoEngine.addHumanMessage(jid, text, adminName);
+    atendimentoEngine.assumeLead(jid, adminName);
 
     res.json({
       success: true,
@@ -2058,11 +2087,11 @@ app.post("/api/crm/send-message", async (req, res) => {
 // ----------------------------------------------------
 
 // Status & Metrics
-app.get("/api/radar/status", (_req, res) => {
+app.get("/api/radar/status", requireAdminRoute, (_req, res) => {
   res.json(radarEngine.getStatus());
 });
 
-app.post("/api/radar/status", (req, res) => {
+app.post("/api/radar/status", requireAdminRoute, (req, res) => {
   const { status } = req.body;
   if (status === "active" || status === "paused") {
     radarEngine.setStatus(status);
@@ -2072,7 +2101,7 @@ app.post("/api/radar/status", (req, res) => {
 });
 
 // Real Groups from connected Evolution instance
-app.get("/api/radar/groups", async (req, res) => {
+app.get("/api/radar/groups", requireAdminRoute, async (req, res) => {
   const instance = (req.query.instance as string) || memoryState.instanceName;
 
   try {
@@ -2095,7 +2124,7 @@ app.get("/api/radar/groups", async (req, res) => {
         const avatar =
           c.profilePicUrl ||
           profilePicCache.get(jid) ||
-          "https://images.unsplash.com/photo-1557804506-669a67965ba0?auto=format&fit=crop&w=150&q=80";
+          "";
 
         // Keep radarEngine metadata cache in sync
         radarEngine.updateGroupMetadata(jid, name, avatar);
@@ -2124,7 +2153,7 @@ app.get("/api/radar/groups", async (req, res) => {
 });
 
 // Update monitored groups list or toggle individual group
-app.post("/api/radar/monitored-groups", (req, res) => {
+app.post("/api/radar/monitored-groups", requireAdminRoute, (req, res) => {
   const { groupJids, groupJid, isMonitored } = req.body;
 
   if (Array.isArray(groupJids)) {
@@ -2141,7 +2170,7 @@ app.post("/api/radar/monitored-groups", (req, res) => {
 });
 
 // Real opportunities list
-app.get("/api/radar/opportunities", (_req, res) => {
+app.get("/api/radar/opportunities", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     total: radarEngine.opportunities.length,
@@ -2150,7 +2179,7 @@ app.get("/api/radar/opportunities", (_req, res) => {
 });
 
 // Update opportunity status / stage
-app.post("/api/radar/opportunities/:id/stage", (req, res) => {
+app.post("/api/radar/opportunities/:id/stage", requireAdminRoute, (req, res) => {
   const { id } = req.params;
   const { stage, assignedUserName } = req.body;
 
@@ -2163,8 +2192,8 @@ app.post("/api/radar/opportunities/:id/stage", (req, res) => {
 });
 
 // Start Contact / Assumir no CRM
-app.post("/api/radar/start-contact", (req, res) => {
-  const { opportunityId, assignedUserName } = req.body;
+app.post("/api/radar/start-contact", requireAdminRoute, (req, res) => {
+  const { opportunityId } = req.body;
 
   if (!opportunityId) {
     return res.status(400).json({ error: "opportunityId é obrigatório" });
@@ -2173,7 +2202,7 @@ app.post("/api/radar/start-contact", (req, res) => {
   try {
     const result = radarEngine.startContactInCrm({
       opportunityId,
-      assignedUserName: assignedUserName || "Enzo Santos",
+      assignedUserName: (req as any).adminUser?.name || "Administrador",
     });
     res.json(result);
   } catch (err: any) {
@@ -2182,7 +2211,7 @@ app.post("/api/radar/start-contact", (req, res) => {
 });
 
 // Real Activity log
-app.get("/api/radar/activities", (_req, res) => {
+app.get("/api/radar/activities", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     total: radarEngine.activities.length,
@@ -2191,7 +2220,7 @@ app.get("/api/radar/activities", (_req, res) => {
 });
 
 // Update CRM contact stage
-app.post("/api/crm/contact-stage", (req, res) => {
+app.post("/api/crm/contact-stage", requireAdminRoute, (req, res) => {
   const { contactId, stage } = req.body;
   if (!contactId || !stage) {
     return res.status(400).json({ error: "contactId e stage são obrigatórios" });
@@ -2199,18 +2228,18 @@ app.post("/api/crm/contact-stage", (req, res) => {
 
   radarEngine.setContactStage(contactId, stage);
   // Atualizar também no arquivo de contatos com oportunidades
-  atendimentoEngine.updateLeadStatus(contactId, stage, "Enzo Santos");
+  atendimentoEngine.updateLeadStatus(contactId, stage, (req as any).adminUser?.name || "Administrador");
   res.json({ success: true, contactId, stage });
 });
 
 // Update lead status in CRM Atendimento and save to disk
-app.post("/api/atendimento/status", (req, res) => {
+app.post("/api/atendimento/status", requireAdminRoute, (req, res) => {
   const { leadId, status, userName } = req.body;
   if (!leadId || !status) {
     return res.status(400).json({ error: "leadId e status são obrigatórios" });
   }
 
-  const updated = atendimentoEngine.updateLeadStatus(leadId, status, userName || "Enzo Santos");
+  const updated = atendimentoEngine.updateLeadStatus(leadId, status, (req as any).adminUser?.name || userName || "Administrador");
   if (!updated) {
     return res.status(404).json({ error: "Lead não encontrado" });
   }
@@ -2218,7 +2247,7 @@ app.post("/api/atendimento/status", (req, res) => {
 });
 
 // Check typing status for contact
-app.get("/api/crm/typing-status", (req, res) => {
+app.get("/api/crm/typing-status", requireAdminRoute, (req, res) => {
   const jid = req.query.jid as string;
   if (!jid) {
     return res.json({ isTyping: false });
@@ -2250,7 +2279,7 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => 
 });
 
 // List leads originating from Radar in CRM Atendimento
-app.get("/api/atendimento/leads", (_req, res) => {
+app.get("/api/atendimento/leads", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     total: atendimentoEngine.atendimentos.length,
@@ -2259,7 +2288,7 @@ app.get("/api/atendimento/leads", (_req, res) => {
 });
 
 // Get single lead details with internal notes history
-app.get("/api/atendimento/lead/:id", (req, res) => {
+app.get("/api/atendimento/lead/:id", requireAdminRoute, (req, res) => {
   const lead = atendimentoEngine.atendimentos.find(
     (a) => a.id === req.params.id || a.contactJid === req.params.id
   );
@@ -2268,23 +2297,23 @@ app.get("/api/atendimento/lead/:id", (req, res) => {
 });
 
 // Human takes over lead
-app.post("/api/atendimento/assume", (req, res) => {
+app.post("/api/atendimento/assume", requireAdminRoute, (req, res) => {
   const { leadId, userName } = req.body;
-  const updated = atendimentoEngine.assumeLead(leadId, userName || "Enzo Santos");
+  const updated = atendimentoEngine.assumeLead(leadId, (req as any).adminUser?.name || userName || "Administrador");
   if (!updated) return res.status(404).json({ error: "Lead não encontrado" });
   res.json({ success: true, lead: updated });
 });
 
 // Toggle AI on/off for specific contact
-app.post("/api/atendimento/toggle-ai", (req, res) => {
+app.post("/api/atendimento/toggle-ai", requireAdminRoute, (req, res) => {
   const { leadId, active, userName } = req.body;
-  const updated = atendimentoEngine.toggleAiForContact(leadId, Boolean(active), userName || "Enzo Santos");
+  const updated = atendimentoEngine.toggleAiForContact(leadId, Boolean(active), (req as any).adminUser?.name || userName || "Administrador");
   if (!updated) return res.status(404).json({ error: "Lead não encontrado" });
   res.json({ success: true, lead: updated });
 });
 
 // Get AI Agent configuration
-app.get("/api/atendimento/config", (_req, res) => {
+app.get("/api/atendimento/config", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     config: atendimentoEngine.config,
@@ -2292,13 +2321,13 @@ app.get("/api/atendimento/config", (_req, res) => {
 });
 
 // Update AI Agent configuration
-app.post("/api/atendimento/config", (req, res) => {
+app.post("/api/atendimento/config", requireAdminRoute, (req, res) => {
   const updated = atendimentoEngine.updateConfig(req.body);
   res.json({ success: true, config: updated });
 });
 
 // Token saver metrics
-app.get("/api/radar/token-metrics", (_req, res) => {
+app.get("/api/radar/token-metrics", requireAdminRoute, (_req, res) => {
   res.json({
     success: true,
     metrics: radarEngine.prefilterMetrics,
@@ -2842,7 +2871,7 @@ app.get("/api/account/status", async (req, res) => {
     const db: any = await getDatabase();
     const subscription = await db.getSubscriptionForUser(user.id);
     const instance = await db.getUserInstance(user.id);
-    const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
+    const isAdmin = user.role === "admin";
     const hasActiveSubscription = String(subscription?.status || "").toLowerCase() === "active";
     res.json({
       success: true,
@@ -3894,8 +3923,7 @@ setInterval(async () => {
         db.getUserById(userId).catch(() => null),
         db.getSubscriptionForUser(userId).catch(() => null),
       ]);
-      const schedulerIsAdmin = schedulerUser?.role === "admin" ||
-        (schedulerUser?.email && ADMIN_EMAILS.has(String(schedulerUser.email).trim().toLowerCase()));
+      const schedulerIsAdmin = schedulerUser?.role === "admin";
       const schedulerHasAccess = schedulerIsAdmin || String(schedulerSubscription?.status || "").toLowerCase() === "active";
       if (!schedulerHasAccess) {
         camp.status = 'pausada';

@@ -8,14 +8,10 @@ import {
   StarIcon,
   Tag01Icon,
   MoreHorizontalIcon,
-  AttachmentIcon,
   EmojiIcon,
-  MicIcon,
   SentIcon,
   PlusIcon,
   DoubleCheckIcon,
-  ImageIconRef,
-  DocumentIcon,
   ChevronLeftIcon,
   Layers01Icon,
   TelephoneIcon,
@@ -43,16 +39,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onToggleDetailsPanel,
 }) => {
   const [inputText, setInputText] = useState('');
-  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadNewMessagesCount, setUnreadNewMessagesCount] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const prevMessagesCountRef = useRef(messages.length);
   const prevContactIdRef = useRef(contact.id);
 
@@ -148,19 +140,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     setIsAtBottom(true);
   };
 
-  // Audio recording timer simulation
-  useEffect(() => {
-    let interval: any;
-    if (isRecordingAudio) {
-      interval = setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    } else {
-      setRecordingSeconds(0);
-    }
-    return () => clearInterval(interval);
-  }, [isRecordingAudio]);
-
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
@@ -170,37 +149,6 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleQuickReply = (text: string) => {
     onSendMessage(text, 'text');
-  };
-
-  const handleSendSimulatedMedia = (type: 'image' | 'document' | 'audio') => {
-    setIsAttachmentMenuOpen(false);
-    if (type === 'image') {
-      onSendMessage(
-        '',
-        'image',
-        'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=600&q=80',
-        'foto-semijoias.jpg'
-      );
-    } else if (type === 'document') {
-      onSendMessage(
-        'Segue o catálogo comercial detalhado.',
-        'document',
-        'https://example.com/catalogo.pdf',
-        'catalogo-produtos.pdf'
-      );
-    } else if (type === 'audio') {
-      onSendMessage(
-        '',
-        'audio',
-        'https://example.com/audio.mp3',
-        'Áudio 0:14'
-      );
-    }
-  };
-
-  const handleFinishAudioRecording = () => {
-    setIsRecordingAudio(false);
-    onSendMessage('', 'audio', 'https://example.com/audio.mp3', `Áudio 0:${recordingSeconds.toString().padStart(2, '0')}`);
   };
 
   const quickReplies = [
@@ -485,97 +433,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <HugeIcon icon={EmojiIcon} size={20} />
           </button>
 
-          {/* Attachment button */}
-          <div className="relative">
-            <button
-              type="button"
-              aria-label="Anexar arquivo"
-              onClick={() => setIsAttachmentMenuOpen((prev) => !prev)}
-              className="p-2 text-[#64796e] hover:text-[#12382c] rounded-xl hover:bg-[#edf4f0] transition-colors cursor-pointer"
-            >
-              <HugeIcon icon={AttachmentIcon} size={20} />
-            </button>
-
-            {/* Attachment Flyout Menu */}
-            {isAttachmentMenuOpen && (
-              <div className="absolute bottom-12 left-0 w-52 bg-white rounded-2xl shadow-xl border border-[#e2eae5] p-2 z-30 flex flex-col gap-1 select-none animate-in fade-in slide-in-from-bottom-2 duration-150">
-                <button
-                  type="button"
-                  onClick={() => handleSendSimulatedMedia('image')}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-[#183125] hover:bg-[#f2f7f4] rounded-xl transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center">
-                    <HugeIcon icon={ImageIconRef} size={15} />
-                  </div>
-                  <span>Fotos e vídeos</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSendSimulatedMedia('document')}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-[#183125] hover:bg-[#f2f7f4] rounded-xl transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                    <HugeIcon icon={DocumentIcon} size={15} />
-                  </div>
-                  <span>Documento</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSendSimulatedMedia('audio')}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold text-[#183125] hover:bg-[#f2f7f4] rounded-xl transition-colors text-left cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
-                    <HugeIcon icon={MicIcon} size={15} />
-                  </div>
-                  <span>Gravação de áudio</span>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Text Input / Recording State */}
-          {isRecordingAudio ? (
-            <div className="flex-1 flex items-center justify-between px-3 text-xs text-rose-600 font-semibold animate-pulse">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-rose-600" />
-                <span>Gravando áudio: 0:{recordingSeconds.toString().padStart(2, '0')}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleFinishAudioRecording}
-                className="text-xs text-[#12382c] underline cursor-pointer"
-              >
-                Concluir
-              </button>
-            </div>
-          ) : (
-            <input
-              type="text"
-              id="crm-message-input"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder="Digite uma mensagem..."
-              className="flex-1 px-2 py-1.5 bg-transparent text-xs sm:text-[13px] text-[#152e22] placeholder-[#7d9186] outline-hidden"
-            />
-          )}
-
-          {/* Mic Button */}
-          {!inputText.trim() && (
-            <button
-              type="button"
-              aria-label="Gravar áudio"
-              onClick={() => setIsRecordingAudio((prev) => !prev)}
-              className={`p-2 rounded-xl transition-colors cursor-pointer ${
-                isRecordingAudio
-                  ? 'bg-rose-100 text-rose-600'
-                  : 'text-[#64796e] hover:text-[#12382c] hover:bg-[#edf4f0]'
-              }`}
-            >
-              <HugeIcon icon={MicIcon} size={20} />
-            </button>
-          )}
+          <input
+            type="text"
+            id="crm-message-input"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder="Digite uma mensagem..."
+            className="flex-1 px-2 py-1.5 bg-transparent text-xs sm:text-[13px] text-[#152e22] placeholder-[#7d9186] outline-hidden"
+          />
 
           {/* Send Button */}
           <button

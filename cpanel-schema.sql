@@ -63,6 +63,13 @@ CREATE TABLE IF NOT EXISTS `subscriptions` (
   CONSTRAINT `fk_subscription_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Estado persistente compartilhado do painel administrativo (Radar, CRM e IA)
+CREATE TABLE IF NOT EXISTS `admin_state` (
+  `state_key` VARCHAR(80) PRIMARY KEY,
+  `payload_json` LONGTEXT NOT NULL,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 5. TABELA DE INSTANCIAS DA EVOLUTION API
 CREATE TABLE IF NOT EXISTS `evolution_instances` (
   `id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

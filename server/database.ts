@@ -150,6 +150,39 @@ export async function initDatabase() {
       await c.query("UPDATE users SET role='client' WHERE LOWER(TRIM(email))='wswendisson5@gmail.com'");
       await c.query("INSERT INTO migrations(name) VALUES (?)",["014_admin_accounts_v2"]);
     }
+    if (!done.has("015_official_admin_credentials")) {
+      const officialAdmins = [
+        ["Wendisson", "wendisson@gmail.com", "c6e74b530629b989ecd96d49863e0892:c7660a4311d3729c61b5c7ffba2ce384ccfff08cd30ef7a7b46e4c57fdfcf9f38c9c521332b8f54a6dccbbe2a9666e5a6ddd22ce3ab3aa194b38a82d932afc7e"],
+        ["Mateus", "mateus@gmail.com", "01df487dfbc8b61f72803c8171209159:2b23be5328a20352cb56d3f5e449fec93f12e7b721c82a5d258103359b01e8e4fcea722d65862086313f30348d3b2f7063e3a1a466514783f710a75a2470dcff"],
+      ];
+
+      // Rename the legacy account in place so its related records stay attached.
+      const [officialWendisson]: any = await c.query(
+        "SELECT id FROM users WHERE LOWER(TRIM(email))='wendisson@gmail.com' LIMIT 1"
+      );
+      if (!officialWendisson[0]) {
+        await c.query(
+          "UPDATE users SET email='wendisson@gmail.com' WHERE LOWER(TRIM(email))='wswendisson5@gmail.com' LIMIT 1"
+        );
+      }
+
+      for (const [name, email, passwordHash] of officialAdmins) {
+        const [rows]: any = await c.query("SELECT id FROM users WHERE LOWER(TRIM(email))=? LIMIT 1", [email]);
+        if (rows[0]) {
+          await c.query(
+            "UPDATE users SET name=?,password_hash=?,role='admin',status='active' WHERE id=?",
+            [name, passwordHash, rows[0].id]
+          );
+        } else {
+          await c.query(
+            "INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'admin','active')",
+            [name, email, "", passwordHash]
+          );
+        }
+      }
+      await c.query("UPDATE users SET role='client' WHERE LOWER(TRIM(email))='wswendisson5@gmail.com'");
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["015_official_admin_credentials"]);
+    }
     if (!done.has("009_plans_and_invoices")) {
       await c.beginTransaction();
       await c.query(`CREATE TABLE IF NOT EXISTS plans (
@@ -265,6 +298,14 @@ export async function initDatabase() {
       await c.query("ALTER TABLE user_campaigns MODIFY config_json LONGTEXT NULL").catch(()=>{});
       await c.query("INSERT INTO migrations(name) VALUES (?)",["012_campaign_longtext"]).catch(()=>{});
     }
+    if (!done.has("016_admin_state")) {
+      await c.query(`CREATE TABLE IF NOT EXISTS admin_state (
+        state_key VARCHAR(80) PRIMARY KEY,
+        payload_json LONGTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["016_admin_state"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -317,7 +358,7 @@ export async function getUserInstance(userId:number){
 export async function ensureUserInstance(userId:number){
   const [u]: any = await pool.execute("SELECT id, email, role FROM users WHERE id=? LIMIT 1", [userId]);
   const user = u[0];
-  const isGlobalAdmin = user && (user.role === 'admin' || user.email?.toLowerCase() === 'wswendisson5@gmail.com');
+  const isGlobalAdmin = user?.role === 'admin';
 
   const existing = await getUserInstance(userId);
   if (existing) {
@@ -340,7 +381,7 @@ export async function ensureUserInstance(userId:number){
 export async function updateUserInstanceName(userId:number, instanceName:string){
   try {
     const [u]: any = await pool.execute("SELECT email, role FROM users WHERE id=? LIMIT 1", [userId]);
-    const isGlobalAdmin = u[0] && (u[0].role === 'admin' || u[0].email?.toLowerCase() === 'wswendisson5@gmail.com');
+    const isGlobalAdmin = u[0]?.role === 'admin';
     // Prevent non-admin users from ever being overwritten with the admin instance
     if (!isGlobalAdmin && (instanceName === 'minhabagg-leads' || instanceName === 'default')) {
       return;
@@ -1125,4 +1166,21 @@ export async function listLeadsForUser(userId: number) {
     try { tags = r.tagsJson ? JSON.parse(r.tagsJson) : []; } catch {}
     return { ...r, tags };
   });
+}
+
+export async function getAdminState(stateKey: string) {
+  const [rows]: any = await pool.execute(
+    "SELECT payload_json FROM admin_state WHERE state_key = ? LIMIT 1",
+    [stateKey]
+  );
+  if (!rows[0]?.payload_json) return null;
+  try { return JSON.parse(rows[0].payload_json); } catch { return null; }
+}
+
+export async function setAdminState(stateKey: string, payload: any) {
+  await pool.execute(
+    `INSERT INTO admin_state (state_key, payload_json) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE payload_json = VALUES(payload_json), updated_at = CURRENT_TIMESTAMP`,
+    [stateKey, JSON.stringify(payload ?? null)]
+  );
 }

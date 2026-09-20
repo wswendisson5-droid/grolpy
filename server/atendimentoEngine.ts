@@ -99,8 +99,8 @@ const ATENDIMENTOS_FILE = path.join(DATA_DIR, 'crm_contatos_oportunidades.json')
 const LEGACY_ATENDIMENTOS_FILE = path.join(DATA_DIR, 'crm_atendimentos.json');
 
 const DEFAULT_CONFIG: AIAgentConfig = {
-  enabled: true,
-  mode: 'auto',
+  enabled: false,
+  mode: 'copilot',
   agentName: 'Sofia',
   companyName: 'Nxs Divulgação',
   companyPitch: 'Ajudamos prestadores de serviço, autônomos e comércios locais a automatizarem suas divulgações em grupos de WhatsApp no piloto automático.',
@@ -115,7 +115,7 @@ const DEFAULT_CONFIG: AIAgentConfig = {
   followUp2Template:
     'Olá! Tudo bem?\n\nNão quero ser inconveniente! Esse será meu último contato por aqui. Se ainda fizer sentido automatizar suas postagens nos grupos e atrair mais clientes, me avise por aqui. Um abraço!',
   operatingHours: {
-    enabled: false,
+    enabled: true,
     start: '08:00',
     end: '20:00',
   },
@@ -128,6 +128,7 @@ export class AtendimentoEngine {
   public atendimentos: CRMAtendimentoLead[] = [];
   private workerTimer: NodeJS.Timeout | null = null;
   private evolutionSender?: (targetJid: string, text: string) => Promise<boolean>;
+  private persistenceHandler?: (payload: any) => Promise<void> | void;
 
   constructor() {
     this.ensureDataDir();
@@ -200,13 +201,42 @@ export class AtendimentoEngine {
     }
   }
 
+  public setPersistenceHandler(handler: (payload: any) => Promise<void> | void) {
+    this.persistenceHandler = handler;
+  }
+
+  public exportState() {
+    return { config: this.config, atendimentos: this.atendimentos };
+  }
+
+  public hydrateFromState(state: any) {
+    if (!state || typeof state !== 'object') return;
+    if (state.config && typeof state.config === 'object') {
+      this.config = { ...DEFAULT_CONFIG, ...state.config };
+    }
+    if (Array.isArray(state.atendimentos)) {
+      this.atendimentos = state.atendimentos.map((item: any) => ({
+        ...item,
+        collectedInfo: item.collectedInfo || {},
+        notes: Array.isArray(item.notes) ? item.notes : [],
+        messages: Array.isArray(item.messages) ? item.messages : [],
+      }));
+    }
+  }
+
   public saveToDisk() {
+    const payload = this.exportState();
     try {
       this.ensureDataDir();
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf-8');
       fs.writeFileSync(ATENDIMENTOS_FILE, JSON.stringify(this.atendimentos, null, 2), 'utf-8');
     } catch (e) {
       console.error('[AtendimentoEngine] Falha ao salvar no disco:', e);
+    }
+    if (this.persistenceHandler) {
+      Promise.resolve(this.persistenceHandler(payload)).catch((e) =>
+        console.error('[AtendimentoEngine] Falha ao persistir no banco:', e)
+      );
     }
   }
 
@@ -291,10 +321,10 @@ export class AtendimentoEngine {
       recommendedService: opportunity.recommendedService || 'Consultoria Digital',
       score: opportunity.score,
       urgency: opportunity.urgency || 'Alta',
-      status: this.config.enabled ? 'ia_em_atendimento' : 'aberto',
-      aiActiveForContact: this.config.enabled,
-      conversationStep: this.config.enabled ? 'greeting_sent' : 'human_control',
-      assignedTo: this.config.enabled ? `IA ${this.config.agentName}` : undefined,
+      status: this.config.enabled && this.config.mode === 'auto' ? 'ia_em_atendimento' : 'aberto',
+      aiActiveForContact: this.config.enabled && this.config.mode === 'auto',
+      conversationStep: this.config.enabled && this.config.mode === 'auto' ? 'greeting_sent' : 'human_control',
+      assignedTo: this.config.enabled && this.config.mode === 'auto' ? `IA ${this.config.agentName}` : undefined,
       createdAt: now,
       lastInteractionAt: now,
       clientReplied: false,
@@ -312,67 +342,44 @@ export class AtendimentoEngine {
       messages: [],
     };
 
-    // Se o atendimento automático da IA estiver ATIVO, disparar APENAS a saudação inicial simples ("Bom dia!")
-    // Conforme especificado pelo usuário: NÃO deve iniciar dizendo "Bom dia, [nome]".
-    // A primeira mensagem deve ser simplesmente: "Bom dia!". Depois disso, deve ESPERAR a pessoa responder.
-    if (this.config.enabled) {
+    // Só dispara automaticamente quando a IA estiver habilitada em modo auto.
+    // A saudação acompanha o horário local do servidor e não inclui o nome do contato.
+    if (this.config.enabled && this.config.mode === 'auto') {
       const currentHour = new Date().getHours();
-      let greeting = 'Bom dia!';
-      if (currentHour >= 12 && currentHour < 18) greeting = 'Boa tarde!';
-      else if (currentHour >= 18 || currentHour < 5) greeting = 'Boa noite!';
-
       let greetingText = 'Bom dia!';
-      if (this.config.step1GreetingTemplate && this.config.step1GreetingTemplate.trim()) {
-        const cleaned = this.config.step1GreetingTemplate
-          .replace(/{nome}/gi, '')
-          .replace(/{grupo}/gi, '')
-          .replace(/{demanda}/gi, '')
-          .replace(/[,;]/g, '')
-          .trim();
-        if (cleaned && cleaned.length <= 25) {
-          greetingText = cleaned;
-        } else {
-          greetingText = greeting;
-        }
-      } else {
-        greetingText = greeting;
-      }
+      if (currentHour >= 12 && currentHour < 18) greetingText = 'Boa tarde!';
+      else if (currentHour >= 18 || currentHour < 5) greetingText = 'Boa noite!';
 
-      newLead.notes.push({
-        id: `note-${Date.now()}-2`,
-        timestamp: now + 500,
-        timeFormatted,
-        author: `IA ${this.config.agentName}`,
-        text: `🤖 IA ${this.config.agentName} enviou a saudação inicial simples:\n\n"${greetingText}"\n\nAguardando o contato responder para analisar todo o histórico e conduzir a conversa naturalmente.`,
-        type: 'ai',
-      });
-
-      // Registrar a mensagem enviada no histórico permanente da conversa do cliente
-      const initialMsg: CRMLeadMessage = {
-        id: `msg-ia-initial-${now}`,
-        sender: 'ai',
-        senderName: `IA ${this.config.agentName}`,
-        text: greetingText,
-        timestamp: now,
-        time: timeFormatted,
-        status: 'sent',
-        type: 'text',
-      };
-      newLead.messages.push(initialMsg);
-
-      // Disparar via WhatsApp se tiver remetente configurado
-      if (this.evolutionSender && this.config.mode === 'auto') {
+      // Só registra como enviada depois de confirmação real da Evolution.
+      if (this.evolutionSender) {
         this.evolutionSender(opportunity.remoteJid, greetingText)
           .then((ok) => {
-            if (ok) {
-              newLead.firstMessageSentAt = Date.now();
-              initialMsg.status = 'delivered';
-              this.saveToDisk();
-            }
+            if (!ok) return;
+            const sentAt = Date.now();
+            newLead.firstMessageSentAt = sentAt;
+            newLead.messages.push({
+              id: `msg-ia-initial-${sentAt}`,
+              sender: 'ai',
+              senderName: `IA ${this.config.agentName}`,
+              text: greetingText,
+              timestamp: sentAt,
+              time: new Date(sentAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              status: 'delivered',
+              type: 'text',
+            });
+            newLead.notes.push({
+              id: `note-${sentAt}-2`,
+              timestamp: sentAt,
+              timeFormatted: new Date(sentAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+              author: `IA ${this.config.agentName}`,
+              text: `🤖 IA ${this.config.agentName} enviou a saudação inicial: "${greetingText}".`,
+              type: 'ai',
+            });
+            this.saveToDisk();
           })
           .catch((err) => console.error('[AtendimentoEngine] Falha ao enviar abordagem inicial:', err));
       } else {
-        newLead.firstMessageSentAt = Date.now();
+        console.warn('[AtendimentoEngine] Abordagem automática não enviada: Evolution sender indisponível.');
       }
     }
 
