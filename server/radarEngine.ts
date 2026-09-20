@@ -1150,8 +1150,15 @@ class RadarEngine {
           : 'model_rejected_or_below_threshold',
     });
 
-    // If evaluated as valid opportunity with confidence >= 70 (high selectivity)
-    if (evaluation.isOpportunity && evaluation.confidence >= 70) {
+    // Uma mensagem que chegou ate a fila ja passou pelo pre-filtro comercial. A IA
+    // enriquece a classificacao, mas nao pode vetar sinais comerciais objetivos.
+    const deterministicEvaluation = this.deterministicQualification(candidate);
+    const deterministicCommercial = deterministicEvaluation.isOpportunity && deterministicEvaluation.confidence >= 70;
+    const modelCommercial = evaluation.isOpportunity && evaluation.confidence >= 70;
+    if (deterministicCommercial && !modelCommercial) evaluation = deterministicEvaluation;
+    const shouldCreateOpportunity = deterministicCommercial || modelCommercial;
+
+    if (shouldCreateOpportunity) {
       const opportunity = this.createOpportunityRecord(candidate, evaluation);
       this.opportunities.unshift(opportunity);
 
