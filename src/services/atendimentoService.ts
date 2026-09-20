@@ -140,6 +140,17 @@ export const atendimentoService = {
     }
   },
 
+  async forceConversation(leadId: string): Promise<{ lead: CRMAtendimentoLead; message: string }> {
+    const res = await fetch('/api/atendimento/force-conversation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leadId }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Falha ao retomar conversa com IA');
+    return { lead: data.lead, message: data.message };
+  },
+
   async updateStatus(leadId: string, status: string, userName: string = 'Enzo Santos'): Promise<CRMAtendimentoLead | null> {
     try {
       const res = await fetch('/api/atendimento/status', {

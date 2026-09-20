@@ -2318,6 +2318,15 @@ app.post("/api/atendimento/toggle-ai", requireAdminRoute, (req, res) => {
   res.json({ success: true, lead: updated });
 });
 
+// Manual AI re-engagement: generate from the real conversation context and send only after Evolution confirms.
+app.post("/api/atendimento/force-conversation", requireAdminRoute, async (req, res) => {
+  const { leadId } = req.body || {};
+  if (!leadId) return res.status(400).json({ error: "leadId é obrigatório" });
+  const result = await atendimentoEngine.forceAiConversation(String(leadId));
+  if (!result.ok) return res.status(result.error === "Lead não encontrado" ? 404 : 409).json({ error: result.error });
+  res.json({ success: true, lead: result.lead, message: result.message });
+});
+
 // Get AI Agent configuration
 app.get("/api/atendimento/config", requireAdminRoute, (_req, res) => {
   res.json({

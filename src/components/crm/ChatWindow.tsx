@@ -15,6 +15,7 @@ import {
   ChevronLeftIcon,
   Layers01Icon,
   TelephoneIcon,
+  SparklesIcon,
 } from '../icons/HugeIcon';
 
 interface ChatWindowProps {
@@ -26,6 +27,8 @@ interface ChatWindowProps {
   onOpenDetailsMobile?: () => void;
   isDetailsPanelOpen?: boolean;
   onToggleDetailsPanel?: () => void;
+  onForceAiConversation?: () => Promise<void> | void;
+  isForcingAiConversation?: boolean;
 }
 
 export const ChatWindow: React.FC<ChatWindowProps> = ({
@@ -37,11 +40,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   onOpenDetailsMobile,
   isDetailsPanelOpen,
   onToggleDetailsPanel,
+  onForceAiConversation,
+  isForcingAiConversation = false,
 }) => {
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadNewMessagesCount, setUnreadNewMessagesCount] = useState(0);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -269,12 +275,35 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           )}
 
           {/* More Options */}
-          <button
-            aria-label="Mais opções"
-            className="p-2 rounded-xl border border-[#e2ebe5] text-[#6b7e74] hover:text-[#12382c] hover:bg-[#f2f7f4] transition-colors cursor-pointer"
-          >
-            <HugeIcon icon={MoreHorizontalIcon} size={17} />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setIsMoreMenuOpen((open) => !open)}
+              aria-label="Mais opções"
+              aria-expanded={isMoreMenuOpen}
+              className="p-2 rounded-xl border border-[#e2ebe5] text-[#6b7e74] hover:text-[#12382c] hover:bg-[#f2f7f4] transition-colors cursor-pointer"
+            >
+              <HugeIcon icon={MoreHorizontalIcon} size={17} />
+            </button>
+            {isMoreMenuOpen && onForceAiConversation && (
+              <div className="absolute right-0 top-11 z-40 w-64 rounded-xl border border-[#dce8e1] bg-white p-1.5 shadow-xl">
+                <button
+                  type="button"
+                  disabled={isForcingAiConversation}
+                  onClick={async () => {
+                    setIsMoreMenuOpen(false);
+                    await onForceAiConversation();
+                  }}
+                  className="w-full flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left hover:bg-[#f2f7f4] disabled:opacity-60 disabled:cursor-wait"
+                >
+                  <HugeIcon icon={SparklesIcon} size={16} className="mt-0.5 text-emerald-600 shrink-0" />
+                  <span>
+                    <span className="block text-sm font-semibold text-[#173c2d]">{isForcingAiConversation ? 'IA preparando retomada...' : 'Retomar conversa com IA'}</span>
+                    <span className="block text-[11px] leading-4 text-[#687a70] mt-0.5">A IA lê o histórico e cria uma nova abordagem contextual.</span>
+                  </span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

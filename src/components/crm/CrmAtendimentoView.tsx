@@ -87,6 +87,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
     Array<{ name: string; connectionStatus: string; profileName?: string; contactCount?: number }>
   >([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isForcingAiConversation, setIsForcingAiConversation] = useState(false);
 
   // Mobile View Navigation State: 'list' -> 'chat' -> 'details'
   const [mobileScreen, setMobileScreen] = useState<'list' | 'chat' | 'details'>('list');
@@ -288,6 +289,20 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
     if (updated) {
       setAtendimentoLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
       loadData();
+    }
+  };
+
+  const handleForceAiConversation = async () => {
+    if (!activeLead || isForcingAiConversation) return;
+    setIsForcingAiConversation(true);
+    try {
+      const result = await atendimentoService.forceConversation(activeLead.id);
+      setAtendimentoLeads((prev) => prev.map((lead) => (lead.id === result.lead.id ? result.lead : lead)));
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Falha ao retomar conversa com IA');
+    } finally {
+      setIsForcingAiConversation(false);
     }
   };
 
@@ -662,6 +677,8 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                     contact={activeContact}
                     messages={currentMessages}
                     onSendMessage={handleSendMessage}
+                    onForceAiConversation={handleForceAiConversation}
+                    isForcingAiConversation={isForcingAiConversation}
                     onToggleFavorite={() => {
                       setContacts((prev) =>
                         prev.map((c) =>
@@ -812,6 +829,8 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
                     contact={activeContact}
                     messages={currentMessages}
                     onSendMessage={handleSendMessage}
+                    onForceAiConversation={handleForceAiConversation}
+                    isForcingAiConversation={isForcingAiConversation}
                     onToggleFavorite={() => {
                       setContacts((prev) =>
                         prev.map((c) =>

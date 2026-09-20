@@ -592,6 +592,51 @@ export class AtendimentoEngine {
     this.saveToDisk();
   }
 
+  public async forceAiConversation(leadIdOrJid: string) {
+    const lead = this.findLead(leadIdOrJid);
+    if (!lead) return { ok: false as const, error: 'Lead não encontrado' };
+    const aiRuntime = getAiRuntimeInfo();
+    if (!aiRuntime.configured) return { ok: false as const, error: 'Provedor de IA não configurado' };
+    if (!this.evolutionSender) return { ok: false as const, error: 'Evolution sender indisponível' };
+
+    const knownName = (lead.collectedInfo['nome'] || lead.contactName || '').trim();
+    const history = lead.messages.slice(-40).map((m) => {
+      const who = m.sender === 'client' ? (knownName || 'Cliente') : (m.sender === 'ai' ? `IA (${this.config.agentName})` : m.senderName || 'Equipe');
+      return `[${who}]: "${safeUnicodeTruncate(m.text, 1000)}"`;
+    }).join('\\n');
+
+    let text = '';
+    if (aiRuntime.provider === 'openai') {
+      try {
+        const parsed = await createOpenAIStructuredResponse<{ message: string }>({
+          name: 'crm_manual_ai_reengagement',
+          instructions: `Você é ${this.config.agentName}, consultora comercial da ${this.config.companyName}. Crie UMA mensagem curta e natural de WhatsApp para retomar uma conversa existente. A mensagem deve ser criada agora pela IA a partir do histórico real, nunca usar texto fixo. Não repita literalmente mensagens anteriores, não invente fatos, preços, promessas ou respostas do cliente. Adapte tom e abordagem ao ponto exato da conversa. Se houver uma pergunta ou assunto pendente, retome-o naturalmente. No máximo duas frases.`,
+          input: `DADOS DO CRM:\nNome: ${knownName || 'não informado'}\nGrupo de origem: ${lead.groupName}\nDivulgação original: ${lead.originalMessage}\nResumo: ${lead.demandSummary}\nSolução: ${lead.recommendedService}\nEtapa: ${lead.conversationStep}\nMemórias: ${JSON.stringify(lead.collectedInfo)}\n\nHISTÓRICO REAL (cronológico):\n${history || 'Sem mensagens anteriores registradas.'}\n\nGere uma retomada coerente com esse histórico.`,
+          schema: {
+            type: 'object', additionalProperties: false,
+            properties: { message: { type: 'string' } },
+            required: ['message'],
+          },
+        });
+        text = String(parsed.message || '').trim();
+      } catch (err: any) {
+        console.warn('[AtendimentoEngine] Falha ao gerar retomada manual:', err?.message || err);
+      }
+    }
+    if (!text) return { ok: false as const, error: 'A IA não conseguiu gerar uma retomada válida' };
+
+    const delivered = await this.evolutionSender(lead.contactJid, text, 'reply').catch(() => false);
+    if (!delivered) return { ok: false as const, error: 'A Evolution não confirmou o envio' };
+
+    const now = Date.now();
+    const timeFormatted = getSaoPauloTime(new Date(now)).time;
+    lead.messages.push({ id: `msg-ia-reengage-${now}`, sender: 'ai', senderName: `IA ${this.config.agentName}`, text, timestamp: now, time: timeFormatted, status: 'delivered', type: 'text' });
+    lead.notes.push({ id: `note-${now}-reengage`, timestamp: now, timeFormatted, author: `IA ${this.config.agentName}`, text: `IA retomou manualmente a conversa usando o histórico atual.`, type: 'ai' });
+    lead.lastInteractionAt = now;
+    this.saveToDisk();
+    return { ok: true as const, lead, message: text };
+  }
+
   /**
    * Revisa TODO o histórico da conversa e gera a resposta contextual mais humana e adequada
    */
