@@ -1756,7 +1756,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
   }
 
   private getCurrentInstance(): string {
-    return (global as any).activeEvolutionInstanceName || 'minhabagg-leads';
+    return this.instanceName || 'minhabagg-leads';
   }
 
   // ----------------------------------------------------

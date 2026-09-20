@@ -2088,6 +2088,9 @@ app.post("/api/crm/send-message", requireAdminRoute, async (req, res) => {
 
 // Status & Metrics
 app.get("/api/radar/status", requireAdminRoute, (_req, res) => {
+  // O Radar administrativo usa a instância Evolution do admin.
+  // Mantenha a mesma instância usada pelas rotas /api/radar/groups também no polling.
+  radarEngine.instanceName = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
   radarEngine.ensureMonitoringStarted();
   res.json(radarEngine.getStatus());
 });
