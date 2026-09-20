@@ -4146,6 +4146,27 @@ async function startServer() {
 
   app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Nexus Evolution Backend running on http://0.0.0.0:${PORT}`);
+
+    // Radar polling can work while the webhook is missing, hiding failures in
+    // private inbound messages. Re-register the admin webhook on every boot.
+    const appUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
+    if (appUrl && DEFAULT_EVOLUTION_URL && DEFAULT_EVOLUTION_KEY) {
+      void callEvolution(`/webhook/set/${DEFAULT_INSTANCE_NAME}`, {
+        method: "POST",
+        body: JSON.stringify({
+          enabled: true,
+          url: `${appUrl}/api/evolution/webhook`,
+          webhookByEvents: false,
+          events: ["QRCODE_UPDATED", "MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
+        }),
+      }).then((result) => {
+        memoryState.webhookStatus = result.ok ? "active" : "inactive";
+        if (!result.ok) console.error("[Evolution webhook] Falha ao registrar webhook:", result.status);
+      }).catch((error) => {
+        memoryState.webhookStatus = "inactive";
+        console.error("[Evolution webhook] Falha ao registrar webhook:", error?.message || error);
+      });
+    }
   });
 }
 
