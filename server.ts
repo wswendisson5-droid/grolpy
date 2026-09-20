@@ -2239,6 +2239,45 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => 
   }
 });
 
+// Webhook is primary. Reconcile real Evolution history too, so private replies
+// cannot disappear from IA Chat when webhook delivery is interrupted.
+let atendimentoInboundSyncRunning = false;
+setInterval(() => {
+  if (atendimentoInboundSyncRunning || atendimentoEngine.atendimentos.length === 0) return;
+  atendimentoInboundSyncRunning = true;
+  void (async () => {
+    try {
+      const instance = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
+      const response = await callEvolution(`/chat/findMessages/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({ limit: 100 }),
+      });
+      const payload = response.data;
+      const records = payload?.messages?.records || payload?.records || (Array.isArray(payload) ? payload : []);
+      if (!Array.isArray(records)) return;
+      const ordered = [...records].sort((a: any, b: any) => getWhatsAppMessageTimestamp(a) - getWhatsAppMessageTimestamp(b));
+      for (const msg of ordered) {
+        const remoteJid = String(msg?.key?.remoteJid || msg?.remoteJid || "");
+        if (!remoteJid || remoteJid.endsWith("@g.us") || msg?.key?.fromMe) continue;
+        const text = extractWhatsAppMessageText(msg);
+        if (!text) continue;
+        const candidates = [
+          msg?.key?.senderPn, msg?.senderPn, msg?.key?.participantAlt, msg?.participantAlt,
+          msg?.key?.participant, msg?.participant, msg?.key?.remoteJidAlt, msg?.remoteJidAlt,
+          msg?.key?.remoteJid, msg?.remoteJid, msg?.sender,
+        ].filter((value): value is string => typeof value === "string" && value.length > 0);
+        const lead = candidates.map((candidate) => atendimentoEngine.findLead(candidate)).find(Boolean);
+        if (!lead) continue;
+        await atendimentoEngine.handleIncomingClientMessage(lead.contactJid, text, String(msg?.key?.id || msg?.id || ""));
+      }
+    } catch (error: any) {
+      console.error("[AtendimentoEngine] Falha na reconciliacao inbound:", error?.message || error);
+    } finally {
+      atendimentoInboundSyncRunning = false;
+    }
+  })();
+}, 8000);
+
 // List leads originating from Radar in CRM Atendimento
 app.get("/api/atendimento/leads", requireAdminRoute, (_req, res) => {
   res.json({
