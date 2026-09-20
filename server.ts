@@ -1469,7 +1469,7 @@ app.post("/api/evolution/set-webhook", async (req, res) => {
 
     const setRes = await callEvolution(`/webhook/set/${instance}`, {
       method: "POST",
-      body: JSON.stringify(webhookPayload),
+      body: JSON.stringify({ webhook: webhookPayload }),
     });
 
     memoryState.webhookStatus = "active";
@@ -4149,15 +4149,17 @@ async function startServer() {
 
     // Radar polling can work while the webhook is missing, hiding failures in
     // private inbound messages. Re-register the admin webhook on every boot.
-    const appUrl = String(process.env.APP_URL || "").replace(/\/$/, "");
+    const appUrl = String(process.env.APP_URL || "https://grolpy.minhabagg.com.br").replace(/\/$/, "");
     if (appUrl && DEFAULT_EVOLUTION_URL && DEFAULT_EVOLUTION_KEY) {
       void callEvolution(`/webhook/set/${DEFAULT_INSTANCE_NAME}`, {
         method: "POST",
         body: JSON.stringify({
-          enabled: true,
-          url: `${appUrl}/api/evolution/webhook`,
-          webhookByEvents: false,
-          events: ["QRCODE_UPDATED", "MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
+          webhook: {
+            enabled: true,
+            url: `${appUrl}/api/evolution/webhook`,
+            webhookByEvents: false,
+            events: ["QRCODE_UPDATED", "MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
+          },
         }),
       }).then((result) => {
         memoryState.webhookStatus = result.ok ? "active" : "inactive";
