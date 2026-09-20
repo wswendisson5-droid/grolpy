@@ -2228,7 +2228,7 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => 
     const sendRes = await callEvolution(`/message/sendText/${instance}`, {
       method: "POST",
       body: JSON.stringify({
-        number: cleanNumber || targetJid,
+        number: targetJid,
         text,
       }),
     });
