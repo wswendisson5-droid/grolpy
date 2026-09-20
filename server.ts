@@ -5,6 +5,7 @@ import fs from "fs";
 import http from "http";
 import https from "https";
 import net from "net";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import QRCode from "qrcode";
 import { radarEngine } from "./server/radarEngine";
@@ -403,6 +404,16 @@ function sessionTokenFromRequest(req: any): string {
   return String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
 }
 
+function cookieValue(req:any,name:string){
+  const raw=String(req.headers.cookie||"").split(";").map((x:string)=>x.trim()).find((x:string)=>x.startsWith(name+"="));
+  if(!raw)return ""; try{return decodeURIComponent(raw.slice(name.length+1));}catch{return "";}
+}
+function setReferralCookie(res:any,slug:string){
+  const secure=process.env.NODE_ENV==="production"?"; Secure":"";
+  const current=res.getHeader("Set-Cookie"); const value=`grolpy_ref=${encodeURIComponent(slug)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`;
+  res.setHeader("Set-Cookie",current?[...(Array.isArray(current)?current:[String(current)]),value]:value);
+}
+
 function setSessionCookie(res: any, token: string) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.setHeader("Set-Cookie", `grolpy_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
@@ -452,6 +463,27 @@ async function ownedInstance(req: any, requireActive = true, createIfMissing = t
   return { user, db, instance: inst.instance_name, record: inst, isAdmin };
 }
 
+// Representative referral tracking and dashboards.
+app.post("/api/referral/visit/:slug", async (req,res)=>{
+  try{
+    const db:any=await getDatabase(); const slug=String(req.params.slug||"").toLowerCase();
+    const fingerprint=crypto.createHash("sha256").update(String(req.ip||"")+"|"+String(req.headers["user-agent"]||"")).digest("hex");
+    const rep=await db.trackRepresentativeVisit(slug,fingerprint); if(!rep)return res.status(404).json({error:"REPRESENTATIVE_NOT_FOUND"});
+    setReferralCookie(res,slug); res.json({success:true});
+  }catch(e:any){res.status(500).json({error:e?.message||"REFERRAL_TRACK_FAILED"});}
+});
+app.get("/api/representative/dashboard", async(req,res)=>{
+  const user:any=await authenticatedUser(req); if(!user)return res.status(401).json({error:"UNAUTHORIZED"}); if(user.role!=="representative")return res.status(403).json({error:"REPRESENTATIVE_REQUIRED"});
+  const db:any=await getDatabase(); const data=await db.getRepresentativeDashboard(user.id); if(!data)return res.status(404).json({error:"REPRESENTATIVE_NOT_FOUND"}); res.json({success:true,data});
+});
+app.get("/api/admin/representatives",requireAdminRoute,async(_req,res)=>{const db:any=await getDatabase();res.json({success:true,representatives:await db.listRepresentatives()});});
+app.post("/api/admin/representatives",requireAdminRoute,async(req,res)=>{
+  try{const {name,email,password,slug,commissionPercent}=req.body||{}; const pct=Number(commissionPercent); if(!name||!email||!password||!slug||!Number.isFinite(pct)||pct<0||pct>100)return res.status(400).json({error:"Dados inválidos"});
+    const db:any=await getDatabase(); const created=await db.createRepresentative(String(name),String(email),String(password),String(slug),pct); res.status(201).json({success:true,...created});
+  }catch(e:any){res.status(e?.code==="ER_DUP_ENTRY"?409:500).json({error:e?.code==="ER_DUP_ENTRY"?"E-mail ou link já utilizado":e?.message||"CREATE_REP_FAILED"});}
+});
+app.patch("/api/admin/representatives/:id",requireAdminRoute,async(req,res)=>{const pct=Number(req.body?.commissionPercent);if(!Number.isFinite(pct)||pct<0||pct>100)return res.status(400).json({error:"Porcentagem inválida"});const db:any=await getDatabase();await db.updateRepresentative(Number(req.params.id),pct,req.body?.isActive!==false);res.json({success:true});});
+
 // Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -459,6 +491,11 @@ app.post("/api/auth/register", async (req, res) => {
     const { name, email, phone, password } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ success: false, error: "Preencha nome, e-mail e senha." });
     const user = await registerUser(String(name), String(email), String(phone || ""), String(password));
+    const refSlug = cookieValue(req, "grolpy_ref");
+    if (refSlug) {
+      const db:any = await getDatabase();
+      await db.attachRepresentativeReferral(refSlug, user.id).catch(() => {});
+    }
     res.status(201).json({ success: true, user });
   } catch (err: any) {
     const duplicate = err?.code === "ER_DUP_ENTRY";

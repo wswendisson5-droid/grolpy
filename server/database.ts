@@ -319,6 +319,54 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)", ["016_admin_state"]);
     }
+    if (!done.has("018_representatives")) {
+      await c.beginTransaction();
+      await c.query(`CREATE TABLE IF NOT EXISTS representatives (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+        slug VARCHAR(80) NOT NULL UNIQUE,
+        commission_percent DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_rep_user FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query(`CREATE TABLE IF NOT EXISTS representative_visits (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        representative_id BIGINT UNSIGNED NOT NULL,
+        visitor_key CHAR(64) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX(representative_id), INDEX(created_at),
+        CONSTRAINT fk_rep_visit FOREIGN KEY(representative_id) REFERENCES representatives(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query(`CREATE TABLE IF NOT EXISTS representative_referrals (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        representative_id BIGINT UNSIGNED NOT NULL,
+        customer_user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+        first_payment_id VARCHAR(80) NULL,
+        first_payment_value DECIMAL(10,2) NULL,
+        commission_percent DECIMAL(5,2) NOT NULL,
+        commission_value DECIMAL(10,2) NULL,
+        status VARCHAR(30) NOT NULL DEFAULT 'registered',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        converted_at DATETIME NULL,
+        INDEX(representative_id), INDEX(status),
+        CONSTRAINT fk_ref_rep FOREIGN KEY(representative_id) REFERENCES representatives(id) ON DELETE CASCADE,
+        CONSTRAINT fk_ref_customer FOREIGN KEY(customer_user_id) REFERENCES users(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["018_representatives"]);
+      await c.commit();
+    }
+    if (!done.has("019_test_representative")) {
+      const email = "representante@gmail.com";
+      const passwordHash = "c1accea743872d18a143f1652e33d1bc:f46f93aba0f948f0949b872b44fe53bd6cf624fbac3815802112019937dc3f24916281d04d3be686b2fef01bf543960bb3a751726e14a04543874ebf63c9462b";
+      await c.query(`INSERT INTO users(name,email,phone,password_hash,role,status) VALUES('Representante Teste',?,?,?,'representative','active')
+        ON DUPLICATE KEY UPDATE password_hash=VALUES(password_hash),role='representative',status='active'`, [email, "", passwordHash]);
+      const [repUsers]: any = await c.query("SELECT id FROM users WHERE email=? LIMIT 1", [email]);
+      await c.query(`INSERT INTO representatives(user_id,slug,commission_percent,is_active) VALUES(?,'representante',10.00,1)
+        ON DUPLICATE KEY UPDATE slug='representante',is_active=1`, [repUsers[0].id]);
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["019_test_representative"]);
+    }
     console.log("[DB] MySQL conectado e migrations atualizadas.");
     return true;
   } catch(e){ await c.rollback(); throw e; } finally { c.release(); }
@@ -1121,6 +1169,16 @@ export async function confirmInvoicePayment(paymentId: string, eventType = "PAYM
     [inv.plan_id, inv.user_id]
   );
 
+  await pool.execute(
+    `UPDATE representative_referrals
+     SET status='converted', first_payment_id=COALESCE(first_payment_id, ?),
+         first_payment_value=COALESCE(first_payment_value, ?),
+         commission_value=COALESCE(commission_value, ROUND(? * commission_percent / 100, 2)),
+         converted_at=COALESCE(converted_at, NOW())
+     WHERE customer_user_id=? AND status='registered'`,
+    [paymentId, inv.value, inv.value, inv.user_id]
+  ).catch(() => {});
+
   if (paymentPayload) {
     try {
       await pool.execute(
@@ -1134,6 +1192,21 @@ export async function confirmInvoicePayment(paymentId: string, eventType = "PAYM
 }
 
 // ----------------------------------------------------
+export async function getRepresentativeBySlug(slug:string){ const [rows]:any=await pool.execute(`SELECT r.*,u.name,u.email FROM representatives r JOIN users u ON u.id=r.user_id WHERE r.slug=? AND r.is_active=1 LIMIT 1`,[slug]); return rows[0]||null; }
+export async function trackRepresentativeVisit(slug:string,visitorKey:string){ const rep=await getRepresentativeBySlug(slug); if(!rep)return null; await pool.execute("INSERT INTO representative_visits(representative_id,visitor_key) VALUES(?,?)",[rep.id,visitorKey]); return rep; }
+export async function attachRepresentativeReferral(slug:string,customerUserId:number){ const rep=await getRepresentativeBySlug(slug); if(!rep||Number(rep.user_id)===Number(customerUserId))return false; await pool.execute(`INSERT IGNORE INTO representative_referrals(representative_id,customer_user_id,commission_percent) VALUES(?,?,?)`,[rep.id,customerUserId,rep.commission_percent]); return true; }
+export async function getRepresentativeDashboard(userId:number){
+  const [rows]:any=await pool.execute(`SELECT r.id,r.slug,r.commission_percent AS commissionPercent,u.name,u.email FROM representatives r JOIN users u ON u.id=r.user_id WHERE r.user_id=? LIMIT 1`,[userId]); const rep=rows[0]; if(!rep)return null;
+  const [stats]:any=await pool.execute(`SELECT (SELECT COUNT(*) FROM representative_visits WHERE representative_id=?) views,(SELECT COUNT(*) FROM representative_referrals WHERE representative_id=?) leads,(SELECT COUNT(*) FROM representative_referrals WHERE representative_id=? AND status='converted') clients,(SELECT COALESCE(SUM(commission_value),0) FROM representative_referrals WHERE representative_id=? AND status='converted') commissionTotal`,[rep.id,rep.id,rep.id,rep.id]);
+  const [clients]:any=await pool.execute(`SELECT rr.status,rr.commission_value AS commissionValue,rr.converted_at AS convertedAt,rr.created_at AS createdAt,u.name,u.email FROM representative_referrals rr JOIN users u ON u.id=rr.customer_user_id WHERE rr.representative_id=? ORDER BY rr.created_at DESC LIMIT 50`,[rep.id]); return {...rep,...stats[0],clients};
+}
+export async function listRepresentatives(){ const [rows]:any=await pool.execute(`SELECT r.id,r.user_id AS userId,r.slug,r.commission_percent AS commissionPercent,r.is_active AS isActive,u.name,u.email,(SELECT COUNT(*) FROM representative_visits v WHERE v.representative_id=r.id) views,(SELECT COUNT(*) FROM representative_referrals x WHERE x.representative_id=r.id AND x.status='converted') clients FROM representatives r JOIN users u ON u.id=r.user_id ORDER BY r.created_at DESC`); return rows; }
+export async function createRepresentative(name:string,email:string,password:string,slug:string,commissionPercent:number){
+  const normalized=email.trim().toLowerCase(),cleanSlug=slug.trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,""); if(!cleanSlug)throw new Error("SLUG_INVALID"); const passwordHash=hashPassword(password); const conn=await pool.getConnection();
+  try{ await conn.beginTransaction(); const [existing]:any=await conn.execute("SELECT id FROM users WHERE email=? LIMIT 1",[normalized]); let userId=existing[0]?.id; if(userId) await conn.execute("UPDATE users SET name=?,password_hash=?,role='representative',status='active' WHERE id=?",[name.trim(),passwordHash,userId]); else { const [r]:any=await conn.execute("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'representative','active')",[name.trim(),normalized,"",passwordHash]); userId=r.insertId; } await conn.execute(`INSERT INTO representatives(user_id,slug,commission_percent,is_active) VALUES(?,?,?,1) ON DUPLICATE KEY UPDATE slug=VALUES(slug),commission_percent=VALUES(commission_percent),is_active=1`,[userId,cleanSlug,commissionPercent]); await conn.commit(); return {userId,slug:cleanSlug}; }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}
+export async function updateRepresentative(id:number,commissionPercent:number,isActive:boolean){ await pool.execute("UPDATE representatives SET commission_percent=?,is_active=? WHERE id=?",[commissionPercent,isActive?1:0,id]); }
+
 // CRM & RADAR PERSISTENCE
 // ----------------------------------------------------
 

@@ -48,10 +48,14 @@ import { ClientPlanosView } from './components/client-panel/views/ClientPlanosVi
 import { ClientCheckoutView } from './components/client-panel/views/ClientCheckoutView';
 import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
+import { RepresentativesAdminView } from './components/admin/RepresentativesAdminView';
+import { RepresentativeDashboard } from './components/representative/RepresentativeDashboard';
+import { representativeService } from './services/representativeService';
 import { sessionService } from './services/sessionService';
 
 export default function App() {
-  const [panelMode, setPanelMode] = useState<any>('loading');
+  const referralPath = window.location.pathname.match(/^\/representante(?:\/([a-zA-Z0-9_-]+))?\/?$/);
+  const [panelMode, setPanelMode] = useState<any>(referralPath ? 'referral-loading' : 'loading');
 
   const logout = async () => {
     await sessionService.logout();
@@ -69,12 +73,19 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (referralPath) {
+      const slug = referralPath[1] || 'representante';
+      representativeService.track(slug).catch(() => {}).finally(() => { window.history.replaceState({}, '', '/'); setPanelMode('landing'); });
+      return;
+    }
     let alive = true;
     (async () => {
       try {
         const d = await sessionService.status();
         if (!alive) return;
-        if (d?.user?.role === 'admin') {
+        if (d?.user?.role === 'representative') {
+          setPanelMode('representative');
+        } else if (d?.user?.role === 'admin') {
           setCurrentTab('radar');
           setPanelMode('admin');
         } else if (d?.access) setPanelMode('client');
@@ -89,7 +100,7 @@ export default function App() {
     return () => { alive = false; };
   }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
+  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
@@ -350,7 +361,7 @@ export default function App() {
     return opportunities.filter((o) => o.stage === 'nao_atribuidas').length;
   }, [opportunities]);
 
-  if (panelMode === 'loading') {
+  if (panelMode === 'loading' || panelMode === 'referral-loading') {
     return (
       <div className="min-h-screen bg-[#f8faf9] flex flex-col items-center justify-center p-4 selection:bg-[#00c968] selection:text-white">
         <div className="flex flex-col items-center gap-4">
@@ -389,6 +400,10 @@ export default function App() {
         onLoginSuccess={async () => {
           try {
             const d = await sessionService.status();
+            if (d?.user?.role === 'representative') {
+              setPanelMode('representative');
+              return;
+            }
             if (d?.user?.role === 'admin') {
               setCurrentTab('radar');
               setPanelMode('admin');
@@ -421,6 +436,10 @@ export default function App() {
     return <ClientCheckoutView initialPlanId={publicPlanId} onboardingMode onBack={()=>setPanelMode('public-plans')} onGoToDashboard={()=>setPanelMode('client')} onGoToPlans={()=>setPanelMode('public-plans')} onGoToNovaDivulgacao={()=>setPanelMode('client')} />;
   }
 
+  if (panelMode === 'representative') {
+    return <RepresentativeDashboard onLogout={logout} />;
+  }
+
   // If Client Panel mode is active, render Client Dashboard
   if (panelMode === 'client') {
     return <ClientPanel onSwitchPanel={handleSwitchPanel} />;
@@ -444,7 +463,9 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {currentTab === 'assinantes' && <div className="flex-1 overflow-y-auto"><SubscriptionsAdminView /></div>}
 
-                {/* VIEW 1: OPORTUNIDADES PAGE */}
+                {currentTab === 'representantes' && <RepresentativesAdminView />}
+
+          {/* VIEW 1: OPORTUNIDADES PAGE */}
         {currentTab === 'oportunidades' && (
           <OpportunitiesView
             opportunities={opportunities}
