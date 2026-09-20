@@ -1661,9 +1661,19 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
         // remain isolated for the regular CRM flow.
         radarEngine.clearTyping(remoteJid);
         const text = extractWhatsAppMessageText(msg);
-        if (text && atendimentoEngine.findLead(remoteJid)) {
+        const directJidCandidates = [
+          msg.key?.remoteJidAlt,
+          msg.remoteJidAlt,
+          msg.key?.remoteJid,
+          msg.remoteJid,
+          msg.sender,
+        ].filter((value): value is string => typeof value === "string" && value.length > 0);
+        const matchedLead = directJidCandidates
+          .map((candidate) => atendimentoEngine.findLead(candidate))
+          .find(Boolean);
+        if (text && matchedLead) {
           atendimentoEngine
-            .handleIncomingClientMessage(remoteJid, text, String(msg.key?.id || ''))
+            .handleIncomingClientMessage(matchedLead.contactJid, text, String(msg.key?.id || ''))
             .catch((error) => console.error('[AtendimentoEngine] Falha ao processar mensagem recebida:', error));
         }
       }
