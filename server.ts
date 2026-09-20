@@ -2243,10 +2243,11 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string) => 
 // cannot disappear from IA Chat when webhook delivery is interrupted.
 let atendimentoInboundSyncRunning = false;
 setInterval(() => {
-  if (atendimentoInboundSyncRunning || atendimentoEngine.atendimentos.length === 0) return;
+  if (atendimentoInboundSyncRunning) return;
   atendimentoInboundSyncRunning = true;
   void (async () => {
     try {
+      await getDatabase();
       const instance = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
       const response = await callEvolution(`/chat/findMessages/${instance}`, {
         method: "POST",
