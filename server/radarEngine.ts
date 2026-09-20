@@ -598,10 +598,13 @@ class RadarEngine {
   private listenerIntervalTimer: any = null;
   private lastCheckedMessageTimestamps: Map<string, number> = new Map();
 
-  // Evolution & Gemini clients
+  // Evolution & AI providers
   public instanceName: string = 'nexus-radar';
   private evolutionCaller: ((endpoint: string, options?: any) => Promise<any>) | null = null;
   private geminiClient: GoogleGenAI | null = null;
+  private aiProvider: 'openai' | 'gemini' = 'openai';
+  private openAiApiKey = '';
+  private openAiModel = 'gpt-5.6-luna';
   private persistenceHandler?: (payload: any) => Promise<void> | void;
 
   // Real-time typing tracking (remoteJid -> expiry timestamp)
@@ -654,7 +657,7 @@ class RadarEngine {
   constructor() {
     this.ensureDataDir();
     this.loadFromDisk();
-    this.initGemini();
+    this.initAIProviders();
     this.startWorker();
   }
 
@@ -668,7 +671,14 @@ class RadarEngine {
     }
   }
 
-  private initGemini() {
+  private initAIProviders() {
+    const provider = String(process.env.AI_PROVIDER || 'openai').trim().toLowerCase();
+    this.aiProvider = provider === 'gemini' ? 'gemini' : 'openai';
+    this.openAiApiKey = String(process.env.OPENAI_API_KEY || '').trim();
+    this.openAiModel = String(process.env.OPENAI_MODEL || 'gpt-5.6-luna').trim();
+    if (this.openAiApiKey) console.log(`[Radar] OpenAI configured (${this.openAiModel}); active provider: ${this.aiProvider}.`);
+    else if (this.aiProvider === 'openai') console.warn('[Radar] OPENAI_API_KEY not found. AI fallback will be used.');
+
     const key = process.env.GEMINI_API_KEY;
     if (key) {
       try {
@@ -1044,7 +1054,13 @@ class RadarEngine {
     let evaluation: RadarAIEvaluation;
 
     try {
-      if (this.geminiClient) {
+      if (this.aiProvider === 'openai' && this.openAiApiKey) {
+        evaluation = await this.callOpenAIAnalysis(candidate);
+      } else if (this.aiProvider === 'gemini' && this.geminiClient) {
+        evaluation = await this.callGeminiAnalysis(candidate);
+      } else if (this.openAiApiKey) {
+        evaluation = await this.callOpenAIAnalysis(candidate);
+      } else if (this.geminiClient) {
         evaluation = await this.callGeminiAnalysis(candidate);
       } else {
         evaluation = this.deterministicQualification(candidate);
@@ -1101,6 +1117,43 @@ class RadarEngine {
     }
 
     this.saveToDisk();
+  }
+
+  private async callOpenAIAnalysis(candidate: CandidateMessage): Promise<RadarAIEvaluation> {
+    if (!this.openAiApiKey) throw new Error('OpenAI API key not configured');
+    const prompt = `Você é o motor de qualificação B2B do Grolpy Radar. Identifique se a mensagem é de uma pessoa ou pequeno negócio divulgando manualmente produto ou serviço em grupo de WhatsApp e que poderia usar divulgação automática em grupos.
+
+Priorize prestadores locais, beleza, moda, alimentação, lojas e pequenos negócios. Rejeite conversa social, desapego pessoal pontual, afiliados, renda extra, apostas, maquininhas e revenda institucional de grandes operadoras.
+
+Contato: ${candidate.senderName}
+Grupo: ${candidate.groupName}
+Mensagem: """${candidate.messageText}"""
+
+Responda SOMENTE JSON válido com: isOpportunity (boolean), confidence (0-100), segment, businessType, recommendedService, reason e signals (array de strings).`;
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.openAiApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.openAiModel, input: prompt, max_output_tokens: 900 }),
+    });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}: ${data?.error?.message || 'request failed'}`);
+    const text = (data.output || []).flatMap((item: any) => item?.content || [])
+      .filter((item: any) => item?.type === 'output_text').map((item: any) => item?.text || '').join('').trim();
+    if (!text) throw new Error('OpenAI returned no text output');
+    const parsed = JSON.parse(text.replace(/^\`\`\`(?:json)?\s*/i, '').replace(/\s*\`\`\`$/, ''));
+    const conf = Math.min(100, Math.max(0, Number(parsed.confidence) || 0));
+    return {
+      isOpportunity: Boolean(parsed.isOpportunity) && conf >= 65,
+      confidence: conf,
+      segment: parsed.segment || 'Divulgação Comercial',
+      businessType: parsed.businessType || 'Prestador / Comércio',
+      recommendedService: parsed.recommendedService || 'Divulgação Automática em Grupos de WhatsApp',
+      reason: parsed.reason || 'Divulgação comercial identificada no grupo.',
+      signals: Array.isArray(parsed.signals) ? parsed.signals : candidate.detectedKeywords,
+      intent: 'Divulgação em Grupos / Captação de Clientes',
+      budget: 'Sob Consulta', urgency: 'Alta', sentiment: 'urgent',
+    };
   }
 
   /**
