@@ -150,10 +150,11 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (panelMode !== 'admin') return;
     fetchRealRadarData();
     const interval = setInterval(fetchRealRadarData, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [panelMode]);
 
   // Toggle Radar Play / Pause
   const handleToggleRadar = async () => {

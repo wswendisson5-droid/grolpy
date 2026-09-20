@@ -431,7 +431,7 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
       contactId: activeContact.id,
       title: task.title,
       dueDate: task.dueDate,
-      priority: task.priority || 'MÃ©dia',
+      priority: task.priority || 'Média',
       assignedTo: task.assignedTo,
       completed: false,
       timestamp: Date.now(),

@@ -53,7 +53,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   const totalSentMessages = stats?.messagesSent !== undefined
     ? stats.messagesSent
     : (planUsage.usedMessages || campaigns.reduce((acc, c) => acc + (c.totalSent || 0), 0));
-  const activeGroups = groupsCount || stats?.activeGroups || 0;
+  const activeGroups = whatsappIsConnected === true ? groupsCount : 0;
   const successRate = stats?.successRate !== undefined ? `${stats.successRate}%` : (totalSentMessages > 0 ? '100%' : '0%');
   const activeCampaignsCount = stats?.activeCampaigns !== undefined ? stats.activeCampaigns : activeCampaigns.length;
 

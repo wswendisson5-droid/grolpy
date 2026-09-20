@@ -181,7 +181,9 @@ async function callEvolution(endpoint: string, options: RequestInit = {}, timeou
     });
 
     const errorMsg = JSON.stringify(result.data || "");
-    if (!result.ok && retryCount > 0 && (errorMsg.includes("connection pool") || errorMsg.includes("Connection Closed") || result.status === 500)) {
+    const normalizedError = errorMsg.toLowerCase();
+    const isRateLimited = result.status === 429 || normalizedError.includes("rate-overlimit") || normalizedError.includes("rate limit");
+    if (!result.ok && !isRateLimited && retryCount > 0 && (errorMsg.includes("connection pool") || errorMsg.includes("Connection Closed") || result.status === 500)) {
       await new Promise((r) => setTimeout(r, 1500));
       return callEvolution(endpoint, options, timeoutMs, retryCount - 1);
     }
@@ -409,7 +411,9 @@ async function ownedInstance(req: any, requireActive = true, createIfMissing = t
   const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
   const db: any = await getDatabase();
   const sub = await db.getSubscriptionForUser(user.id).catch(() => null);
-  const isPaidActive = user.status === "active" || sub?.status === "active";
+  // Account activation is not proof of payment. Some legacy accounts are
+  // marked active even though they never received a subscription row.
+  const isPaidActive = String(sub?.status || "").toLowerCase() === "active";
   if (requireActive && !isAdmin && !isPaidActive) return { error: "PAYMENT_REQUIRED", user, db };
   const inst = createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
   if (!inst) return { error: "INSTANCE_NOT_FOUND", user, db };
@@ -846,9 +850,9 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
-  if (own.error) return res.json({ configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
+  if (own.error) return res.status(402).json({ error: own.error, configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
 
   const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
   const currentInst = getInstanceCache(activeInstance);
@@ -942,7 +946,7 @@ app.get("/api/evolution/status", async (req, res) => {
 // integrates with webhook cache, auto-converts raw strings to Base64, and returns 200
 // pending instead of premature 502 error pages so the user experience is smooth and uninterrupted.
 app.get("/api/evolution/qrcode", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
@@ -1084,7 +1088,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 
 // 5.1 Clean Reset & Refresh QR Code (Preserves instance session, refreshes QR)
 app.post("/api/evolution/reset-instance", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
@@ -1143,7 +1147,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
 
 // 5.2 Request Pairing Code from Evolution API (Connect with Phone Number)
 app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
 
@@ -1295,7 +1299,7 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
 
 // 6. Create instance manually / Initiate WhatsApp Connection
 app.post("/api/evolution/create-instance", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano aguardando pagamento ou suspenso." });
   const instance = own.instance;
@@ -1357,7 +1361,7 @@ app.post("/api/evolution/create-instance", async (req, res) => {
 
 // 7. Restart instance: POST /instance/restart/{instance}
 app.post("/api/evolution/restart", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
 
@@ -1378,7 +1382,7 @@ app.post("/api/evolution/restart", async (req, res) => {
 
 // 8. Logout instance: DELETE /instance/logout/{instance}
 app.post("/api/evolution/logout", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(401).json({ error: "Sessão inválida." });
   const instance = own.instance;
   const currentInst = getInstanceCache(instance);
@@ -2360,6 +2364,8 @@ interface ClientHistoryLog {
 // In-memory cache for active instance and groups to eliminate latency
 let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
+const groupSyncInFlight = new Map<string, Promise<any[]>>();
+const groupSyncBlockedUntil = new Map<string, number>();
 let lastSyncGroupsTimestamp = 0;
 
 // Helper to dynamically resolve the best active/connected instance fast
@@ -2389,6 +2395,18 @@ async function getActiveConnectedInstance(preferred?: string): Promise<string> {
 
 // Ultra-fast background sync for WhatsApp groups for a specific instance with full Evolution API v2 payload mapping
 async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: string = "", dbUser?: { id: number; db: any }): Promise<any[]> {
+  if (!targetInstance) return [];
+
+  const runningSync = groupSyncInFlight.get(targetInstance);
+  if (runningSync) return runningSync;
+
+  const task = syncAllWhatsAppGroupsInternal(force, targetInstance, dbUser)
+    .finally(() => groupSyncInFlight.delete(targetInstance));
+  groupSyncInFlight.set(targetInstance, task);
+  return task;
+}
+
+async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInstance: string = "", dbUser?: { id: number; db: any }): Promise<any[]> {
   const now = Date.now();
   if (!targetInstance) return [];
 
@@ -2396,6 +2414,18 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   const cachedForInstance = cachedGroupsByInstance.get(targetInstance);
   if (!force && cachedForInstance && now - cachedForInstance.timestamp < 15000 && cachedForInstance.groups.length > 0) {
     return cachedForInstance.groups;
+  }
+
+  // A forced UI refresh must not hammer an upstream that has already asked us
+  // to slow down. During the backoff window, serve only the last confirmed data.
+  const blockedUntil = groupSyncBlockedUntil.get(targetInstance) || 0;
+  if (now < blockedUntil) {
+    if (cachedForInstance) return cachedForInstance.groups;
+    if (dbUser?.db && dbUser?.id) {
+      const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
+      if (Array.isArray(persisted)) return persisted;
+    }
+    return [];
   }
 
   // Verify that targetInstance is actually connected before attempting Evolution group fetch
@@ -2466,45 +2496,22 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   };
 
   try {
-    // 1. fetchAllGroups with getParticipants=false
-    const gRes1 = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 15000, 0);
-    if (gRes1.ok && gRes1.data) {
+    // Evolution API v2 exposes groups through this endpoint. Do not cascade to
+    // chat endpoints: that multiplies requests and can turn a rate-limit failure
+    // into a misleading successful empty snapshot.
+    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 15000, 0);
+    const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
+    const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
+
+    if (rateLimited) {
+      groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
+      console.warn(`[GroupsSync] Evolution limitou consultas para ${instName}; aguardando 60s e preservando snapshot.`);
+    } else if (groupsResponse.ok) {
       evolutionQuerySucceeded = true;
-      extractGroupsFromPayload(gRes1.data, instName);
-    }
-
-    // 2. fetchAllGroups direct
-    if (collectedGroupsMap.size === 0) {
-      const gRes2 = await callEvolution(`/group/fetchAllGroups/${instName}`, {}, 15000, 0);
-      if (gRes2.ok && gRes2.data) {
-        evolutionQuerySucceeded = true;
-        extractGroupsFromPayload(gRes2.data, instName);
-      }
-    }
-
-    // 3. findChats GET (fast in v2)
-    if (collectedGroupsMap.size === 0) {
-      try {
-        const cResGet = await callEvolution(`/chat/findChats/${instName}`, { method: "GET" }, 8000, 0);
-        if (cResGet.ok && cResGet.data) {
-          evolutionQuerySucceeded = true;
-          extractGroupsFromPayload(cResGet.data, instName);
-        }
-      } catch {}
-    }
-
-    // 4. findChats POST
-    if (collectedGroupsMap.size === 0) {
-      try {
-        const cRes = await callEvolution(`/chat/findChats/${instName}`, {
-          method: "POST",
-          body: JSON.stringify({ limit: 1000 }),
-        }, 8000, 0);
-        if (cRes.ok && cRes.data) {
-          evolutionQuerySucceeded = true;
-          extractGroupsFromPayload(cRes.data, instName);
-        }
-      } catch {}
+      groupSyncBlockedUntil.delete(instName);
+      extractGroupsFromPayload(groupsResponse.data, instName);
+    } else {
+      console.warn(`[GroupsSync] Evolution respondeu HTTP ${groupsResponse.status} para ${instName}; preservando snapshot.`);
     }
   } catch (err: any) {
     console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
@@ -2532,12 +2539,14 @@ async function syncAllWhatsAppGroups(force: boolean = false, targetInstance: str
   console.warn(`[GroupsSync] Evolution indisponivel para ${instName}; preservando ultimo snapshot confirmado.`);
   if (dbUser?.db && dbUser?.id) {
     const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
-    if (Array.isArray(persisted) && persisted.length > 0) {
+    if (Array.isArray(persisted)) {
       cachedGroupsByInstance.set(instName, { timestamp: now, groups: persisted });
       return persisted;
     }
   }
-  throw new Error("EVOLUTION_GROUP_SYNC_FAILED");
+  // An upstream outage must never become an unhandled Express rejection and
+  // terminate the whole Node process. No snapshot is safer than fake targets.
+  return [];
 }
 
 // Background scheduler for group syncing (run only once on start or every hour to keep Evolution DB pool clean)
@@ -2553,10 +2562,11 @@ const clientImportedGroupsStore = new Map<string, any[]>();
 
 // Dedicated Client WhatsApp Status endpoint (Strict tenant isolation)
 app.get("/api/client/whatsapp/status", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") {
     return res.status(401).json({ error: "Sessão inválida." });
   }
+  if (own.error) return res.status(402).json({ error: own.error });
 
   const instance = own.instance;
   if (!instance) {
@@ -2582,6 +2592,14 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
       const realNumber = prof.number || (own.record?.owner_phone ? formatPhone(own.record.owner_phone) : undefined);
       const realPictureUrl = prof.pictureUrl || own.record?.profile_pic_url || `/api/whatsapp/avatar?instance=${encodeURIComponent(activeInstance)}`;
 
+      await own.db.setUserInstanceStatus(
+        own.user.id,
+        "connected",
+        realNumber || null,
+        realName,
+        realPictureUrl
+      ).catch(() => {});
+
       return res.json({
         success: true,
         configured: true,
@@ -2599,6 +2617,7 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
   } catch {}
 
   // Fallback if not connected or doesn't exist
+  await own.db.setUserInstanceStatus(own.user.id, "disconnected").catch(() => {});
   res.json({
     success: true,
     configured: true,
@@ -2615,13 +2634,13 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
 
 // Get imported groups saved for client instance (Instant response)
 app.get("/api/client/imported-groups", async (req,res)=>{
- const own:any=await ownedInstance(req, false, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+ const own:any=await ownedInstance(req, true, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
  const groups=await own.db.listGroupsForUser(own.user.id); res.json({success:true,instanceName:own.instance,total:groups.length,groups});
 });
 
 // Save/Update imported groups for client instance
 app.post("/api/client/imported-groups", async (req, res) => {
-  const own:any=await ownedInstance(req, false, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
+  const own:any=await ownedInstance(req, true, true); if(own.error)return res.status(own.error==="UNAUTHORIZED"?401:402).json({error:own.error});
   const instance = own.instance;
   const { groups } = req.body;
   if (!Array.isArray(groups)) {
@@ -2640,7 +2659,7 @@ app.post("/api/client/imported-groups", async (req, res) => {
 
 // Get real groups from connected WhatsApp instance with 0-ms instant response
 app.get("/api/client/groups", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
   const reqInstance = own.instance;
@@ -2762,8 +2781,8 @@ app.get("/api/client/plans", async (_req, res) => {
 });
 
 app.get("/api/client/plan", async (req, res) => {
-  const own: any = await ownedInstance(req, false);
-  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const own: any = await ownedInstance(req, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const sub = await own.db.getSubscriptionForUser(own.user.id);
   const planId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
   const planDetails = await own.db.getPlanById(planId);
@@ -2823,12 +2842,14 @@ app.get("/api/account/status", async (req, res) => {
     const db: any = await getDatabase();
     const subscription = await db.getSubscriptionForUser(user.id);
     const instance = await db.getUserInstance(user.id);
+    const isAdmin = user.role === "admin" || (user.email && ADMIN_EMAILS.has(String(user.email).trim().toLowerCase()));
+    const hasActiveSubscription = String(subscription?.status || "").toLowerCase() === "active";
     res.json({
       success: true,
       user,
       subscription: subscription ? { planId: subscription.plan_id, status: subscription.status, nextDueDate: subscription.next_due_date } : null,
       whatsapp: instance ? { status: instance.status, connected: instance.status === "connected" } : null,
-      access: user.status === "active",
+      access: Boolean(isAdmin || hasActiveSubscription),
     });
   } catch (e: any) {
     res.status(500).json({ success: false, error: "Não foi possível consultar a conta." });
@@ -3079,8 +3100,8 @@ app.post("/api/client/leads", async (req, res) => {
 // Get real campaigns
 app.get("/api/client/campaigns", async (req, res) => {
   try {
-    const own: any = await ownedInstance(req, false);
-    if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+    const own: any = await ownedInstance(req, true);
+    if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
     if (own.db?.ensureCampaignsTable) {
       await own.db.ensureCampaignsTable().catch(() => {});
     }
@@ -3095,7 +3116,7 @@ app.get("/api/client/campaigns", async (req, res) => {
 // Create new campaign with real schedule support
 app.post("/api/client/campaigns/create", async (req, res) => {
   try {
-    const own: any = await ownedInstance(req, false, true);
+    const own: any = await ownedInstance(req, true, true);
     if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
 
     if (own.db?.ensureCampaignsTable) {
@@ -3124,7 +3145,9 @@ app.post("/api/client/campaigns/create", async (req, res) => {
       instanceName,
     } = req.body;
 
-    const { isConnected, activeInstance } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
+    const { isConnected, activeInstance } = scheduleMode === 'imediato'
+      ? await resolveActiveInstance(own.instance, own.user?.id, own.db)
+      : { isConnected: false, activeInstance: own.instance };
     const targetInstance = activeInstance;
     console.log(`\n[VALIDATION] Validando criação de divulgação '${title}' na instância ${targetInstance}...`);
 
@@ -3133,10 +3156,28 @@ app.post("/api/client/campaigns/create", async (req, res) => {
       return res.status(400).json({ error: "Título e texto da mensagem são obrigatórios." });
     }
 
-    const incomingJids = Array.isArray(selectedGroupJids) ? selectedGroupJids : [];
+    const rawIncomingJids = Array.isArray(selectedGroupJids) ? selectedGroupJids : [];
+    const incomingJids = Array.from(new Set(rawIncomingJids
+      .map((jid: any) => String(jid || "").trim())
+      .filter((jid: string) => jid.endsWith("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid"))));
+    if (incomingJids.length !== rawIncomingJids.length) {
+      return res.status(400).json({
+        error: "A selecao contem um destino invalido. Atualize os grupos e selecione somente grupos reais do WhatsApp.",
+        code: "INVALID_GROUP_TARGETS",
+      });
+    }
     if (incomingJids.length === 0) {
       console.log(`[VALIDATION] Falha: Nenhum grupo selecionado.`);
       return res.status(400).json({ error: "Você precisa selecionar pelo menos um grupo." });
+    }
+
+    const persistedGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
+    const ownedGroupJids = new Set((persistedGroups || []).map((g: any) => String(g.jid || g.id || "").trim()));
+    if (incomingJids.some((jid: string) => !ownedGroupJids.has(jid))) {
+      return res.status(400).json({
+        error: "Um ou mais grupos nao pertencem a conexao atual. Sincronize os grupos e tente novamente.",
+        code: "STALE_GROUP_TARGETS",
+      });
     }
 
     // If immediate dispatch is requested, WhatsApp MUST be connected
@@ -3251,7 +3292,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
       dailyLimit: dailyLimit || "Sem limite",
       groupsCount: targetCount,
       totalTarget: targetCount,
-      selectedGroupJids: Array.isArray(selectedGroupJids) ? selectedGroupJids : [],
+      selectedGroupJids: incomingJids,
       totalSent: 0,
       totalFailed: 0,
       imageUrl: safeImageUrl || undefined,
@@ -3280,7 +3321,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
 // Toggle campaign active state
 app.post("/api/client/campaigns/toggle", async (req, res) => {
   try {
-    const own: any = await ownedInstance(req, false, true);
+    const own: any = await ownedInstance(req, true, true);
     if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
     if (own.db?.ensureCampaignsTable) {
       await own.db.ensureCampaignsTable().catch(() => {});
@@ -3338,7 +3379,7 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
 // Delete campaign
 app.delete("/api/client/campaigns/:id", async (req, res) => {
   try {
-    const own: any = await ownedInstance(req, false, true);
+    const own: any = await ownedInstance(req, true, true);
     if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
     if (own.db?.ensureCampaignsTable) {
       await own.db.ensureCampaignsTable().catch(() => {});
@@ -3399,7 +3440,7 @@ async function executeGroupDispatch(
   if (userId && db?.addHistoryForUser) {
     for (const rawTarget of targets) {
       const targetJid = String(rawTarget || "").trim();
-      const normJid = targetJid.includes("@") ? targetJid : `${targetJid}@g.us`;
+      const normJid = targetJid;
       if (!normJid.endsWith("@g.us") || normJid.includes("@broadcast") || normJid.includes("@newsletter") || normJid.includes("@s.whatsapp.net") || normJid.includes("@lid")) continue;
       const gName = lookupGroupName(normJid, instance);
       try {
@@ -3420,7 +3461,7 @@ async function executeGroupDispatch(
 
   for (let i = 0; i < targets.length; i++) {
     const rawJid = String(targets[i] || "").trim();
-    const jid = rawJid.includes("@") ? rawJid : `${rawJid}@g.us`;
+    const jid = rawJid;
     const groupName = lookupGroupName(jid, instance);
     const startRequestTime = Date.now();
 
@@ -3656,7 +3697,7 @@ async function executeGroupDispatch(
 
 // Real Dispatch of Campaign to WhatsApp Groups via Evolution API
 app.post("/api/client/campaigns/send-now", async (req, res) => {
-  const own: any = await ownedInstance(req, false, true);
+  const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const { campaignId, customGroupJids, customMessage, imageUrl, instanceName, intervalSeconds } = req.body;
   const instanceParam = own.instance;
@@ -3875,6 +3916,23 @@ setInterval(async () => {
 
       if (!shouldTrigger) continue;
 
+      // Stop scheduled sends as soon as the subscription loses access.
+      // Admin accounts remain exempt for diagnostics.
+      const [schedulerUser, schedulerSubscription] = await Promise.all([
+        db.getUserById(userId).catch(() => null),
+        db.getSubscriptionForUser(userId).catch(() => null),
+      ]);
+      const schedulerIsAdmin = schedulerUser?.role === "admin" ||
+        (schedulerUser?.email && ADMIN_EMAILS.has(String(schedulerUser.email).trim().toLowerCase()));
+      const schedulerHasAccess = schedulerIsAdmin || String(schedulerSubscription?.status || "").toLowerCase() === "active";
+      if (!schedulerHasAccess) {
+        camp.status = 'pausada';
+        camp.active = false;
+        await db.saveCampaignForUser(userId, camp).catch(() => {});
+        console.warn(`[Scheduler] Campanha '${camp.title}' pausada: assinatura inativa para usuario ${userId}.`);
+        continue;
+      }
+
       console.log(`[Scheduler] 🚀 Disparo agendado acionado para '${camp.title}' (usuário ${userId}) às ${brTimeStr} (BRT)`);
       activeCampaignsRunning.add(campId);
       camp.status = 'enviando';
@@ -4000,8 +4058,8 @@ setInterval(async () => {
 
 // Get real history
 app.get("/api/client/history", async (req, res) => {
-  const own: any = await ownedInstance(req, false);
-  if (own.error) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+  const own: any = await ownedInstance(req, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ success: false, error: own.error });
   const sub = await own.db.getSubscriptionForUser(own.user.id);
   const planId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
   const days = CLIENT_PLAN_LIMITS[planId]?.historyDays || 30;
@@ -4011,22 +4069,18 @@ app.get("/api/client/history", async (req, res) => {
 
 // Client Dashboard Unified Stats - 100% REAL DATA, 0 MOCK
 app.get("/api/client/stats", async (req, res) => {
-  const own: any = await ownedInstance(req, false);
-  if (own.error) return res.status(401).json({ error: "UNAUTHORIZED" });
+  const own: any = await ownedInstance(req, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
   const clientCampaignsStore: any[] = await own.db.listCampaignsForUser(own.user.id);
   const clientHistoryStore: any[] = await own.db.listHistoryForUser(own.user.id, 31);
   const sub = await own.db.getSubscriptionForUser(own.user.id);
   const userPlanId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
 
-  const { isConnected } = await resolveActiveInstance(instance, own.user.id, own.db);
-  let realGroupsCount = 0;
-  if (isConnected) {
-    // Nunca calcular o contador a partir de user_groups quando a Evolution pode
-    // fornecer o snapshot atual; isso evita ressuscitar grupos antigos.
-    const fresh = await syncAllWhatsAppGroups(false, instance, { id: own.user.id, db: own.db }).catch(() => []);
-    realGroupsCount = Array.isArray(fresh) ? fresh.length : 0;
-  }
+  // Dashboard metrics must stay fast and must not trigger another external
+  // Evolution request. The dedicated status/groups endpoints own live sync.
+  const persistedGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
+  const realGroupsCount = Array.isArray(persistedGroups) ? persistedGroups.length : 0;
 
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   const deliveredHistory = clientHistoryStore.filter((h) => h.status === "delivered" || h.status === "sent").length;

@@ -32,7 +32,6 @@ import {
 import { PlanId, PLANS, planService } from '../../../services/planService';
 import { asaasClientService, AsaasPaymentData } from '../../../services/asaasClientService';
 import { sessionService } from '../../../services/sessionService';
-import { sessionService } from '../../../services/sessionService';
 
 /**
  * Official Pix Icon (Banco Central do Brasil Standard Vector)

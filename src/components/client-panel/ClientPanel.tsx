@@ -158,8 +158,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         }));
       }
     } catch {
-      setCampaigns([]);
-      setAgendaItems([]);
+      // Preserve the last confirmed snapshot during a transient API/DB error.
     }
   };
 
@@ -184,9 +183,6 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       }
       if (statsRes?.success && statsRes.stats) {
         setDashboardStats(statsRes.stats);
-      }
-      if (statsRes?.success && statsRes.stats?.activeGroups > 0 && groups.length === 0) {
-        refreshGroups();
       }
     } catch {
       // silent
@@ -216,7 +212,6 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
   useEffect(() => {
     refreshCampaigns();
-    refreshGroups();
     refreshStats();
     refreshWhatsAppStatus();
 
@@ -232,7 +227,6 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         });
       }
       refreshWhatsAppStatus();
-      refreshGroups();
       refreshStats();
     };
 
@@ -243,7 +237,6 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
       refreshCampaigns();
       refreshStats();
       refreshWhatsAppStatus();
-      refreshGroups();
     }, 30000);
 
     return () => {
@@ -338,8 +331,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     refreshCampaigns();
   };
 
-  const handleSaveCampaign = (_newCamp: DivulgacaoCard, _createAgenda: boolean = true) => {
-    refreshCampaigns();
+  const handleSaveCampaign = (newCamp: DivulgacaoCard, _createAgenda: boolean = true) => {
+    setCampaigns((prev) => [newCamp, ...prev.filter((c) => c.id !== newCamp.id)]);
+    void refreshCampaigns();
   };
 
   const handleDeleteCampaign = async (id: string) => {

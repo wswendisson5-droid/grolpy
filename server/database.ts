@@ -26,7 +26,7 @@ setInterval(async () => {
 }, 45000);
 
 export async function initDatabase() {
-  if (!process.env.DB_NAME || !process.env.DB_USER || !process.env.DB_PASSWORD) {
+  if (!process.env.DB_NAME || !process.env.DB_USER) {
     console.warn("[DB] Credenciais ausentes; MySQL não inicializado.");
     return false;
   }
@@ -654,7 +654,7 @@ export async function listCampaignsForUser(userId:number){
     return list;
   } catch(err) {
     console.warn("[DB] Erro ao listar campanhas user=" + userId, err);
-    return [];
+    throw err;
   }
 }
 export async function listActiveScheduledCampaigns(): Promise<Array<{
@@ -834,6 +834,17 @@ export async function getUserByInstance(instanceName: string): Promise<any> {
        INNER JOIN evolution_instances ei ON ei.user_id = u.id 
        WHERE ei.instance_name = ? LIMIT 1`,
       [instanceName]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+export async function getUserById(userId: number): Promise<any> {
+  try {
+    const [rows]: any = await pool.execute(
+      "SELECT id, name, email, phone, plan, role, status FROM users WHERE id = ? LIMIT 1",
+      [userId]
     );
     return rows[0] || null;
   } catch {
