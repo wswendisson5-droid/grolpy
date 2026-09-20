@@ -1659,7 +1659,9 @@ app.post("/api/evolution/webhook", (req: Request, res: Response) => {
           msg.message?.videoMessage?.caption ||
           "";
         if (text) {
-          atendimentoEngine.handleIncomingClientMessage(remoteJid, text);
+          atendimentoEngine
+            .handleIncomingClientMessage(remoteJid, text, String(msg.key?.id || ''))
+            .catch((error) => console.error('[AtendimentoEngine] Falha ao processar mensagem recebida:', error));
         }
       }
     }

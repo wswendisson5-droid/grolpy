@@ -184,12 +184,6 @@ export const DISQUALIFIED_PATTERNS = [
   'desapego de móveis usados',
   'desapego de moveis usados',
 
-  // Empréstimos fáceis / esquemas
-  'empréstimo para negativado',
-  'emprestimo para negativado',
-  'libero crédito',
-  'libero credito',
-  'limpe seu nome',
 ];
 
 // Token-Saver Filter: pure greetings, trivial social banter, stickers & stickers reactions
@@ -300,6 +294,20 @@ const COMMERCIAL_INTENT_PATTERNS = [
   { term: 'compre ja', weight: 25 },
   { term: 'encomende já', weight: 25 },
   { term: 'encomende ja', weight: 25 },
+  { term: 'chama no privado', weight: 30 },
+  { term: 'chame no privado', weight: 30 },
+  { term: 'teste grátis', weight: 25 },
+  { term: 'teste gratis', weight: 25 },
+  { term: 'por mês', weight: 25 },
+  { term: 'por mes', weight: 25 },
+  { term: 'mensalidade', weight: 25 },
+  { term: 'crédito', weight: 25 },
+  { term: 'credito', weight: 25 },
+  { term: 'aprovação', weight: 20 },
+  { term: 'aprovacao', weight: 20 },
+  { term: 'juros', weight: 20 },
+  { term: 'serviço', weight: 20 },
+  { term: 'servico', weight: 20 },
 
   // Agenda & Encomendas
   { term: 'agenda aberta', weight: 30 },
@@ -818,21 +826,17 @@ class RadarEngine {
   /**
    * Deduplicação Estrita Requisitada pelo Usuário:
    * "Não podemos por exemplo: pegar a mesma oportunidade usando o mesmo número. Se tiver o mesmo número não pode nem analisar ok."
-   * Checa se o número já foi analisado, se já possui oportunidade ativa, se já existe no CRM de atendimento ou se já está na fila.
+   * Bloqueia apenas números que já viraram oportunidade/CRM ou que já estão aguardando análise.
    */
   public isPhoneAlreadyProcessedOrOpportunity(phoneOrJid: string): boolean {
     if (!phoneOrJid) return false;
     const clean = cleanPhoneDigits(phoneOrJid);
     if (!clean || clean.length < 8) return false;
 
-    // 1. Já analisado anteriormente pelo Radar?
-    for (const analyzedKey of this.analyzedPhones.keys()) {
-      if (arePhonesEquivalent(analyzedKey, clean) || arePhonesEquivalent(analyzedKey, phoneOrJid)) {
-        return true;
-      }
-    }
+    // Uma análise anterior rejeitada não deve bloquear novas mensagens do mesmo número.
+    // A deduplicação permanente deve ocorrer apenas quando já existe oportunidade/CRM.
 
-    // 2. Já existe como oportunidade registrada no Radar?
+    // 1. Já existe como oportunidade registrada no Radar?
     for (const opp of this.opportunities) {
       if (
         opp.remoteJid === phoneOrJid ||
@@ -843,12 +847,12 @@ class RadarEngine {
       }
     }
 
-    // 3. Já existe no CRM de Atendimento (contatos com oportunidades)?
+    // 2. Já existe no CRM de Atendimento (contatos com oportunidades)?
     if (atendimentoEngine.hasContactPhone(clean) || Boolean(atendimentoEngine.findLead(phoneOrJid))) {
       return true;
     }
 
-    // 4. Já está na fila para ser analisado?
+    // 3. Já está na fila para ser analisado?
     if (
       this.analysisQueue.some(
         (item) =>
@@ -1078,7 +1082,9 @@ class RadarEngine {
       evaluation = this.deterministicQualification(candidate);
     }
 
-    // Persist phone deduplication: this phone will never be analyzed again!
+    // Mantém o histórico da análise para métricas/auditoria.
+    // Uma rejeição aqui NÃO bloqueia mensagens futuras do mesmo número;
+    // a deduplicação permanente ocorre somente após virar oportunidade/CRM.
     this.analyzedPhones.set(candidate.senderPhone, {
       analyzedAt: Date.now(),
       result: evaluation,
