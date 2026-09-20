@@ -116,12 +116,6 @@ export interface CRMAtendimentoLead {
   messages: CRMLeadMessage[]; // Histórico completo e persistido da conversa no CRM
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const CONFIG_FILE = path.join(DATA_DIR, 'ai_agent_config.json');
-// Arquivo principal e exclusivo de persistência de contatos com oportunidades e conversas
-const ATENDIMENTOS_FILE = path.join(DATA_DIR, 'crm_contatos_oportunidades.json');
-const LEGACY_ATENDIMENTOS_FILE = path.join(DATA_DIR, 'crm_atendimentos.json');
-
 const DEFAULT_CONFIG: AIAgentConfig = {
   enabled: false,
   mode: 'copilot',
@@ -156,74 +150,7 @@ export class AtendimentoEngine {
   private incomingMessageQueues = new Map<string, Promise<void>>();
 
   constructor() {
-    this.ensureDataDir();
-    this.loadFromDisk();
     this.startFollowUpWorker();
-  }
-
-  private ensureDataDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-  }
-
-  private loadFromDisk() {
-    try {
-      if (fs.existsSync(CONFIG_FILE)) {
-        const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-        this.config = { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-      }
-    } catch (e) {
-      console.warn('[AtendimentoEngine] Falha ao carregar config:', e);
-    }
-
-    try {
-      let loadedData: any = null;
-      if (fs.existsSync(ATENDIMENTOS_FILE)) {
-        const raw = fs.readFileSync(ATENDIMENTOS_FILE, 'utf-8');
-        loadedData = JSON.parse(raw);
-      } else if (fs.existsSync(LEGACY_ATENDIMENTOS_FILE)) {
-        const raw = fs.readFileSync(LEGACY_ATENDIMENTOS_FILE, 'utf-8');
-        loadedData = JSON.parse(raw);
-      }
-
-      if (Array.isArray(loadedData)) {
-        this.atendimentos = loadedData.map((item: any) => {
-          const lead: CRMAtendimentoLead = {
-            ...item,
-            collectedInfo: item.collectedInfo || {},
-            notes: Array.isArray(item.notes) ? item.notes : [],
-            messages: Array.isArray(item.messages) ? item.messages : [],
-          };
-
-          // Se o lead tiver firstMessageSentAt ou nota de IA, mas messages vazias, recuperar a mensagem inicial
-          if (lead.messages.length === 0 && lead.notes.length > 0) {
-            const aiInitialNote = lead.notes.find((n) => n.type === 'ai' && n.text.includes('"'));
-            if (aiInitialNote) {
-              const match = aiInitialNote.text.match(/"([^"]+)"/);
-              const initialText = match ? match[1] : 'Bom dia!';
-              lead.messages.push({
-                id: `msg-ia-recovered-${lead.id}`,
-                sender: 'ai',
-                senderName: `IA ${this.config.agentName}`,
-                text: initialText,
-                timestamp: aiInitialNote.timestamp || lead.createdAt,
-                time: aiInitialNote.timeFormatted || 'Hoje',
-                status: 'delivered',
-                type: 'text',
-              });
-            }
-          }
-
-          return lead;
-        });
-
-        // Salvar cópia no arquivo canônico
-        this.saveToDisk();
-      }
-    } catch (e) {
-      console.warn('[AtendimentoEngine] Falha ao carregar contatos com oportunidades:', e);
-    }
   }
 
   public setPersistenceHandler(handler: (payload: any) => Promise<void> | void) {
@@ -251,13 +178,6 @@ export class AtendimentoEngine {
 
   public saveToDisk() {
     const payload = this.exportState();
-    try {
-      this.ensureDataDir();
-      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf-8');
-      fs.writeFileSync(ATENDIMENTOS_FILE, JSON.stringify(this.atendimentos, null, 2), 'utf-8');
-    } catch (e) {
-      console.error('[AtendimentoEngine] Falha ao salvar no disco:', e);
-    }
     if (this.persistenceHandler) {
       Promise.resolve(this.persistenceHandler(payload)).catch((e) =>
         console.error('[AtendimentoEngine] Falha ao persistir no banco:', e)
@@ -331,11 +251,28 @@ export class AtendimentoEngine {
 
     const now = Date.now();
     const timeFormatted = getSaoPauloTime().time;
-    const automaticAiEnabled = this.config.enabled && this.config.mode === 'auto' && getAiRuntimeInfo().configured;
 
     if (existing) {
+      existing.opportunityId = opportunity.id;
+      existing.contactJid = opportunity.remoteJid || existing.contactJid;
+      existing.contactPhone = opportunity.contactPhone || existing.contactPhone;
+      existing.contactName = opportunity.contactName || existing.contactName;
+      existing.contactAvatar = opportunity.avatar || existing.contactAvatar;
+      existing.groupName = opportunity.groupName;
+      existing.groupJid = opportunity.groupJid;
+      existing.originalMessage = opportunity.originalMessage;
+      existing.demandSummary = opportunity.summary;
+      existing.recommendedService = opportunity.recommendedService || existing.recommendedService;
+      existing.score = Math.max(existing.score || 0, opportunity.score || 0);
+      existing.urgency = opportunity.urgency || existing.urgency;
+      existing.lastInteractionAt = now;
+      existing.notes.push({ id: `note-${now}-radar`, timestamp: now, timeFormatted, author: 'Sistema Radar', text: `Nova oportunidade detectada no grupo "${opportunity.groupName}" (Score ${opportunity.score}%).`, type: 'system' });
+      this.saveToDisk();
       return existing;
     }
+
+    // Capturar uma oportunidade nunca autoriza disparo. A IA e ativada por conversa.
+    const automaticAiEnabled = false;
 
     const newLead: CRMAtendimentoLead = {
       id: `atend-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -457,6 +394,7 @@ export class AtendimentoEngine {
     lead.lastInteractionAt = now;
     if (active) {
       lead.status = 'ia_em_atendimento';
+      if (!lead.firstMessageSentAt) lead.conversationStep = 'human_control';
       lead.notes.push({
         id: `note-${Date.now()}`,
         timestamp: now,

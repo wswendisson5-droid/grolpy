@@ -1657,15 +1657,11 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
           senderSource: sender.source,
         });
       } else if (!msg.key?.fromMe) {
-        // Direct message from lead - clear typing indicator and process multi-step AI response
+        // Private replies from Radar leads belong to IA Chat. Other inbound contacts
+        // remain isolated for the regular CRM flow.
         radarEngine.clearTyping(remoteJid);
-        const text =
-          msg.message?.conversation ||
-          msg.message?.extendedTextMessage?.text ||
-          msg.message?.imageMessage?.caption ||
-          msg.message?.videoMessage?.caption ||
-          "";
-        if (text) {
+        const text = extractWhatsAppMessageText(msg);
+        if (text && atendimentoEngine.findLead(remoteJid)) {
           atendimentoEngine
             .handleIncomingClientMessage(remoteJid, text, String(msg.key?.id || ''))
             .catch((error) => console.error('[AtendimentoEngine] Falha ao processar mensagem recebida:', error));
@@ -1682,77 +1678,10 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
 // ----------------------------------------------------
 
 // 11. Fetch REAL CRM conversations strictly focused on saved opportunity contacts
-app.get("/api/crm/conversations", requireAdminRoute, async (req, res) => {
-  const instance = (req.query.instance as string) || memoryState.instanceName;
-
-  try {
-    // As únicas informações no CRM de atendimento são os contatos com oportunidades captadas
-    const leads = atendimentoEngine.atendimentos;
-
-    // Se temos oportunidades captadas, transformar em conversas do CRM
-    if (leads.length > 0) {
-      const conversations = leads.map((lead) => {
-        const lastMsg = lead.messages && lead.messages.length > 0 ? lead.messages[lead.messages.length - 1] : null;
-        const isFromMe = lastMsg ? (lastMsg.sender === "agent" || lastMsg.sender === "ai") : false;
-        const timestamp = lastMsg ? lastMsg.time : new Date(lead.lastInteractionAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        const content = lastMsg ? ((isFromMe ? (lastMsg.sender === "ai" ? "IA: " : "Você: ") : "") + lastMsg.text) : lead.demandSummary;
-        const storedStage = radarEngine.getContactStage(lead.contactJid);
-        const stage = storedStage || (lead.status === "convertido" ? "ganho" : (lead.status === "humano_assumiu" ? "em_atendimento" : "novo"));
-
-        return {
-          id: lead.id,
-          contact: {
-            id: lead.id,
-            name: lead.contactName,
-            phone: lead.contactPhone,
-            avatar: lead.contactAvatar || profilePicCache.get(lead.contactJid) || "",
-            status: "online",
-            stage,
-            dealValue: 0,
-            tags: ["Radar IA", lead.recommendedService || "Oportunidade", lead.aiActiveForContact ? "IA Ativa 🤖" : "Humano 👤"],
-            assignedTo: lead.assignedTo || "",
-            lastContactDate: timestamp,
-            notesCount: lead.notes?.length || 0,
-            tasksCount: 0,
-            isGroup: false,
-            remoteJid: lead.contactJid,
-            opportunityId: lead.opportunityId,
-            score: lead.score,
-            originGroup: { id: lead.groupJid, name: lead.groupName },
-            demandSummary: lead.demandSummary,
-            originalMessage: { text: lead.originalMessage, time: "Hoje" },
-            aiActiveForContact: lead.aiActiveForContact,
-            conversationStep: lead.conversationStep,
-          },
-          lastMessage: {
-            content,
-            timestamp,
-            unread: false,
-            unreadCount: 0,
-            isFromMe,
-          },
-          channel: "whatsapp",
-        };
-      });
-
-      return res.json({
-        success: true,
-        instanceName: instance,
-        total: conversations.length,
-        conversations,
-      });
-    }
-
-    // Se ainda não houver leads de oportunidade no arquivo, retornar lista vazia
-    return res.json({
-      success: true,
-      instanceName: instance,
-      total: 0,
-      conversations: [],
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
+app.get("/api/crm/conversations", requireAdminRoute, async (_req, res) => {
+  // CRM comum e reservado para atendimento inbound. Leads do Radar vivem no IA Chat.
+  // A sincronizacao inbound sera persistida separadamente; nao reutilizar atendimentoEngine aqui.
+  res.json({ success: true, total: 0, conversations: [] });
 });
 
 // Endpoint to fetch profile picture dynamically for any WhatsApp JID / number
