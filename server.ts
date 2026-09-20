@@ -3005,34 +3005,6 @@ app.get("/api/client/checkout/status/:id", async (req, res) => {
   }
 });
 
-// Asaas Checkout API: Simulate instant confirmation (Persisted to MySQL)
-app.post("/api/client/checkout/simulate-confirm/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const db: any = await getDatabase();
-    await db.confirmInvoicePayment(id, "SIMULATED_CONFIRM");
-    const payment = asaasEngine.confirmPayment(id);
-
-    const inv = await db.getInvoiceByPaymentId(id);
-    const planId = (inv?.plan_id || payment?.planId || "pro") as 'start' | 'pro' | 'max';
-    const limits = CLIENT_PLAN_LIMITS[planId] || CLIENT_PLAN_LIMITS.pro;
-
-    res.json({
-      success: true,
-      payment: payment || inv,
-      subscription: {
-        planId,
-        status: "active",
-        validUntil: inv?.due_date || null,
-      },
-      limits,
-    });
-  } catch (err: any) {
-    console.error("[Simulate Confirm] Error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
 // Asaas Webhook: Receives official Asaas webhooks and persists to MySQL
 app.post("/api/webhook/asaas", async (req, res) => {
   try {

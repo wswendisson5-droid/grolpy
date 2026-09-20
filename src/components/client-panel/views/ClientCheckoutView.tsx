@@ -365,27 +365,6 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
     }
   };
 
-  // ----------------------------------------------------
-  // SIMULATE PAYMENT CONFIRMATION (WEBHOOK SIMULATION)
-  // ----------------------------------------------------
-  const handleSimulateConfirmation = async () => {
-    setIsLoading(true);
-    try {
-      const paymentId = paymentData?.id || `sim_${Date.now()}`;
-      await asaasClientService.simulateConfirm(paymentId);
-      await planService.setPlan(selectedPlanId);
-        await sessionService.status().catch(() => null);
-      await planService.syncWithBackend();
-      setStep('success');
-    } catch {
-      await planService.setPlan(selectedPlanId);
-      await planService.syncWithBackend();
-      setStep('success');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Format plan price display
   const planPriceFormatted = selectedPlan.price.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
@@ -840,7 +819,7 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
             <div className="flex flex-col items-center justify-center py-5 px-6 bg-[#f8faf9] rounded-2xl border border-[#e5ebe7]">
               {paymentData?.pix?.encodedImage || dynamicQrUrl ? (
                 <img
-                  src={paymentData?.pix?.encodedImage || dynamicQrUrl}
+                  src={dynamicQrUrl || (paymentData?.pix?.encodedImage ? `data:image/png;base64,${paymentData.pix.encodedImage.replace(/^data:image\/[^;]+;base64,/, '')}` : '')}
                   alt="QR Code Pix Oficial"
                   className="w-56 h-56 rounded-xl shadow-xs border border-[#e0eae4] bg-white p-2"
                 />
@@ -920,18 +899,6 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               <span>Após o pagamento, a confirmação é automática e seu plano será ativado em poucos segundos.</span>
             </div>
 
-            {/* Simulation action for instant test */}
-            <div className="flex items-center justify-between pt-2 border-t border-[#f0f4f1]">
-              <span className="text-[11px] text-[#64786d]">Ambiente de teste e Webhook Asaas:</span>
-              <button
-                onClick={handleSimulateConfirmation}
-                disabled={isLoading}
-                className="text-xs font-bold text-[#109353] hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                <span>Simular confirmação de pagamento</span>
-              </button>
-            </div>
           </div>
 
           {/* RIGHT: Order Summary */}
@@ -1207,18 +1174,6 @@ export const ClientCheckoutView: React.FC<ClientCheckoutViewProps> = ({
               </button>
             </div>
 
-            {/* Simulation test action */}
-            <div className="flex items-center justify-between pt-3 border-t border-[#f0f4f1]">
-              <span className="text-[11px] text-[#64786d]">Teste de compensação Asaas:</span>
-              <button
-                onClick={handleSimulateConfirmation}
-                disabled={isLoading}
-                className="text-xs font-bold text-[#109353] hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                {isLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                <span>Simular compensação bancária</span>
-              </button>
-            </div>
           </div>
 
           {/* RIGHT: Order Summary */}
