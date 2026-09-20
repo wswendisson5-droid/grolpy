@@ -429,10 +429,8 @@ export class AtendimentoEngine {
     const now = Date.now();
     const timeFormatted = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-    // Humano enviou mensagem: pausar IA e marcar status
-    lead.aiActiveForContact = false;
-    lead.status = 'humano_assumiu';
-    lead.assignedTo = senderName;
+    // Envio manual nao equivale a assumir a conversa. O estado da IA so muda
+    // pelo controle explicito "Assumir"/"Reativar IA".
     lead.lastInteractionAt = now;
 
     const msg: CRMLeadMessage = {

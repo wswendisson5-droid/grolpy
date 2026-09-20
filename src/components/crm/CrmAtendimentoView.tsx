@@ -221,26 +221,25 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
     );
   }, [activeContact, atendimentoLeads]);
 
-  // Load chat messages when activeContact changes
+  // IA Chat usa o historico persistido do atendimento como fonte de verdade.
+  // Isso evita perder respostas quando a Evolution entrega o contato como @lid.
   useEffect(() => {
-    if (!activeContact?.remoteJid) return;
-    const contactKey = activeContact.id;
-    const jid = activeContact.remoteJid;
-
-    let mounted = true;
-    crmService.getMessages(jid).then((res) => {
-      if (mounted && res.success && res.messages) {
-        setChatMessages((prev) => ({
-          ...prev,
-          [contactKey]: res.messages,
-        }));
-      }
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [activeContact?.id, activeContact?.remoteJid]);
+    if (!activeContact || !activeLead) return;
+    const stored = Array.isArray(activeLead.messages) ? activeLead.messages : [];
+    const mapped: ChatMessage[] = stored.map((raw: any) => ({
+      id: String(raw.id || `stored-${raw.timestamp || raw.epoch || Date.now()}`),
+      conversationId: activeContact.id,
+      senderId: raw.sender === 'client' || raw.sender === 'lead' ? activeContact.id : 'me',
+      senderName: raw.senderName || (raw.sender === 'client' || raw.sender === 'lead' ? activeContact.name : 'Você'),
+      isFromLead: raw.sender === 'client' || raw.sender === 'lead',
+      text: String(raw.text ?? raw.content ?? ''),
+      time: String(raw.time ?? raw.timeFormatted ?? raw.timestamp ?? ''),
+      timestamp: Number(raw.epoch ?? raw.timestamp ?? Date.now()),
+      type: raw.type || 'text',
+      status: raw.status || 'read',
+    }));
+    setChatMessages((prev) => ({ ...prev, [activeContact.id]: mapped }));
+  }, [activeContact?.id, activeLead?.lastInteractionAt, activeLead?.messages]);
 
   const currentMessages = (activeContact ? chatMessages[activeContact.id] : undefined) || [];
 
@@ -327,9 +326,6 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
 
     try {
       await crmService.sendMessage(jid, text);
-      if (activeLead && activeLead.aiActiveForContact) {
-        handleAssumeLead();
-      }
     } catch (err) {
       console.error('[CrmAtendimentoView] Erro ao enviar mensagem:', err);
     }

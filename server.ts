@@ -1662,11 +1662,18 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
         radarEngine.clearTyping(remoteJid);
         const text = extractWhatsAppMessageText(msg);
         const directJidCandidates = [
+          msg.key?.senderPn,
+          msg.senderPn,
+          msg.key?.participantAlt,
+          msg.participantAlt,
+          msg.key?.participant,
+          msg.participant,
           msg.key?.remoteJidAlt,
           msg.remoteJidAlt,
           msg.key?.remoteJid,
           msg.remoteJid,
           msg.sender,
+          event?.sender,
         ].filter((value): value is string => typeof value === "string" && value.length > 0);
         const matchedLead = directJidCandidates
           .map((candidate) => atendimentoEngine.findLead(candidate))
@@ -2005,10 +2012,9 @@ app.post("/api/crm/send-message", requireAdminRoute, async (req, res) => {
       });
     }
 
-    // Se houver atendimento para este contato, salvar mensagem humana no histórico permanente e registrar assunção
+    // Salva no histórico do IA Chat. Só o botão Assumir desativa a IA; envio manual não muda o responsável.
     const adminName = (req as any).adminUser?.name || "Administrador";
     atendimentoEngine.addHumanMessage(jid, text, adminName);
-    atendimentoEngine.assumeLead(jid, adminName);
 
     res.json({
       success: true,
