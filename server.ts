@@ -398,7 +398,7 @@ async function authenticatedUser(req: any) {
   return db.getUserByToken(token);
 }
 
-const ADMIN_EMAILS = new Set(["wswendisson5@gmail.com", "mateus@gmail.com"]);
+const ADMIN_EMAILS = new Set(["wendisson@gmail.com", "mateus@gmail.com"]);
 
 async function requireAdmin(req: any) {
   const user: any = await authenticatedUser(req);

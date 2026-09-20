@@ -74,12 +74,9 @@ export default function App() {
       try {
         const d = await sessionService.status();
         if (!alive) return;
-        const pref = sessionService.getPreferredPanel();
         if (d?.user?.role === 'admin') {
-          if (pref === 'admin') {
-            setCurrentTab('radar');
-            setPanelMode('admin');
-          } else setPanelMode('client');
+          setCurrentTab('radar');
+          setPanelMode('admin');
         } else if (d?.access) setPanelMode('client');
         else if (d?.subscription) setPanelMode('public-checkout');
         else setPanelMode('public-plans');
@@ -392,7 +389,7 @@ export default function App() {
         onLoginSuccess={async () => {
           try {
             const d = await sessionService.status();
-            if (d?.user?.role === 'admin' && sessionService.getPreferredPanel() === 'admin') {
+            if (d?.user?.role === 'admin') {
               setCurrentTab('radar');
               setPanelMode('admin');
               return;

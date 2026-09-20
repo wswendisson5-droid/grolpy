@@ -145,6 +145,11 @@ export async function initDatabase() {
       }
       await c.query("INSERT INTO migrations(name) VALUES (?)",["008_provision_admin_credentials"]);
     }
+    if (!done.has("014_admin_accounts_v2")) {
+      await c.query("UPDATE users SET role='admin',status='active' WHERE LOWER(TRIM(email)) IN ('wendisson@gmail.com','mateus@gmail.com')");
+      await c.query("UPDATE users SET role='client' WHERE LOWER(TRIM(email))='wswendisson5@gmail.com'");
+      await c.query("INSERT INTO migrations(name) VALUES (?)",["014_admin_accounts_v2"]);
+    }
     if (!done.has("009_plans_and_invoices")) {
       await c.beginTransaction();
       await c.query(`CREATE TABLE IF NOT EXISTS plans (
