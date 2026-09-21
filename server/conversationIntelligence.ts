@@ -124,7 +124,7 @@ export function decideConversation(
     stage = 'OBJECTION';
     const normalized = normalizeConversationText(latestText);
     if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(normalized)) {
-      responseGoal = 'responder diretamente à preocupação com bloqueio/banimento: explicar que a ferramenta permite espaçar os envios com intervalos configuráveis de 30 segundos, 1, 2, 3, 5 ou 10 minutos para evitar disparos todos de uma vez, sem prometer risco zero; não transformar a resposta em propaganda';
+      responseGoal = 'responder à objeção com postura comercial e confiança: primeiro diferenciar o Groply de disparadores agressivos, explicando que ele foi pensado para divulgação em grupos e oferece controle de intervalo entre envios para não mandar tudo de uma vez. Dizer que tomamos medidas operacionais para reduzir o risco. Não abrir a resposta com alertas, não assustar o lead e não repetir espontaneamente que pode haver bloqueio. Também não prometer risco zero ou imunidade absoluta';
       reasonCode = 'blocking_risk';
     } else if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|por qual motivo|qual o motivo|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(normalized)) {
       responseGoal = 'parar imediatamente o interrogatório e explicar o objetivo em linguagem humana: você viu a divulgação no grupo e entrou em contato porque trabalha com uma ferramenta que automatiza esse tipo de envio; dizer isso em uma ou duas frases e deixar a pessoa decidir se quer saber mais, sem fazer outra pergunta de qualificação';
@@ -146,7 +146,7 @@ export function decideConversation(
       reasonCode = 'advance_interest';
     }
   } else if (clientMessageCount === 1 || memory.stage === 'WAITING_FIRST_REPLY' || memory.stage === 'INITIAL_CONTACT') {
-    stage = 'CONVERSATION_STARTED'; responseGoal = 'explicar em UMA frase curta por que chamou: viu a divulgação no grupo e trabalha com uma ferramenta que automatiza esse tipo de envio. Não iniciar interrogatório e não perguntar se é manual'; reasonCode = 'first_reply';
+    stage = 'CONVERSATION_STARTED'; responseGoal = 'explicar em UMA frase curta e concreta por que chamou, identificando o produto pelo nome e pela função: viu a divulgação no grupo e trabalha com o Groply, uma plataforma que automatiza divulgações em grupos do WhatsApp. Nunca dizer apenas "uma ferramenta" sem explicar qual'; reasonCode = 'first_reply';
   } else if (intent === 'manual_confirmation') {
     stage = 'QUALIFICATION'; responseGoal = 'não perguntar quantidade de grupos. Fazer uma pergunta curta e variável sobre a rotina/dificuldade do envio, por exemplo se toma muito tempo ou se precisa ficar entrando grupo por grupo. Nunca repetir uma pergunta já feita'; reasonCode = 'qualify_volume';
   } else if (intent === 'process_detail') {
@@ -246,10 +246,10 @@ export function isDuplicateInboundMessage(
 export function fallbackForDecision(decision: ConversationDecision): string {
   switch (decision.reasonCode) {
     case 'qualify_volume': return 'E essa rotina de ficar fazendo os envios acaba tomando muito do seu tempo?';
-    case 'first_reply': return 'Vi sua divulgação no grupo e te chamei porque trabalho com uma ferramenta que automatiza justamente esse tipo de envio.';
+    case 'first_reply': return 'Vi sua divulgação no grupo e te chamei porque trabalho com o Groply, uma plataforma que automatiza divulgações em grupos do WhatsApp.';
     case 'opt_out': return 'Tudo certo. Não vou continuar com as mensagens por aqui.';
     case 'not_interested': return 'Tranquilo, obrigado por responder.';
-    case 'blocking_risk': return 'Esse cuidado faz sentido. A ferramenta permite configurar intervalos entre os envios, de 30 segundos até 10 minutos, pra não disparar tudo de uma vez. Isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
+    case 'blocking_risk': return 'Calma, o Groply é diferente desses disparadores que soltam tudo de uma vez. Você controla intervalos de 30 segundos a 10 minutos entre os envios justamente pra deixar a divulgação mais segura e reduzir bastante esse risco.';
     case 'clarify_contact_reason': return 'Perguntei porque vi sua divulgação no grupo e trabalho com uma ferramenta que automatiza justamente esses envios. Queria entender se faria sentido pra você, mas posso te explicar direto como funciona.';
     case 'value_objection': return 'A ideia da ferramenta é tirar o trabalho de ficar encaminhando grupo por grupo: você configura os grupos e horários e os envios ficam programados. O ponto é ver se o tempo que isso economiza faz sentido pra sua rotina.';
     case 'already_uses_tool': return 'Boa. A nossa ferramenta é própria para divulgação em grupos: você escolhe os grupos, programa os horários e controla o intervalo dos envios. Se quiser, te mostro rapidinho como funciona.';

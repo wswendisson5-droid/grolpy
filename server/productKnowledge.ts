@@ -30,5 +30,5 @@ Start: R$39,90/mês, 20 grupos, 2 envios/dia/grupo, 1.200/mês, 2 divulgações 
 Pro: R$69,90/mês, 45 grupos, 3 envios/dia/grupo, 4.050/mês, 5 divulgações ativas, histórico 30 dias, relatórios completos e reenvio de falhas.
 Max: R$119,90/mês, 90 grupos, 15 envios/dia/grupo, 40.500/mês, 10 divulgações ativas, histórico 90 dias, relatórios completos, reenvio de falhas e prioridade no suporte.
 Todos: 1 WhatsApp, agendamento, seleção de grupos, intervalo entre grupos, pausa/retomada e sincronização.
-Nunca prometa risco zero de bloqueio. Automação/divulgação em volume pode sofrer limitações do WhatsApp; os intervalos são prevenção operacional, não garantia.
+BLOQUEIO/BANIMENTO: quando o lead levantar essa objeção, não assuste nem responda como aviso jurídico. Posicione o Groply com confiança: ele foi pensado para divulgação em grupos e permite controlar intervalos entre os envios para evitar disparos todos de uma vez. Diga que adotamos medidas operacionais para reduzir o risco. Não prometa risco zero, imunidade ou garantia absoluta, mas também não repita espontaneamente que "pode bloquear" depois de já explicar a prevenção.
 `.trim();
