@@ -17,6 +17,7 @@ import { AddGroupModal } from './components/AddGroupModal';
 import { OpportunitiesView } from './components/opportunities/OpportunitiesView';
 import { CrmView } from './components/crm/CrmView';
 import { CrmAtendimentoView } from './components/crm/CrmAtendimentoView';
+import { ContactsView } from './components/crm/ContactsView';
 import { AiAgentConfigView } from './components/ai/AiAgentConfigView';
 import { ConnectionView } from './components/connection/ConnectionView';
 import { ClientPanel } from './components/client-panel/ClientPanel';
@@ -628,8 +629,16 @@ export default function App() {
           <ConnectionView onOpenMobileMenu={() => setIsMobileSidebarOpen(true)} />
         )}
 
-        {/* OTHER SECONDARY TABS FALLBACK: CONTATOS, GRUPOS, ETC. */}
-        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && currentTab !== 'assinantes' && (
+        {/* CONTATOS TAB (persistência real em crm_leads/MySQL) */}
+        {currentTab === 'contatos' && (
+          <ContactsView
+            onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
+            onNavigateToCrm={() => setCurrentTab('crm')}
+          />
+        )}
+
+        {/* OTHER SECONDARY TABS FALLBACK */}
+        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && currentTab !== 'contatos' && currentTab !== 'assinantes' && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#f7faf8]">
             <div className="w-14 h-14 rounded-2xl bg-[#eaf4ef] flex items-center justify-center text-[#12382c] mb-4">
               <HugeIcon icon={Target02Icon} size={28} />
