@@ -90,6 +90,7 @@ export function detectIntent(text: string): ConversationIntent {
   if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(t)) return 'objection';
   if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(t)) return 'objection';
   if (/\b(gasto|compensa|compense|prioridade|caro|vale a pena|custo beneficio)\b/.test(t)) return 'objection';
+  if (/\b(ja tenho (?:um )?(?:robo|bot|sistema|ferramenta)|uso (?:um )?(?:robo|bot|sistema|ferramenta)|tenho (?:um )?(?:robo|bot)\b)/.test(t)) return 'objection';
   if (/\b(quero saber mais|gostaria de saber mais|tenho interesse|me explica|pode me mostrar|quero conhecer|me mostra)\b/.test(t)) return 'interest';
   if (/\b(humano|atendente|pessoa de verdade)\b/.test(t)) return 'human_request';
   if (/^(sim|ss|s|isso|isso mesmo|faco|faço|manual|manualmente)[.! ]*$/.test(t)) return 'manual_confirmation';
@@ -128,6 +129,9 @@ export function decideConversation(
     } else if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(normalized)) {
       responseGoal = 'parar imediatamente o interrogatório e explicar o objetivo em linguagem humana: você viu a divulgação no grupo e entrou em contato porque trabalha com uma ferramenta que automatiza esse tipo de envio; dizer isso em uma ou duas frases e deixar a pessoa decidir se quer saber mais, sem fazer outra pergunta de qualificação';
       reasonCode = 'clarify_contact_reason';
+    } else if (/\b(ja tenho (?:um )?(?:robo|bot|sistema|ferramenta)|uso (?:um )?(?:robo|bot|sistema|ferramenta)|tenho (?:um )?(?:robo|bot)\b)/.test(normalized)) {
+      responseGoal = 'não interrogar sobre o robô atual. Reconhecer em uma frase e posicionar a diferença relevante: esta ferramenta foi pensada especificamente para divulgação em grupos, com seleção dos grupos, programação de horários e intervalos. Em seguida convidar de forma curta para conhecer como funciona. Não afirmar que não dá banimento ou qualquer garantia absoluta.';
+      reasonCode = 'already_uses_tool';
     } else {
       responseGoal = 'tratar a objeção específica sem discutir com a pessoa. Se a dúvida for se o custo compensa, relacionar a ferramenta ao tempo/trabalho que ela economiza, sem dizer que talvez não seja prioridade e sem pressionar; oferecer informação objetiva de funcionamento ou preço apenas se ajudar a decisão';
       reasonCode = 'value_objection';
@@ -234,6 +238,7 @@ export function fallbackForDecision(decision: ConversationDecision): string {
     case 'blocking_risk': return 'Esse cuidado faz sentido. A ferramenta permite configurar intervalos entre os envios, de 30 segundos até 10 minutos, pra não disparar tudo de uma vez. Isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
     case 'clarify_contact_reason': return 'Perguntei porque vi sua divulgação no grupo e trabalho com uma ferramenta que automatiza justamente esses envios. Queria entender se faria sentido pra você, mas posso te explicar direto como funciona.';
     case 'value_objection': return 'A ideia da ferramenta é tirar o trabalho de ficar encaminhando grupo por grupo: você configura os grupos e horários e os envios ficam programados. O ponto é ver se o tempo que isso economiza faz sentido pra sua rotina.';
+    case 'already_uses_tool': return 'Beleza. A nossa ferramenta é focada especificamente em divulgação para grupos: você escolhe os grupos, programa os horários e controla o intervalo dos envios. Se quiser, eu te mostro rapidinho como funciona.';
     case 'ask_confirmed_name': return 'Claro. Antes, qual é o seu nome pra eu te chamar certinho por aqui?';
     default: return '';
   }

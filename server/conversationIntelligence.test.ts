@@ -175,4 +175,13 @@ test('barreira de banimento recebe resposta específica de intervalo', () => {
   assert.match(fallbackForDecision(d), /30 segundos/i);
 });
 
-console.log('25 testes de inteligência conversacional passaram.');
+test('já tenho robô posiciona diferencial sem interrogatório', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const };
+  const d = decideConversation(m, 'Não. Tenho robô.', 3);
+  assert.equal(d.stage, 'OBJECTION');
+  assert.equal(d.reasonCode, 'already_uses_tool');
+  assert.match(fallbackForDecision(d), /focada especificamente em divulgação para grupos/i);
+  assert.doesNotMatch(fallbackForDecision(d), /seu robô|comando manual/i);
+});
+
+console.log('26 testes de inteligência conversacional passaram.');
