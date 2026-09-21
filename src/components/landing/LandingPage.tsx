@@ -44,22 +44,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     {
       name: 'Carla Mendes',
       role: 'Loja Online',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
-      text: '“O Gruply facilitou muito nossa comunicação. Consigo enviar promoções para vários grupos em minutos!”',
+      text: '“Antes eu perdia um tempão entrando nos grupos um por um. Agora deixo os horários organizados e sigo cuidando da loja.”',
       stars: 5,
     },
     {
       name: 'Rafael Lima',
-      role: 'Comunidade Fitness',
-      avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
-      text: '“Ferramenta simples e poderosa. Meus eventos agora têm muito mais alcance e engajamento.”',
+      role: 'Divulgação em grupos',
+      text: '“O que mais gostei foi conseguir deixar as divulgações programadas. Ficou bem mais prático do que fazer tudo manual.”',
       stars: 5,
     },
     {
       name: 'Juliana Costa',
       role: 'Consultora de Vendas',
-      avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&h=150&q=80',
-      text: '“Adorei os relatórios e a facilidade de uso. O Gruply realmente entrega o que promete.”',
+      text: '“Uso no dia a dia pra organizar meus envios. Configuro os grupos e horários e não preciso ficar lembrando de mandar toda hora.”',
       stars: 5,
     },
   ];
@@ -620,7 +617,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <Users size={26} />
                   </div>
                   <div>
-                    <span className="text-3xl sm:text-4xl font-black text-white tracking-tight block">+3.000</span>
+                    <span className="text-3xl sm:text-4xl font-black text-white tracking-tight block">+1.500</span>
                     <span className="text-xs text-[#a3b9ad] mt-1 block">usuários ativos</span>
                   </div>
                 </div>
@@ -702,11 +699,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               >
                 {/* Author Info */}
                 <div className="flex items-center gap-3.5">
-                  <img
-                    src={t.avatar}
-                    alt={t.name}
-                    className="w-11 h-11 rounded-full object-cover border-2 border-[#e6f9ef]"
-                  />
+                  <div
+                    className="w-11 h-11 shrink-0 rounded-full bg-[#dff6e9] border-2 border-[#c7eed9] text-[#087a4d] flex items-center justify-center text-sm font-black"
+                    aria-label={t.name}
+                  >
+                    {t.name.charAt(0).toUpperCase()}
+                  </div>
                   <div>
                     <h3 className="text-sm font-bold text-[#0e261f] leading-tight">{t.name}</h3>
                     <p className="text-xs text-[#6a7d73] mt-0.5">{t.role}</p>
@@ -847,33 +845,27 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <div className="md:col-span-3 flex flex-col gap-2.5">
               <span className="text-xs font-bold text-[#0e261f] uppercase tracking-wider">Siga a gente</span>
               <div className="flex items-center gap-2.5 text-[#0e261f]">
-                <a
-                  href="https://instagram.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all cursor-pointer"
                   aria-label="Instagram"
                 >
                   <Instagram size={15} />
-                </a>
-                <a
-                  href="https://youtube.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                </button>
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all cursor-pointer"
                   aria-label="YouTube"
                 >
                   <Youtube size={15} />
-                </a>
-                <a
-                  href="https://linkedin.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all"
+                </button>
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full border border-[#d6e0da] flex items-center justify-center hover:bg-[#00c968] hover:text-white hover:border-[#00c968] transition-all cursor-pointer"
                   aria-label="LinkedIn"
                 >
                   <Linkedin size={15} />
-                </a>
+                </button>
               </div>
             </div>
           </div>
