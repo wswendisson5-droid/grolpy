@@ -2271,7 +2271,9 @@ atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string, kin
         text,
       }),
     });
-    return sendRes.ok;
+    if (!sendRes.ok) return false;
+    // sendText 2xx = Evolution aceitou o envio; o histórico pode refletir depois do WhatsApp.
+    return true;
   } catch (err: any) {
     console.error("[AtendimentoEngine] Error sending via Evolution:", err.message);
     return false;
