@@ -16,16 +16,9 @@ const normalizePhone=(value:string)=>String(value||'').replace(/\D/g,'');
 
 export const ContactsView: React.FC<ContactsViewProps> = ({ onOpenMobileMenu, onNavigateToCrm }) => {
   const [contacts,setContacts]=useState<SalesContact[]>([]),[query,setQuery]=useState(''),[name,setName]=useState(''),[phone,setPhone]=useState('');
-  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[deletingPhone,setDeletingPhone]=useState(''),[error,setError]=useState('');
+  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState('');
   const loadContacts=async()=>{setLoading(true);setError('');try{const res=await fetch('/api/admin/sales-contacts');const data=await res.json();if(!res.ok||!data.success)throw new Error(data.error||'Falha ao carregar contatos');setContacts(Array.isArray(data.contacts)?data.contacts:[]);}catch(err:any){setError(err.message||'Falha ao carregar contatos');}finally{setLoading(false);}};
   useEffect(()=>{void loadContacts();},[]);
-  const deleteContact=async(contact:SalesContact)=>{
-    const shownName=contact.confirmedName||contact.displayName||contact.phone;
-    if(!window.confirm(`Apagar ${shownName} da base de contatos? Se esse número divulgar novamente, o Radar poderá detectá-lo como nova oportunidade.`))return;
-    setDeletingPhone(contact.phone);setError('');
-    try{const res=await fetch(`/api/admin/sales-contacts/${encodeURIComponent(contact.phone)}`,{method:'DELETE'});const data=await res.json();if(!res.ok||!data.success)throw new Error(data.error||'Falha ao apagar contato');setContacts(prev=>prev.filter(item=>item.phone!==contact.phone));}
-    catch(err:any){setError(err.message||'Falha ao apagar contato');}finally{setDeletingPhone('');}
-  };
   const filtered=useMemo(()=>{const q=query.trim().toLowerCase();if(!q)return contacts;return contacts.filter(c=>[c.confirmedName,c.displayName,c.phone,c.sourceGroupName,c.pipelineStage,c.outcome].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)));},[contacts,query]);
   const saveContact=async(event:React.FormEvent)=>{event.preventDefault();const digits=normalizePhone(phone);if(digits.length<8){setError('Informe um WhatsApp válido com DDD.');return;}setSaving(true);setError('');try{const res=await fetch('/api/admin/sales-contacts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:digits,displayName:name.trim()||digits,source:'manual'})});const data=await res.json();if(!res.ok||!data.success)throw new Error(data.error||'Falha ao salvar contato');setName('');setPhone('');await loadContacts();}catch(err:any){setError(err.message||'Falha ao salvar contato');}finally{setSaving(false);}};
 
@@ -55,9 +48,7 @@ export const ContactsView: React.FC<ContactsViewProps> = ({ onOpenMobileMenu, on
           <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-[#edf5f1] text-[#476458]">{pipelineLabels[contact.pipelineStage||'']||contact.pipelineStage||'Oportunidade'}</span>
           <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${contact.replied?'bg-[#e4f7ec] text-[#087a4d]':'bg-[#f3f4f3] text-[#738078]'}`}>{contact.replied?'Respondeu':'Não respondeu'}</span>
           {contact.outcome&&<span className="text-[10px] font-bold px-2 py-1 rounded-full bg-[#f5f0e8] text-[#765f39]">{contact.outcome}</span>}{contact.doNotContact&&<span className="text-[10px] font-bold px-2 py-1 rounded-full bg-red-50 text-red-700">Não contatar</span>}
-        </div>{contact.sourceGroupName&&<div className="text-[11px] text-[#87958e] mt-2">Origem: {contact.sourceGroupName}</div>}</div>
-        <button onClick={()=>void deleteContact(contact)} disabled={deletingPhone===contact.phone} title="Apagar contato" className="shrink-0 px-3 py-2 rounded-xl border border-red-100 bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50">{deletingPhone===contact.phone?'Apagando...':'Apagar'}</button>
-      </div>;})}</div>}
+        </div>{contact.sourceGroupName&&<div className="text-[11px] text-[#87958e] mt-2">Origem: {contact.sourceGroupName}</div>}</div></div>;})}</div>}
     </div>
   </div></div>;
 };

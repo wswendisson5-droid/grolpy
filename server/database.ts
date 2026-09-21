@@ -319,37 +319,6 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)", ["016_admin_state"]);
     }
-    if (!done.has("020_radar_opportunities")) {
-      await c.beginTransaction();
-      await c.query(`CREATE TABLE IF NOT EXISTS radar_opportunities (
-        id VARCHAR(120) PRIMARY KEY,
-        phone VARCHAR(30) NOT NULL,
-        remote_jid VARCHAR(190) NULL,
-        contact_name VARCHAR(190) NULL,
-        group_jid VARCHAR(190) NULL,
-        group_name VARCHAR(190) NULL,
-        title VARCHAR(500) NULL,
-        segment VARCHAR(190) NULL,
-        category VARCHAR(190) NULL,
-        message_original TEXT NULL,
-        confidence_score INT NOT NULL DEFAULT 0,
-        score INT NOT NULL DEFAULT 0,
-        status VARCHAR(40) NOT NULL DEFAULT 'new',
-        stage VARCHAR(40) NOT NULL DEFAULT 'nao_atribuidas',
-        assigned_to VARCHAR(190) NULL,
-        avatar TEXT NULL,
-        image TEXT NULL,
-        has_attached_image TINYINT(1) NOT NULL DEFAULT 0,
-        ai_analysis_json LONGTEXT NULL,
-        history_json LONGTEXT NULL,
-        opportunity_json LONGTEXT NOT NULL,
-        detected_at DATETIME NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX(phone), INDEX(remote_jid), INDEX(group_jid), INDEX(stage), INDEX(detected_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-      await c.query("INSERT INTO migrations(name) VALUES (?)", ["020_radar_opportunities"]);
-      await c.commit();
-    }
     if (!done.has("019_sales_contacts_pipeline")) {
       await c.beginTransaction();
       await c.query(`CREATE TABLE IF NOT EXISTS sales_contacts (
@@ -1314,51 +1283,6 @@ export async function listLeadsForUser(userId: number) {
   });
 }
 
-
-
-export async function upsertRadarOpportunity(opportunity: any) {
-  const id = String(opportunity?.id || '').trim();
-  if (!id) throw new Error('Oportunidade sem id');
-  const phone = String(opportunity?.phone || opportunity?.remoteJid || '').replace(/\D/g, '');
-  const detectedRaw = opportunity?.createdAt ? new Date(opportunity.createdAt) : new Date();
-  const detectedAt = Number.isNaN(detectedRaw.getTime()) ? new Date() : detectedRaw;
-  await pool.execute(
-    `INSERT INTO radar_opportunities
-      (id,phone,remote_jid,contact_name,group_jid,group_name,title,segment,category,message_original,
-       confidence_score,score,status,stage,assigned_to,avatar,image,has_attached_image,ai_analysis_json,history_json,opportunity_json,detected_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON DUPLICATE KEY UPDATE
-       phone=VALUES(phone),remote_jid=VALUES(remote_jid),contact_name=VALUES(contact_name),
-       group_jid=VALUES(group_jid),group_name=VALUES(group_name),title=VALUES(title),segment=VALUES(segment),
-       category=VALUES(category),message_original=VALUES(message_original),confidence_score=VALUES(confidence_score),
-       score=VALUES(score),status=VALUES(status),stage=VALUES(stage),assigned_to=VALUES(assigned_to),
-       avatar=VALUES(avatar),image=VALUES(image),has_attached_image=VALUES(has_attached_image),
-       ai_analysis_json=VALUES(ai_analysis_json),history_json=VALUES(history_json),opportunity_json=VALUES(opportunity_json)`,
-    [id, phone, opportunity.remoteJid || null, opportunity.contactName || null, opportunity.groupJid || null,
-     opportunity.groupName || null, opportunity.title || null, opportunity.segment || null, opportunity.category || null,
-     opportunity.messageOriginal || null, Number(opportunity.confidenceScore || 0), Number(opportunity.score || 0),
-     opportunity.status || 'new', opportunity.stage || 'nao_atribuidas', opportunity.assignedTo || null,
-     opportunity.avatar || null, opportunity.image || null, opportunity.hasAttachedImage ? 1 : 0,
-     JSON.stringify(opportunity.aiAnalysis || {}), JSON.stringify(opportunity.history || []), JSON.stringify(opportunity), detectedAt]
-  );
-}
-
-export async function listRadarOpportunities(limit = 5000) {
-  const safeLimit = Math.max(1, Math.min(10000, Number(limit) || 5000));
-  const [rows]: any = await pool.query(
-    `SELECT opportunity_json AS opportunityJson FROM radar_opportunities ORDER BY detected_at DESC LIMIT ${safeLimit}`
-  );
-  return rows.map((row: any) => {
-    try { return JSON.parse(row.opportunityJson || '{}'); } catch { return null; }
-  }).filter(Boolean);
-}
-
-export async function deleteSalesContact(phoneOrJid: string) {
-  const phone = String(phoneOrJid || '').replace(/\D/g, '');
-  if (phone.length < 8) return false;
-  const [result]: any = await pool.execute("DELETE FROM sales_contacts WHERE phone = ?", [phone]);
-  return Number(result?.affectedRows || 0) > 0;
-}
 
 export interface SalesContactInput {
   phone: string;
