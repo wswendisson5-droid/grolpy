@@ -4,6 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { arePhonesEquivalent, cleanPhoneDigits } from './phoneUtils';
 import { createOpenAIStructuredResponse, getAiRuntimeInfo } from './openaiClient';
 import { CONVERSATION_POLICY, cleanAssistantReply, isDirectPricingRequest } from './conversationPolicy';
+import { ConversationMemory, DecisionLog, createConversationMemory, decideConversation, fallbackForDecision, isDuplicateInboundMessage, updateMemoryFromTurn, validateCommercialReply } from './conversationIntelligence';
 
 export function safeUnicodeTruncate(text: string, maxChars: number): string {
   if (!text) return '';
@@ -37,9 +38,9 @@ function getSaoPauloTime(date = new Date()) {
 
 function getGreetingForSaoPaulo(date = new Date()) {
   const { hour } = getSaoPauloTime(date);
-  if (hour >= 12 && hour < 18) return 'Boa tarde!';
-  if (hour >= 18 || hour < 5) return 'Boa noite!';
-  return 'Bom dia!';
+  if (hour >= 12 && hour < 18) return 'Boa tarde';
+  if (hour >= 18 || hour < 5) return 'Boa noite';
+  return 'Bom dia';
 }
 
 const PRICING_TABLE_MEDIA_PATH = 'uploads/tabela-planos-groply.png';
@@ -116,7 +117,9 @@ export interface CRMAtendimentoLead {
   followUp1SentAt?: number;
   followUp2SentAt?: number;
   clientReplied: boolean;
-  collectedInfo: Record<string, string>; // Informações de atendimento guardadas
+  collectedInfo: Record<string, string>; // Informações legadas/compatíveis do atendimento
+  conversationMemory: ConversationMemory; // estado comercial persistente por contato
+  decisionLog: DecisionLog[]; // observabilidade operacional, sem raciocínio interno
   notes: InternalNote[];
   messages: CRMLeadMessage[]; // Histórico completo e persistido da conversa no CRM
 }
@@ -183,6 +186,8 @@ export class AtendimentoEngine {
       this.atendimentos = state.atendimentos.map((item: any) => ({
         ...item,
         collectedInfo: item.collectedInfo || {},
+        conversationMemory: item.conversationMemory || createConversationMemory(item.createdAt || Date.now()),
+        decisionLog: Array.isArray(item.decisionLog) ? item.decisionLog.slice(-200) : [],
         notes: Array.isArray(item.notes) ? item.notes : [],
         messages: Array.isArray(item.messages) ? item.messages : [],
       }));
@@ -321,6 +326,8 @@ export class AtendimentoEngine {
       lastInteractionAt: now,
       clientReplied: false,
       collectedInfo: {},
+      conversationMemory: { ...createConversationMemory(now), stage: automaticAiEnabled ? 'WAITING_FIRST_REPLY' : 'INITIAL_CONTACT' },
+      decisionLog: [],
       notes: [
         {
           id: `note-${Date.now()}-1`,
@@ -539,9 +546,7 @@ export class AtendimentoEngine {
   public handleIncomingClientMessage(contactJid: string, text: string, externalMessageId?: string) {
     const queueKey = cleanPhoneDigits(contactJid) || contactJid;
     const lead = this.findLead(contactJid);
-    const lastClient = lead?.messages.filter((m) => m.sender === 'client').at(-1);
-    if ((externalMessageId && lead?.messages.some((m) => m.id === `msg-client-${externalMessageId}`)) ||
-        (lastClient?.text.trim() === text.trim() && Date.now() - lastClient.timestamp < 5000)) {
+    if (lead && isDuplicateInboundMessage(lead.messages, text, externalMessageId || '')) {
       return this.incomingMessageQueues.get(queueKey) || Promise.resolve();
     }
     const pendingKey = `${queueKey}:${text.trim()}`;
@@ -620,7 +625,26 @@ export class AtendimentoEngine {
       // anteriores são canceladas e só a última gera UMA resposta usando todo o histórico.
       await new Promise((resolve) => setTimeout(resolve, 3500));
       if (this.incomingRevisions.get(queueKey) !== revision) return;
-      await this.generateContextualAiReply(lead, text, () => this.incomingRevisions.get(queueKey) === revision);
+
+      // Motor de decisão: memória persistente -> estágio -> intenção -> objetivo -> geração.
+      const clientMessageCount = lead.messages.filter((message) => message.sender === 'client').length;
+      const memory = lead.conversationMemory || createConversationMemory(lead.createdAt || now);
+      const decision = decideConversation(memory, text, clientMessageCount);
+      lead.conversationMemory = updateMemoryFromTurn(memory, text, decision, now);
+      lead.decisionLog = Array.isArray(lead.decisionLog) ? lead.decisionLog : [];
+      lead.decisionLog.push({
+        ...decision,
+        messageId: clientMsg.id,
+        contactId: lead.id,
+        timestamp: now,
+        validationResult: 'pending',
+      });
+      lead.decisionLog = lead.decisionLog.slice(-200);
+      this.saveToDisk();
+
+      // Fragmento ambíguo pode ser apenas parte de uma sequência. Não inventamos contexto.
+      if (!decision.shouldRespond) return;
+      await this.generateContextualAiReply(lead, text, () => this.incomingRevisions.get(queueKey) === revision, decision);
     } else {
       lead.status = 'respondido_cliente';
     }
@@ -676,7 +700,7 @@ export class AtendimentoEngine {
   /**
    * Revisa TODO o histórico da conversa e gera a resposta contextual mais humana e adequada
    */
-  private async generateContextualAiReply(lead: CRMAtendimentoLead, latestMessage: string, isCurrent = () => true) {
+  private async generateContextualAiReply(lead: CRMAtendimentoLead, latestMessage: string, isCurrent = () => true, decision = decideConversation(lead.conversationMemory || createConversationMemory(), latestMessage, lead.messages.filter((m) => m.sender === 'client').length)) {
     const apiKey = process.env.GEMINI_API_KEY;
     const aiRuntime = getAiRuntimeInfo();
     const now = Date.now();
@@ -749,7 +773,11 @@ DETALHES OFICIAIS DOS PLANOS:
 - Todos permitem agendamento, intervalo entre grupos, seleção de grupos, pausar/reativar divulgações, 1 WhatsApp conectado e sincronização dos grupos.
 
 DADOS CONFIÁVEIS DO CRM:
-- Etapa atual: ${lead.conversationStep}
+- Etapa legada: ${lead.conversationStep}
+- Estágio comercial persistente: ${decision.stage}
+- Intenção detectada: ${decision.intent}
+- OBJETIVO DESTA RESPOSTA: ${decision.responseGoal}
+- Memória estruturada: ${JSON.stringify(lead.conversationMemory)}
 - Proposta da empresa: ${this.config.companyPitch}
 - Grupo de origem: ${lead.groupName}
 - Divulgação original: ${lead.originalMessage}
@@ -851,7 +879,11 @@ CONTEXTO DO CONTATO:
 - O que ele divulga / Atividade: "${lead.demandSummary}"
 - Solução oferecida: "${lead.recommendedService}"
 - Nome já conhecido do cliente: ${knownName ? `"${knownName}"` : 'AINDA NÃO INFORMADO'}
-- Informações já memorizadas do atendimento: ${JSON.stringify(lead.collectedInfo)}
+- Informações legadas já memorizadas: ${JSON.stringify(lead.collectedInfo)}
+- Estágio comercial persistente: ${decision.stage}
+- Intenção detectada: ${decision.intent}
+- OBJETIVO DESTA RESPOSTA: ${decision.responseGoal}
+- Memória estruturada: ${JSON.stringify(lead.conversationMemory)}
 
 HISTÓRICO COMPLETO DA CONVERSA NO WHATSAPP (EM ORDEM CRONOLÓGICA):
 ${messagesHistory}
@@ -927,9 +959,29 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
     // aprofundar contexto, não para disparar um textão comercial.
     const normalizedLatestForGuard = latestMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
     const isShortManualConfirmation = /^(sim|ss|s|sou|sou eu|eu mesmo|isso|isso mesmo|faco|faço)[.! ]*$/.test(normalizedLatestForGuard);
-    if (lead.conversationStep === 'context_sent' && isShortManualConfirmation) {
+    if ((lead.conversationStep === 'context_sent' || decision.reasonCode === 'qualify_volume') && isShortManualConfirmation) {
       replyText = 'Você costuma divulgar em quantos grupos mais ou menos?';
       sendPricingTable = false;
+    }
+
+    // Validador final independente do prompt. Resposta reprovada não vai direto ao WhatsApp.
+    const previousAiMessages = lead.messages.filter((message) => message.sender === 'ai').slice(-8).map((message) => message.text);
+    let validation = validateCommercialReply(replyText, decision, previousAiMessages);
+    if (!validation.ok) {
+      const safeFallback = fallbackForDecision(decision);
+      if (safeFallback) {
+        replyText = safeFallback;
+        sendPricingTable = false;
+        validation = validateCommercialReply(replyText, decision, previousAiMessages);
+      }
+    }
+    const currentDecisionLog = lead.decisionLog?.at(-1);
+    if (currentDecisionLog) {
+      currentDecisionLog.validationResult = validation.ok ? 'approved' : `rejected:${validation.reasons.join(',')}`;
+    }
+    if (!validation.ok) {
+      this.saveToDisk();
+      return;
     }
 
     if (!isCurrent() || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
@@ -1007,6 +1059,18 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
         type: 'system',
       });
       return;
+    }
+
+    // Estado comercial só avança depois que a Evolution confirma o envio.
+    if (decision.stage === 'DO_NOT_CONTACT' || decision.stage === 'NOT_INTERESTED') {
+      lead.aiActiveForContact = false;
+      lead.status = 'descartado';
+      lead.conversationStep = 'human_control';
+      this.stageUpdater?.(lead.contactJid, 'descartado');
+    } else if (decision.stage === 'CONVERSATION_STARTED') {
+      lead.conversationStep = 'context_sent';
+    } else if (decision.stage === 'SOLUTION_INTRODUCTION' || decision.stage === 'INTEREST') {
+      lead.conversationStep = 'pitch_sent';
     }
 
     lead.notes.push({
