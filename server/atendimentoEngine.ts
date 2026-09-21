@@ -666,10 +666,15 @@ export class AtendimentoEngine {
       if (this.incomingRevisions.get(queueKey) !== revision) return;
 
       // Motor de decisão: memória persistente -> estágio -> intenção -> objetivo -> geração.
-      const clientMessageCount = lead.messages.filter((message) => message.sender === 'client').length;
+      const clientMessages = lead.messages.filter((message) => message.sender === 'client');
+      const clientMessageCount = clientMessages.length;
       const memory = lead.conversationMemory || createConversationMemory(lead.createdAt || now);
-      const decision = decideConversation(memory, text, clientMessageCount);
-      lead.conversationMemory = updateMemoryFromTurn(memory, text, decision, now);
+      // A decisão também precisa "ouvir" o burst inteiro. Ex.: "alguns sim e outros não" +
+      // "por qual motivo?" são uma única intenção, mesmo chegando como dois webhooks.
+      const burstMessages = clientMessages.filter((message) => now - message.timestamp <= 8000).slice(-4);
+      const decisionText = burstMessages.length > 1 ? burstMessages.map((message) => message.text).join('\n') : text;
+      const decision = decideConversation(memory, decisionText, clientMessageCount);
+      lead.conversationMemory = updateMemoryFromTurn(memory, decisionText, decision, now);
       lead.decisionLog = Array.isArray(lead.decisionLog) ? lead.decisionLog : [];
       lead.decisionLog.push({
         ...decision,

@@ -167,6 +167,14 @@ test('nome confirmado evita perguntar o nome novamente', () => {
   assert.equal(d.reasonCode, 'advance_interest');
 });
 
+test('por qual motivo interrompe interrogatorio e explica abordagem', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const };
+  const d = decideConversation(m, 'Alguns sim e outros não\nPor qual motivo?', 4);
+  assert.equal(d.intent, 'objection');
+  assert.equal(d.reasonCode, 'clarify_contact_reason');
+  assert.match(fallbackForDecision(d), /vi sua divulgação no grupo/i);
+});
+
 test('barreira sobre motivo da abordagem interrompe interrogatório', () => {
   const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const };
   const d = decideConversation(m, 'Afinal o que deseja? Não te conheço', 4);

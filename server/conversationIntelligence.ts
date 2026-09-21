@@ -88,7 +88,7 @@ export function detectIntent(text: string): ConversationIntent {
   if (/\b(preco|precos|valor|valores|quanto custa|mensalidade|plano|planos|tabela)\b/.test(t)) return 'pricing';
   if (/\b(como funciona|como que funciona|funciona como|como usar|como usa)\b/.test(t)) return 'how_it_works';
   if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(t)) return 'objection';
-  if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(t)) return 'objection';
+  if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|por qual motivo|qual o motivo|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(t)) return 'objection';
   if (/\b(gasto|compensa|compense|prioridade|caro|vale a pena|custo beneficio)\b/.test(t)) return 'objection';
   if (/\b(ja tenho (?:um )?(?:robo|bot|sistema|ferramenta)|uso (?:um )?(?:robo|bot|sistema|ferramenta)|tenho (?:um )?(?:robo|bot)\b)/.test(t)) return 'objection';
   if (/\b(quero saber mais|gostaria de saber mais|tenho interesse|me explica|pode me mostrar|quero conhecer|me mostra)\b/.test(t)) return 'interest';
@@ -126,7 +126,7 @@ export function decideConversation(
     if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(normalized)) {
       responseGoal = 'responder diretamente à preocupação com bloqueio/banimento: explicar que a ferramenta permite espaçar os envios com intervalos configuráveis de 30 segundos, 1, 2, 3, 5 ou 10 minutos para evitar disparos todos de uma vez, sem prometer risco zero; não transformar a resposta em propaganda';
       reasonCode = 'blocking_risk';
-    } else if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(normalized)) {
+    } else if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|por qual motivo|qual o motivo|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(normalized)) {
       responseGoal = 'parar imediatamente o interrogatório e explicar o objetivo em linguagem humana: você viu a divulgação no grupo e entrou em contato porque trabalha com uma ferramenta que automatiza esse tipo de envio; dizer isso em uma ou duas frases e deixar a pessoa decidir se quer saber mais, sem fazer outra pergunta de qualificação';
       reasonCode = 'clarify_contact_reason';
     } else if (/\b(ja tenho (?:um )?(?:robo|bot|sistema|ferramenta)|uso (?:um )?(?:robo|bot|sistema|ferramenta)|tenho (?:um )?(?:robo|bot)\b)/.test(normalized)) {
