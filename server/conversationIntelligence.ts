@@ -150,9 +150,21 @@ export function decideConversation(
   } else if (intent === 'manual_confirmation') {
     stage = 'QUALIFICATION'; responseGoal = 'descobrir quantidade de grupos, uma pergunta curta'; reasonCode = 'qualify_volume';
   } else if (intent === 'process_detail') {
-    stage = memory.confirmedFacts.manual === 'sim' ? 'PAIN_DISCOVERY' : 'QUALIFICATION';
-    responseGoal = 'usar o detalhe que a pessoa acabou de dar, sem repetir pergunta já respondida; se ainda não souber o volume, descobrir quantos grupos ela costuma usar; se ela explicou que faz manualmente/encaminha grupo por grupo, avançar naturalmente para a dor e depois apresentar o Groply';
-    reasonCode = 'discover_process';
+    const normalized = normalizeConversationText(latestText);
+    const hasGroupVolume = /\b\d{1,3}\s*grupos?\b/.test(normalized) || /^(?:uns?\s*)?\d{1,3}$/.test(normalized);
+    if (memory.confirmedFacts.manual === 'sim' && (hasGroupVolume || Boolean(memory.confirmedFacts.group_count))) {
+      stage = 'SOLUTION_INTRODUCTION';
+      responseGoal = 'já existe contexto comercial suficiente. NÃO faça outra pergunta de qualificação sobre frequência, tempo ou processo. Conecte o volume/trabalho manual ao benefício e apresente a ferramenta em uma ou duas frases curtas; depois convide a pessoa a conhecer como funciona.';
+      reasonCode = 'present_solution_after_volume';
+    } else {
+      stage = memory.confirmedFacts.manual === 'sim' ? 'PAIN_DISCOVERY' : 'QUALIFICATION';
+      responseGoal = 'use o detalhe que a pessoa acabou de dar sem repetir pergunta. Se ainda faltar volume, faça somente essa pergunta; não empilhe perguntas de qualificação.';
+      reasonCode = 'discover_process';
+    }
+  } else if (intent === 'other' && memory.confirmedFacts.manual === 'sim' && Boolean(memory.confirmedFacts.group_count)) {
+    stage = 'SOLUTION_INTRODUCTION';
+    responseGoal = 'o lead já confirmou processo manual e volume. Pare de qualificar e apresente a ferramenta de forma curta, ligada ao trabalho de postar grupo por grupo. Não faça nova pergunta investigativa.';
+    reasonCode = 'present_solution_after_volume';
   } else if (intent === 'other' && (memory.stage === 'CONVERSATION_STARTED' || memory.stage === 'QUALIFICATION' || memory.stage === 'PAIN_DISCOVERY')) {
     stage = memory.confirmedFacts.manual === 'sim' ? 'PAIN_DISCOVERY' : 'QUALIFICATION';
     responseGoal = 'dar continuidade comercial ao que a pessoa acabou de explicar; não travar nem reiniciar o roteiro. Aproveitar os fatos já informados e fazer no máximo uma pergunta útil que aproxime da apresentação do Groply';
@@ -188,7 +200,9 @@ export function updateMemoryFromTurn(
   const t = normalizeConversationText(latestText);
   if (decision.intent === 'manual_confirmation') next.confirmedFacts.manual = 'sim';
   const groupMatch = t.match(/\b(?:uns?|umas?|cerca de|mais ou menos)?\s*(\d{1,3})\s*grupos?\b/);
+  const bareGroupCount = /^(?:uns?\s*)?(\d{1,3})$/.exec(t);
   if (groupMatch) next.confirmedFacts.group_count = groupMatch[1];
+  else if (bareGroupCount && (memory.stage === 'QUALIFICATION' || memory.stage === 'PAIN_DISCOVERY')) next.confirmedFacts.group_count = bareGroupCount[1];
   const freqMatch = t.match(/\b(\d{1,2})\s*(?:x|vez|vezes)\s*(?:por|ao)\s*dia\b/);
   if (freqMatch) next.confirmedFacts.daily_frequency = freqMatch[1];
   if (decision.intent === 'objection' && !next.objections.includes(latestText.trim())) next.objections.push(latestText.trim());
@@ -238,7 +252,8 @@ export function fallbackForDecision(decision: ConversationDecision): string {
     case 'blocking_risk': return 'Esse cuidado faz sentido. A ferramenta permite configurar intervalos entre os envios, de 30 segundos até 10 minutos, pra não disparar tudo de uma vez. Isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
     case 'clarify_contact_reason': return 'Perguntei porque vi sua divulgação no grupo e trabalho com uma ferramenta que automatiza justamente esses envios. Queria entender se faria sentido pra você, mas posso te explicar direto como funciona.';
     case 'value_objection': return 'A ideia da ferramenta é tirar o trabalho de ficar encaminhando grupo por grupo: você configura os grupos e horários e os envios ficam programados. O ponto é ver se o tempo que isso economiza faz sentido pra sua rotina.';
-    case 'already_uses_tool': return 'Beleza. A nossa ferramenta é focada especificamente em divulgação para grupos: você escolhe os grupos, programa os horários e controla o intervalo dos envios. Se quiser, eu te mostro rapidinho como funciona.';
+    case 'already_uses_tool': return 'Boa. A nossa ferramenta é própria para divulgação em grupos: você escolhe os grupos, programa os horários e controla o intervalo dos envios. Se quiser, te mostro rapidinho como funciona.';
+    case 'present_solution_after_volume': return 'Esse volume já dá bastante trabalho fazendo manualmente. Tenho uma ferramenta que automatiza esses envios: você escolhe os grupos e programa os horários. Se quiser, te mostro rapidinho como funciona.';
     case 'ask_confirmed_name': return 'Claro. Antes, qual é o seu nome pra eu te chamar certinho por aqui?';
     default: return '';
   }

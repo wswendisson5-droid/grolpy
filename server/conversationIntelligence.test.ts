@@ -20,6 +20,20 @@ test('sim qualifica volume sem vender', () => {
   assert.equal(fallbackForDecision(d), 'Você costuma divulgar em quantos grupos mais ou menos?');
 });
 
+test('volume informado apos manual encerra interrogatorio e apresenta solucao', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const, confirmedFacts: { manual: 'sim' } };
+  const d = decideConversation(m, '50 grupos', 3);
+  assert.equal(d.stage, 'SOLUTION_INTRODUCTION');
+  assert.equal(d.reasonCode, 'present_solution_after_volume');
+});
+
+test('numero puro em qualificacao vira quantidade de grupos na memoria', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const, confirmedFacts: { manual: 'sim' } };
+  const d = decideConversation(m, '50', 3);
+  const next = updateMemoryFromTurn(m, '50', d);
+  assert.equal(next.confirmedFacts.group_count, '50');
+});
+
 test('preço imediato sai do fluxo sem bloquear resposta', () => {
   const d = decideConversation(createConversationMemory(), 'quanto custa?', 1);
   assert.equal(d.intent, 'pricing');
@@ -180,7 +194,7 @@ test('já tenho robô posiciona diferencial sem interrogatório', () => {
   const d = decideConversation(m, 'Não. Tenho robô.', 3);
   assert.equal(d.stage, 'OBJECTION');
   assert.equal(d.reasonCode, 'already_uses_tool');
-  assert.match(fallbackForDecision(d), /focada especificamente em divulgação para grupos/i);
+  assert.match(fallbackForDecision(d), /própria para divulgação em grupos/i);
   assert.doesNotMatch(fallbackForDecision(d), /seu robô|comando manual/i);
 });
 
