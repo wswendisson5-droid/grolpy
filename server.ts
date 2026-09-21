@@ -2267,6 +2267,10 @@ atendimentoEngine.setEvolutionSender(async (
     const cleanNumber = targetJid.replace(/\D/g, "");
     const sendPricingTable = async () => {
       if (!mediaPath) return true;
+      if (kind !== "reply") {
+        const db = await getDatabase();
+        if (await db.isOutboundProtectedNumber(cleanNumber || targetJid)) return false;
+      }
       const fullMediaPath = path.resolve(process.cwd(), mediaPath);
       if (!fs.existsSync(fullMediaPath)) {
         console.error(`[AtendimentoEngine] Tabela de planos não encontrada: ${fullMediaPath}`);

@@ -50,6 +50,8 @@ jobs:
 
           # Backend compilado + copia do frontend para o fallback SPA do Express
           cp -r dist deploy/dist
+          mkdir -p deploy/uploads
+          cp uploads/tabela-planos-groply.png deploy/uploads/tabela-planos-groply.png
 
           # O Passenger usa o ambiente Node Selector do cPanel. Instala somente
           # o driver MySQL dentro do pacote de deploy, sem alterar o .env.
