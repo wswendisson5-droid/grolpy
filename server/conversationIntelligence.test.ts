@@ -153,4 +153,26 @@ test('nome confirmado evita perguntar o nome novamente', () => {
   assert.equal(d.reasonCode, 'advance_interest');
 });
 
-console.log('22 testes de inteligência conversacional passaram.');
+test('barreira sobre motivo da abordagem interrompe interrogatório', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const };
+  const d = decideConversation(m, 'Afinal o que deseja? Não te conheço', 4);
+  assert.equal(d.stage, 'OBJECTION');
+  assert.equal(d.reasonCode, 'clarify_contact_reason');
+  assert.match(fallbackForDecision(d), /ferramenta/i);
+});
+
+test('objeção de custo vira conversa de valor sem desistir pelo lead', () => {
+  const m = { ...createConversationMemory(), stage: 'SOLUTION_INTRODUCTION' as const };
+  const d = decideConversation(m, 'não sei se é um gasto que para mim compense', 5);
+  assert.equal(d.reasonCode, 'value_objection');
+  assert.doesNotMatch(fallbackForDecision(d), /não seja uma prioridade/i);
+});
+
+test('barreira de banimento recebe resposta específica de intervalo', () => {
+  const m = { ...createConversationMemory(), stage: 'QUALIFICATION' as const };
+  const d = decideConversation(m, 'parei de usar robô para evitar banimento', 4);
+  assert.equal(d.reasonCode, 'blocking_risk');
+  assert.match(fallbackForDecision(d), /30 segundos/i);
+});
+
+console.log('25 testes de inteligência conversacional passaram.');

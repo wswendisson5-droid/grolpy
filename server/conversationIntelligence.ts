@@ -87,7 +87,9 @@ export function detectIntent(text: string): ConversationIntent {
   if (isNotInterested(t)) return 'not_interested';
   if (/\b(preco|precos|valor|valores|quanto custa|mensalidade|plano|planos|tabela)\b/.test(t)) return 'pricing';
   if (/\b(como funciona|como que funciona|funciona como|como usar|como usa)\b/.test(t)) return 'how_it_works';
-  if (/\b(bloque|ban|spam|segur|risco)\b/.test(t)) return 'objection';
+  if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(t)) return 'objection';
+  if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(t)) return 'objection';
+  if (/\b(gasto|compensa|compense|prioridade|caro|vale a pena|custo beneficio)\b/.test(t)) return 'objection';
   if (/\b(quero saber mais|gostaria de saber mais|tenho interesse|me explica|pode me mostrar|quero conhecer|me mostra)\b/.test(t)) return 'interest';
   if (/\b(humano|atendente|pessoa de verdade)\b/.test(t)) return 'human_request';
   if (/^(sim|ss|s|isso|isso mesmo|faco|faço|manual|manualmente)[.! ]*$/.test(t)) return 'manual_confirmation';
@@ -119,8 +121,17 @@ export function decideConversation(
     stage = 'SOLUTION_INTRODUCTION'; responseGoal = 'explicar somente como funciona, em até duas frases'; reasonCode = 'direct_product_question';
   } else if (intent === 'objection') {
     stage = 'OBJECTION';
-    responseGoal = 'responder diretamente à preocupação com bloqueio/banimento: reconhecer que divulgação pode sofrer limitações, explicar que o Groply permite espaçar os envios com intervalos configuráveis de 30 segundos, 1, 2, 3, 5 ou 10 minutos para evitar disparos agressivos, sem prometer risco zero; depois manter a conversa comercial natural';
-    reasonCode = 'blocking_risk';
+    const normalized = normalizeConversationText(latestText);
+    if (/\b(bloque\w*|ban\w*|spam|segur\w*|risco\w*)\b/.test(normalized)) {
+      responseGoal = 'responder diretamente à preocupação com bloqueio/banimento: explicar que a ferramenta permite espaçar os envios com intervalos configuráveis de 30 segundos, 1, 2, 3, 5 ou 10 minutos para evitar disparos todos de uma vez, sem prometer risco zero; não transformar a resposta em propaganda';
+      reasonCode = 'blocking_risk';
+    } else if (/\b(por que a pergunta|porque a pergunta|pq a pergunta|qual (?:e|eh) seu objetivo|o que voce deseja|o que deseja|nao te conheco|nao estou te entendendo|monte de pergunta|muita pergunta)\b/.test(normalized)) {
+      responseGoal = 'parar imediatamente o interrogatório e explicar o objetivo em linguagem humana: você viu a divulgação no grupo e entrou em contato porque trabalha com uma ferramenta que automatiza esse tipo de envio; dizer isso em uma ou duas frases e deixar a pessoa decidir se quer saber mais, sem fazer outra pergunta de qualificação';
+      reasonCode = 'clarify_contact_reason';
+    } else {
+      responseGoal = 'tratar a objeção específica sem discutir com a pessoa. Se a dúvida for se o custo compensa, relacionar a ferramenta ao tempo/trabalho que ela economiza, sem dizer que talvez não seja prioridade e sem pressionar; oferecer informação objetiva de funcionamento ou preço apenas se ajudar a decisão';
+      reasonCode = 'value_objection';
+    }
   } else if (intent === 'interest') {
     stage = 'INTEREST';
     if (!memory.confirmedFacts.name) {
@@ -220,7 +231,9 @@ export function fallbackForDecision(decision: ConversationDecision): string {
     case 'first_reply': return 'Vi você divulgando em alguns grupos e queria te perguntar uma coisa. Você faz esses envios manualmente?';
     case 'opt_out': return 'Tudo certo. Não vou continuar com as mensagens por aqui.';
     case 'not_interested': return 'Tranquilo, obrigado por responder.';
-    case 'blocking_risk': return 'Esse cuidado faz sentido. No Groply dá pra configurar intervalos entre os envios — de 30 segundos até 10 minutos — justamente pra não fazer disparos todos de uma vez; isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
+    case 'blocking_risk': return 'Esse cuidado faz sentido. A ferramenta permite configurar intervalos entre os envios, de 30 segundos até 10 minutos, pra não disparar tudo de uma vez. Isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
+    case 'clarify_contact_reason': return 'Perguntei porque vi sua divulgação no grupo e trabalho com uma ferramenta que automatiza justamente esses envios. Queria entender se faria sentido pra você, mas posso te explicar direto como funciona.';
+    case 'value_objection': return 'A ideia da ferramenta é tirar o trabalho de ficar encaminhando grupo por grupo: você configura os grupos e horários e os envios ficam programados. O ponto é ver se o tempo que isso economiza faz sentido pra sua rotina.';
     case 'ask_confirmed_name': return 'Claro. Antes, qual é o seu nome pra eu te chamar certinho por aqui?';
     default: return '';
   }
