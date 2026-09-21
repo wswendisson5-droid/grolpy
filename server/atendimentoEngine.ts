@@ -587,8 +587,9 @@ export class AtendimentoEngine {
     if (lead && isDuplicateInboundMessage(lead.messages, text, externalMessageId || '')) {
       return this.incomingMessageQueues.get(queueKey) || Promise.resolve();
     }
-    const pendingKey = `${queueKey}:${text.trim()}`;
-    if (this.pendingIncoming.has(pendingKey)) return this.incomingMessageQueues.get(queueKey) || Promise.resolve();
+    // Repetir "Sim" em turnos consecutivos e valido; nao deduplicar pelo texto pendente.
+    // O ID externo + historico persistido sao as travas de idempotencia.
+    const pendingKey = externalMessageId ? `${queueKey}:${externalMessageId}` : `${queueKey}:${Date.now()}:${Math.random()}`;
     this.pendingIncoming.add(pendingKey);
     const revision = (this.incomingRevisions.get(queueKey) || 0) + 1;
     this.incomingRevisions.set(queueKey, revision);
@@ -630,16 +631,6 @@ export class AtendimentoEngine {
       status: 'received',
       type: 'text',
     };
-    // Webhook e reconciliador podem entregar o mesmo conteúdo quase juntos.
-    // O ID externo é a trava principal; esta janela curta cobre eventos equivalentes
-    // com IDs diferentes sem engolir mensagens normais da conversa.
-    const previousClientMessage = [...lead.messages].reverse().find((message) => message.sender === 'client');
-    if (
-      previousClientMessage &&
-      previousClientMessage.text.trim() === text.trim() &&
-      now - previousClientMessage.timestamp < 5000
-    ) return;
-
     lead.messages.push(clientMsg);
 
     // Persistir ANTES de chamar a IA. Assim a mensagem recebida aparece no painel

@@ -239,8 +239,9 @@ export function isDuplicateInboundMessage(
 ): boolean {
   const stableId = externalMessageId ? `msg-client-${externalMessageId}` : '';
   if (stableId && messages.some((message) => message.id === stableId)) return true;
-  const lastClient = [...messages].reverse().find((message) => message.sender === 'client');
-  return Boolean(lastClient && lastClient.text.trim() === text.trim() && now - lastClient.timestamp < 5000);
+  // Texto repetido nao e duplicata por si so: o contato pode responder "Sim" em
+  // dois turnos consecutivos. Sem ID externo confiavel, preserve a nova mensagem.
+  return false;
 }
 
 export function fallbackForDecision(decision: ConversationDecision): string {

@@ -121,10 +121,10 @@ test('webhook duplicado pelo mesmo message id é idempotente', () => {
   assert.equal(isDuplicateInboundMessage(messages, 'sim', 'ABC', now + 100), true);
 });
 
-test('evento equivalente com id diferente e mesmo conteúdo em 5s é deduplicado', () => {
+test('mesmo texto com id diferente continua sendo um novo turno valido', () => {
   const now = Date.now();
   const messages = [{ id: 'msg-client-ABC', sender: 'client', text: 'sim', timestamp: now }];
-  assert.equal(isDuplicateInboundMessage(messages, 'sim', 'XYZ', now + 1000), true);
+  assert.equal(isDuplicateInboundMessage(messages, 'sim', 'XYZ', now + 1000), false);
 });
 
 test('mensagens diferentes em sequência não são confundidas com duplicata', () => {
