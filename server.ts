@@ -2256,10 +2256,39 @@ app.get("/api/crm/typing-status", requireAdminRoute, (req, res) => {
 atendimentoEngine.setStageUpdater((jid, stage) => radarEngine.setContactStage(jid, stage));
 
 // Wire up real Evolution sender for AI Agent follow-ups
-atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string, kind = "proactive") => {
+atendimentoEngine.setEvolutionSender(async (
+  targetJid: string,
+  text: string,
+  kind = "proactive",
+  mediaPath?: string
+) => {
   try {
     const instance = memoryState.instanceName;
     const cleanNumber = targetJid.replace(/\D/g, "");
+    const sendPricingTable = async () => {
+      if (!mediaPath) return true;
+      const fullMediaPath = path.resolve(process.cwd(), mediaPath);
+      if (!fs.existsSync(fullMediaPath)) {
+        console.error(`[AtendimentoEngine] Tabela de planos não encontrada: ${fullMediaPath}`);
+        return false;
+      }
+      const extension = path.extname(fullMediaPath).toLowerCase();
+      const mimetype = extension === ".png" ? "image/png" : extension === ".webp" ? "image/webp" : "image/jpeg";
+      const mediaRes = await callEvolution(`/message/sendMedia/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({
+          number: targetJid,
+          mediatype: "image",
+          mimetype,
+          media: fs.readFileSync(fullMediaPath).toString("base64"),
+          caption: "",
+          fileName: path.basename(fullMediaPath),
+        }),
+      }, 60000, 0);
+      if (!mediaRes.ok) console.error("[AtendimentoEngine] Evolution recusou a tabela de planos:", mediaRes.data);
+      return mediaRes.ok;
+    };
+    if (!(await sendPricingTable())) return false;
     if (kind !== "reply") {
       const db = await getDatabase();
       if (await db.isOutboundProtectedNumber(cleanNumber || targetJid)) {

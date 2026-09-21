@@ -8,4 +8,5 @@ coverage/
 !.env.example
 uploads/*
 !uploads/.gitkeep
+!uploads/tabela-planos-groply.png
 data/*.json
