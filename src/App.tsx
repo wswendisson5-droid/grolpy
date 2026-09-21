@@ -629,7 +629,7 @@ export default function App() {
           <ConnectionView onOpenMobileMenu={() => setIsMobileSidebarOpen(true)} />
         )}
 
-        {/* CONTATOS TAB (persistência real em crm_leads/MySQL) */}
+        {/* CONTATOS TAB (base comercial interna sales_contacts/MySQL) */}
         {currentTab === 'contatos' && (
           <ContactsView
             onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}

@@ -161,6 +161,7 @@ export class AtendimentoEngine {
   ) => Promise<boolean>;
   private persistenceHandler?: (payload: any) => Promise<void> | void;
   private stageUpdater?: (jid: string, stage: string) => void;
+  private salesContactHandler?: (lead: CRMAtendimentoLead) => Promise<void> | void;
   private incomingMessageQueues = new Map<string, Promise<void>>();
   private incomingRevisions = new Map<string, number>();
   private pendingIncoming = new Set<string>();
@@ -212,6 +213,17 @@ export class AtendimentoEngine {
     ) => Promise<boolean>
   ) {
     this.evolutionSender = sender;
+  }
+
+  public setSalesContactHandler(handler: (lead: CRMAtendimentoLead) => Promise<void> | void) {
+    this.salesContactHandler = handler;
+  }
+
+  private syncSalesContact(lead: CRMAtendimentoLead) {
+    if (!this.salesContactHandler) return;
+    Promise.resolve(this.salesContactHandler(lead)).catch((error) =>
+      console.error('[AtendimentoEngine] Falha ao sincronizar contato comercial:', error)
+    );
   }
 
   public setStageUpdater(handler: (jid: string, stage: string) => void) {
@@ -297,6 +309,7 @@ export class AtendimentoEngine {
       existing.lastInteractionAt = now;
       existing.notes.push({ id: `note-${now}-radar`, timestamp: now, timeFormatted, author: 'Sistema Radar', text: `Nova oportunidade detectada no grupo "${opportunity.groupName}" (Score ${opportunity.score}%).`, type: 'system' });
       this.saveToDisk();
+      this.syncSalesContact(existing);
       return existing;
     }
 
@@ -372,6 +385,7 @@ export class AtendimentoEngine {
               type: 'ai',
             });
             this.saveToDisk();
+            this.syncSalesContact(newLead);
           })
           .catch((err) => console.error('[AtendimentoEngine] Falha ao enviar abordagem inicial:', err));
       } else {
@@ -381,6 +395,7 @@ export class AtendimentoEngine {
 
     this.atendimentos.unshift(newLead);
     this.saveToDisk();
+    this.syncSalesContact(newLead);
     return newLead;
   }
 
@@ -537,6 +552,7 @@ export class AtendimentoEngine {
 
     lead.lastInteractionAt = Date.now();
     this.saveToDisk();
+    this.syncSalesContact(lead);
     return lead;
   }
 
@@ -606,6 +622,7 @@ export class AtendimentoEngine {
     // Persistir ANTES de chamar a IA. Assim a mensagem recebida aparece no painel
     // imediatamente, mesmo enquanto o modelo ainda está pensando/respondendo.
     this.saveToDisk();
+    this.syncSalesContact(lead);
 
     // Registrar nota da mensagem do cliente
     lead.notes.push({
@@ -1007,9 +1024,17 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       const normalizedLatest = latestOwnText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       const normalizedName = detectedName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
       const declaredPrefix = /\b(me chamo|meu nome (e|eh)|pode me chamar de|aqui (e|eh)|sou (o|a))\b/.test(normalizedLatest);
-      if (declaredPrefix && normalizedLatest.includes(normalizedName)) {
+      const previousAiAskedName = [...lead.messages].reverse().find((message) => message.sender === 'ai')?.text
+        ?.toLowerCase().match(/qual (e|é) (o )?seu nome|como (voce|você) se chama|te chamar/);
+      const looksLikeDirectNameAnswer = Boolean(
+        previousAiAskedName &&
+        /^[a-zA-ZÀ-ÿ]{2,30}(?:\s+[a-zA-ZÀ-ÿ]{2,30}){0,2}$/.test(latestOwnText)
+      );
+      if ((declaredPrefix && normalizedLatest.includes(normalizedName)) || (looksLikeDirectNameAnswer && normalizedLatest.includes(normalizedName))) {
         lead.contactName = detectedName;
         lead.collectedInfo['nome'] = detectedName;
+        lead.conversationMemory.confirmedFacts.name = detectedName;
+        this.syncSalesContact(lead);
       } else {
         detectedName = '';
       }
@@ -1091,6 +1116,8 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       status: 'delivered',
       type: 'text',
     });
+    this.saveToDisk();
+    this.syncSalesContact(lead);
   }
 
   /**

@@ -138,4 +138,19 @@ test('retomada posterior mantém estágio persistido', () => {
   assert.equal(d.intent, 'how_it_works');
 });
 
-console.log('20 testes de inteligência conversacional passaram.');
+test('interesse explícito pede nome quando ainda não foi confirmado', () => {
+  const m = { ...createConversationMemory(), stage: 'SOLUTION_INTRODUCTION' as const };
+  const d = decideConversation(m, 'quero saber mais', 4);
+  assert.equal(d.stage, 'INTEREST');
+  assert.equal(d.reasonCode, 'ask_confirmed_name');
+  assert.match(fallbackForDecision(d), /nome/i);
+});
+
+test('nome confirmado evita perguntar o nome novamente', () => {
+  const m = { ...createConversationMemory(), stage: 'INTEREST' as const };
+  m.confirmedFacts.name = 'Rian';
+  const d = decideConversation(m, 'pode me mostrar', 5);
+  assert.equal(d.reasonCode, 'advance_interest');
+});
+
+console.log('22 testes de inteligência conversacional passaram.');

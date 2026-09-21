@@ -339,6 +339,84 @@ async function getDatabase(): Promise<any> {
       radarEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("radar", payload));
       atendimentoEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("atendimento", payload));
 
+      // Banco comercial interno: nasce quando o Radar identifica a oportunidade e
+      // acompanha a conversa/pipeline independentemente da Evolution.
+      const knownSalesPhones = await cachedDbModule.listSalesContactPhones();
+      radarEngine.setKnownSalesContactPhones(knownSalesPhones);
+      radarEngine.setSalesContactHandler(async (opportunity) => {
+        await cachedDbModule.upsertSalesContact({
+          phone: opportunity.phone,
+          remoteJid: opportunity.remoteJid,
+          displayName: opportunity.contactName,
+          source: 'radar',
+          sourceOpportunityId: opportunity.id,
+          sourceGroupJid: opportunity.groupJid,
+          sourceGroupName: opportunity.groupName,
+          originalMessage: opportunity.messageOriginal,
+          pipelineStage: 'oportunidade',
+          conversationStatus: 'nao_iniciada',
+          metadata: { score: opportunity.score, title: opportunity.title },
+        });
+        radarEngine.rememberSalesContactPhone(opportunity.phone);
+      });
+      atendimentoEngine.setSalesContactHandler(async (lead) => {
+        const memoryStage = lead.conversationMemory?.stage || 'INITIAL_CONTACT';
+        const pipelineMap: Record<string, string> = {
+          INITIAL_CONTACT: 'oportunidade', WAITING_FIRST_REPLY: 'abordado',
+          CONVERSATION_STARTED: 'em_atendimento', QUALIFICATION: 'qualificacao',
+          PAIN_DISCOVERY: 'qualificacao', SOLUTION_INTRODUCTION: 'apresentacao',
+          INTEREST: 'interessado', OBJECTION: 'objecao', PRICING: 'proposta_enviada',
+          CONVERSION: 'conversao', FOLLOW_UP: 'follow_up', NOT_INTERESTED: 'descartado',
+          DO_NOT_CONTACT: 'descartado',
+        };
+        await cachedDbModule.upsertSalesContact({
+          phone: lead.contactPhone,
+          remoteJid: lead.contactJid,
+          displayName: lead.contactName,
+          confirmedName: lead.conversationMemory?.confirmedFacts?.name || undefined,
+          source: 'radar',
+          sourceOpportunityId: lead.opportunityId,
+          sourceGroupJid: lead.groupJid,
+          sourceGroupName: lead.groupName,
+          originalMessage: lead.originalMessage,
+          pipelineStage: lead.status === 'convertido' ? 'convertido' : (memoryStage === 'WAITING_FIRST_REPLY' && !lead.firstMessageSentAt ? 'oportunidade' : (pipelineMap[memoryStage] || 'em_atendimento')),
+          conversationStatus: lead.status,
+          replied: lead.clientReplied,
+          outcome: lead.collectedInfo?.pipeline_outcome || (lead.status === 'convertido' ? 'convertido' : undefined),
+          doNotContact: memoryStage === 'DO_NOT_CONTACT',
+          firstContactAt: lead.firstMessageSentAt,
+          lastInteractionAt: lead.lastInteractionAt,
+          metadata: { atendimentoId: lead.id, conversationStep: lead.conversationStep, score: lead.score },
+        });
+        radarEngine.rememberSalesContactPhone(lead.contactPhone);
+      });
+
+      // Backfill seguro: contatos/oportunidades já existentes antes desta migration
+      // também passam a fazer parte da base comercial e da deduplicação do Radar.
+      for (const lead of atendimentoEngine.atendimentos) {
+        if (cleanPhoneDigits(lead.contactPhone || lead.contactJid).length < 8) continue;
+        await cachedDbModule.upsertSalesContact({
+          phone: lead.contactPhone,
+          remoteJid: lead.contactJid,
+          displayName: lead.contactName,
+          confirmedName: lead.conversationMemory?.confirmedFacts?.name || undefined,
+          source: 'radar_legacy',
+          sourceOpportunityId: lead.opportunityId,
+          sourceGroupJid: lead.groupJid,
+          sourceGroupName: lead.groupName,
+          originalMessage: lead.originalMessage,
+          pipelineStage: lead.status === 'convertido' ? 'convertido' : (lead.clientReplied ? 'em_atendimento' : (lead.firstMessageSentAt ? 'abordado' : 'oportunidade')),
+          conversationStatus: lead.status,
+          replied: lead.clientReplied,
+          outcome: lead.collectedInfo?.pipeline_outcome,
+          doNotContact: lead.conversationMemory?.stage === 'DO_NOT_CONTACT',
+          firstContactAt: lead.firstMessageSentAt,
+          lastInteractionAt: lead.lastInteractionAt,
+          metadata: { atendimentoId: lead.id, migratedFromAdminState: true },
+        });
+        radarEngine.rememberSalesContactPhone(lead.contactPhone);
+      }
+
       if (!radarState) await cachedDbModule.setAdminState("radar", radarEngine.exportState());
       if (!atendimentoState) await cachedDbModule.setAdminState("atendimento", atendimentoEngine.exportState());
     })();
@@ -556,6 +634,62 @@ app.post("/api/auth/self-test", async (_req, res) => {
     res.json({ success: Boolean(login?.token) });
   } catch (e: any) {
     res.status(500).json({ success: false, error: e?.code || e?.message });
+  }
+});
+
+app.get("/api/admin/sales-contacts", requireAdminRoute, async (_req, res) => {
+  try {
+    const db: any = await getDatabase();
+    const contacts = await db.listSalesContacts(2000);
+    res.json({ success: true, contacts });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.post("/api/admin/sales-contacts", requireAdminRoute, async (req, res) => {
+  try {
+    const db: any = await getDatabase();
+    const phone = cleanPhoneDigits(String(req.body?.phone || req.body?.remoteJid || ""));
+    if (phone.length < 8) return res.status(400).json({ success: false, error: "Telefone inválido" });
+    await db.upsertSalesContact({
+      phone,
+      remoteJid: req.body?.remoteJid || `${phone}@s.whatsapp.net`,
+      displayName: req.body?.displayName || req.body?.name || phone,
+      confirmedName: req.body?.confirmedName,
+      source: req.body?.source || "manual",
+      pipelineStage: req.body?.pipelineStage || "oportunidade",
+      conversationStatus: req.body?.conversationStatus || "nao_iniciada",
+      outcome: req.body?.outcome,
+      doNotContact: Boolean(req.body?.doNotContact),
+      lastInteractionAt: Date.now(),
+    });
+    radarEngine.rememberSalesContactPhone(phone);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.patch("/api/admin/sales-contacts/:phone", requireAdminRoute, async (req, res) => {
+  try {
+    const db: any = await getDatabase();
+    const phone = cleanPhoneDigits(req.params.phone);
+    await db.upsertSalesContact({
+      phone,
+      displayName: req.body?.displayName,
+      confirmedName: req.body?.confirmedName,
+      pipelineStage: req.body?.pipelineStage,
+      conversationStatus: req.body?.conversationStatus,
+      outcome: req.body?.outcome,
+      doNotContact: Boolean(req.body?.doNotContact),
+      replied: Boolean(req.body?.replied),
+      lastInteractionAt: Date.now(),
+    });
+    radarEngine.rememberSalesContactPhone(phone);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -2052,6 +2186,22 @@ app.post("/api/crm/send-message", requireAdminRoute, async (req, res) => {
     // Salva no histórico do IA Chat. Só o botão Assumir desativa a IA; envio manual não muda o responsável.
     const adminName = (req as any).adminUser?.name || "Administrador";
     atendimentoEngine.addHumanMessage(jid, text, adminName);
+
+    // Qualquer conversa comercial iniciada manualmente também entra na base interna.
+    const db: any = await getDatabase();
+    const manualPhone = cleanPhoneDigits(String(jid));
+    if (manualPhone.length >= 8) {
+      await db.upsertSalesContact({
+        phone: manualPhone,
+        remoteJid: String(jid).includes('@') ? String(jid) : `${manualPhone}@s.whatsapp.net`,
+        source: 'manual_conversation',
+        pipelineStage: 'abordado',
+        conversationStatus: 'humano_assumiu',
+        firstContactAt: Date.now(),
+        lastInteractionAt: Date.now(),
+      });
+      radarEngine.rememberSalesContactPhone(manualPhone);
+    }
 
     res.json({
       success: true,

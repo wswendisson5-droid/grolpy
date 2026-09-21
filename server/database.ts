@@ -319,6 +319,35 @@ export async function initDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
       await c.query("INSERT INTO migrations(name) VALUES (?)", ["016_admin_state"]);
     }
+    if (!done.has("019_sales_contacts_pipeline")) {
+      await c.beginTransaction();
+      await c.query(`CREATE TABLE IF NOT EXISTS sales_contacts (
+        id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        phone VARCHAR(30) NOT NULL,
+        remote_jid VARCHAR(190) NULL,
+        display_name VARCHAR(190) NULL,
+        confirmed_name VARCHAR(190) NULL,
+        source VARCHAR(40) NOT NULL DEFAULT 'manual',
+        source_opportunity_id VARCHAR(120) NULL,
+        source_group_jid VARCHAR(190) NULL,
+        source_group_name VARCHAR(190) NULL,
+        original_message TEXT NULL,
+        pipeline_stage VARCHAR(40) NOT NULL DEFAULT 'oportunidade',
+        conversation_status VARCHAR(40) NOT NULL DEFAULT 'nao_iniciada',
+        replied TINYINT(1) NOT NULL DEFAULT 0,
+        outcome VARCHAR(80) NULL,
+        do_not_contact TINYINT(1) NOT NULL DEFAULT 0,
+        first_contact_at DATETIME NULL,
+        last_interaction_at DATETIME NULL,
+        metadata_json LONGTEXT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_sales_contact_phone(phone),
+        INDEX(remote_jid), INDEX(pipeline_stage), INDEX(conversation_status), INDEX(do_not_contact)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await c.query("INSERT INTO migrations(name) VALUES (?)", ["019_sales_contacts_pipeline"]);
+      await c.commit();
+    }
     if (!done.has("018_representatives")) {
       await c.beginTransaction();
       await c.query(`CREATE TABLE IF NOT EXISTS representatives (
@@ -1252,6 +1281,87 @@ export async function listLeadsForUser(userId: number) {
     try { tags = r.tagsJson ? JSON.parse(r.tagsJson) : []; } catch {}
     return { ...r, tags };
   });
+}
+
+
+export interface SalesContactInput {
+  phone: string;
+  remoteJid?: string;
+  displayName?: string;
+  confirmedName?: string;
+  source?: string;
+  sourceOpportunityId?: string;
+  sourceGroupJid?: string;
+  sourceGroupName?: string;
+  originalMessage?: string;
+  pipelineStage?: string;
+  conversationStatus?: string;
+  replied?: boolean;
+  outcome?: string;
+  doNotContact?: boolean;
+  firstContactAt?: number | Date;
+  lastInteractionAt?: number | Date;
+  metadata?: Record<string, unknown>;
+}
+
+function sqlDate(value?: number | Date) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export async function upsertSalesContact(contact: SalesContactInput) {
+  const phone = String(contact.phone || '').replace(/\D/g, '');
+  if (phone.length < 8) throw new Error('Telefone comercial inválido');
+  await pool.execute(
+    `INSERT INTO sales_contacts
+      (phone, remote_jid, display_name, confirmed_name, source, source_opportunity_id, source_group_jid, source_group_name,
+       original_message, pipeline_stage, conversation_status, replied, outcome, do_not_contact, first_contact_at, last_interaction_at, metadata_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       remote_jid=COALESCE(VALUES(remote_jid),remote_jid),
+       display_name=CASE WHEN confirmed_name IS NULL OR confirmed_name='' THEN COALESCE(VALUES(display_name),display_name) ELSE display_name END,
+       confirmed_name=COALESCE(VALUES(confirmed_name),confirmed_name),
+       source_opportunity_id=COALESCE(source_opportunity_id,VALUES(source_opportunity_id)),
+       source_group_jid=COALESCE(source_group_jid,VALUES(source_group_jid)),
+       source_group_name=COALESCE(source_group_name,VALUES(source_group_name)),
+       original_message=COALESCE(original_message,VALUES(original_message)),
+       pipeline_stage=COALESCE(VALUES(pipeline_stage),pipeline_stage),
+       conversation_status=COALESCE(VALUES(conversation_status),conversation_status),
+       replied=GREATEST(replied,VALUES(replied)),
+       outcome=COALESCE(VALUES(outcome),outcome),
+       do_not_contact=GREATEST(do_not_contact,VALUES(do_not_contact)),
+       first_contact_at=COALESCE(first_contact_at,VALUES(first_contact_at)),
+       last_interaction_at=COALESCE(VALUES(last_interaction_at),last_interaction_at),
+       metadata_json=COALESCE(VALUES(metadata_json),metadata_json)`,
+    [phone, contact.remoteJid || null, contact.displayName || null, contact.confirmedName || null, contact.source || 'manual',
+     contact.sourceOpportunityId || null, contact.sourceGroupJid || null, contact.sourceGroupName || null, contact.originalMessage || null,
+     contact.pipelineStage || 'oportunidade', contact.conversationStatus || 'nao_iniciada', contact.replied ? 1 : 0,
+     contact.outcome || null, contact.doNotContact ? 1 : 0, sqlDate(contact.firstContactAt), sqlDate(contact.lastInteractionAt),
+     contact.metadata ? JSON.stringify(contact.metadata) : null]
+  );
+}
+
+export async function listSalesContacts(limit = 1000) {
+  const safeLimit = Math.max(1, Math.min(5000, Number(limit) || 1000));
+  const [rows]: any = await pool.query(
+    `SELECT id, phone, remote_jid AS remoteJid, display_name AS displayName, confirmed_name AS confirmedName,
+      source, source_opportunity_id AS sourceOpportunityId, source_group_name AS sourceGroupName,
+      pipeline_stage AS pipelineStage, conversation_status AS conversationStatus, replied, outcome,
+      do_not_contact AS doNotContact, first_contact_at AS firstContactAt, last_interaction_at AS lastInteractionAt,
+      created_at AS createdAt, updated_at AS updatedAt
+     FROM sales_contacts ORDER BY updated_at DESC LIMIT ${safeLimit}`
+  );
+  return rows.map((row: any) => ({ ...row, replied: Boolean(row.replied), doNotContact: Boolean(row.doNotContact) }));
+}
+
+export async function listSalesContactPhones() {
+  const [rows]: any = await pool.query("SELECT phone FROM sales_contacts");
+  return rows.map((row: any) => String(row.phone || '').replace(/\D/g, '')).filter(Boolean);
+}
+
+export async function updateSalesContactPipeline(phoneOrJid: string, pipelineStage: string, extras: Partial<SalesContactInput> = {}) {
+  return upsertSalesContact({ ...extras, phone: String(phoneOrJid || '').replace(/\D/g, ''), pipelineStage });
 }
 
 export async function isOutboundProtectedNumber(phoneOrJid: string) {

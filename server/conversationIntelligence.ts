@@ -11,7 +11,7 @@ export type ConversationStage =
 
 export type ConversationIntent =
   | 'greeting' | 'manual_confirmation' | 'process_detail' | 'how_it_works' | 'pricing'
-  | 'objection' | 'not_interested' | 'do_not_contact' | 'human_request' | 'ambiguous'
+  | 'objection' | 'interest' | 'not_interested' | 'do_not_contact' | 'human_request' | 'ambiguous'
   | 'other';
 
 export interface ConversationMemory {
@@ -88,6 +88,7 @@ export function detectIntent(text: string): ConversationIntent {
   if (/\b(preco|precos|valor|valores|quanto custa|mensalidade|plano|planos|tabela)\b/.test(t)) return 'pricing';
   if (/\b(como funciona|como que funciona|funciona como|como usar|como usa)\b/.test(t)) return 'how_it_works';
   if (/\b(bloque|ban|spam|segur|risco)\b/.test(t)) return 'objection';
+  if (/\b(quero saber mais|gostaria de saber mais|tenho interesse|me explica|pode me mostrar|quero conhecer|me mostra)\b/.test(t)) return 'interest';
   if (/\b(humano|atendente|pessoa de verdade)\b/.test(t)) return 'human_request';
   if (/^(sim|ss|s|isso|isso mesmo|faco|faço|manual|manualmente)[.! ]*$/.test(t)) return 'manual_confirmation';
   if (/\b(grupos?|vezes|dia|horas?|minutos?|manual|manualmente|grupo por grupo)\b/.test(t)) return 'process_detail';
@@ -118,6 +119,15 @@ export function decideConversation(
     stage = 'SOLUTION_INTRODUCTION'; responseGoal = 'explicar somente como funciona, em até duas frases'; reasonCode = 'direct_product_question';
   } else if (intent === 'objection') {
     stage = 'OBJECTION'; responseGoal = 'responder a objeção sem prometer garantia'; reasonCode = 'objection';
+  } else if (intent === 'interest') {
+    stage = 'INTEREST';
+    if (!memory.confirmedFacts.name) {
+      responseGoal = 'reconhecer o interesse e perguntar o nome da pessoa de forma natural antes de aprofundar a explicação';
+      reasonCode = 'ask_confirmed_name';
+    } else {
+      responseGoal = 'avançar a explicação comercial de forma curta usando o nome confirmado com moderação';
+      reasonCode = 'advance_interest';
+    }
   } else if (clientMessageCount === 1 || memory.stage === 'WAITING_FIRST_REPLY' || memory.stage === 'INITIAL_CONTACT') {
     stage = 'CONVERSATION_STARTED'; responseGoal = 'dar contexto curto e descobrir se a divulgação é manual'; reasonCode = 'first_reply';
   } else if (intent === 'manual_confirmation') {
@@ -160,7 +170,7 @@ export function updateMemoryFromTurn(
   const freqMatch = t.match(/\b(\d{1,2})\s*(?:x|vez|vezes)\s*(?:por|ao)\s*dia\b/);
   if (freqMatch) next.confirmedFacts.daily_frequency = freqMatch[1];
   if (decision.intent === 'objection' && !next.objections.includes(latestText.trim())) next.objections.push(latestText.trim());
-  if (decision.intent === 'pricing' || decision.intent === 'how_it_works') next.productInterest = 'explicit';
+  if (decision.intent === 'pricing' || decision.intent === 'how_it_works' || decision.intent === 'interest') next.productInterest = 'explicit';
   if (decision.intent === 'do_not_contact' || decision.intent === 'not_interested') next.productInterest = 'declined';
   next.summary = Object.entries(next.confirmedFacts).map(([k,v]) => `${k}=${v}`).join('; ');
   return next;
@@ -203,6 +213,7 @@ export function fallbackForDecision(decision: ConversationDecision): string {
     case 'first_reply': return 'Vi você divulgando em alguns grupos e queria te perguntar uma coisa. Você faz esses envios manualmente?';
     case 'opt_out': return 'Tudo certo. Não vou continuar com as mensagens por aqui.';
     case 'not_interested': return 'Tranquilo, obrigado por responder.';
+    case 'ask_confirmed_name': return 'Claro. Antes, qual é o seu nome pra eu te chamar certinho por aqui?';
     default: return '';
   }
 }

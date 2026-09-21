@@ -572,6 +572,8 @@ class RadarEngine {
   public opportunities: RadarOpportunity[] = [];
   public activities: RadarActivity[] = [];
   public contactStages: Map<string, string> = new Map();
+  private knownSalesContactPhones = new Set<string>();
+  private salesContactHandler?: (opportunity: RadarOpportunity) => Promise<void> | void;
   public contactTags: Map<string, string[]> = new Map();
 
   // Sequential Group Round-Robin Scanning
@@ -711,6 +713,25 @@ class RadarEngine {
     if (this.status === 'active' && !this.listenerIntervalTimer) {
       this.startLiveGroupListener();
     }
+  }
+
+  public setSalesContactHandler(handler: (opportunity: RadarOpportunity) => Promise<void> | void) {
+    this.salesContactHandler = handler;
+  }
+
+  public setKnownSalesContactPhones(phones: string[]) {
+    this.knownSalesContactPhones = new Set(phones.map((phone) => cleanPhoneDigits(phone)).filter(Boolean));
+  }
+
+  public rememberSalesContactPhone(phone: string) {
+    const clean = cleanPhoneDigits(phone);
+    if (clean) this.knownSalesContactPhones.add(clean);
+  }
+
+  public hasKnownSalesContactPhone(phone: string) {
+    const clean = cleanPhoneDigits(phone);
+    if (!clean) return false;
+    return Array.from(this.knownSalesContactPhones).some((known) => arePhonesEquivalent(known, clean));
   }
 
   public isOpportunityDisqualified(opp: Partial<RadarOpportunity>): boolean {
@@ -1150,6 +1171,16 @@ class RadarEngine {
           : 'model_rejected_or_below_threshold',
     });
 
+    // Contato comercial já conhecido nunca volta a virar oportunidade, mesmo que
+    // publique outro produto/serviço em outro grupo. O banco interno é a fonte desse bloqueio.
+    if (this.hasKnownSalesContactPhone(candidate.senderPhone) || atendimentoEngine.hasContactPhone(candidate.senderPhone)) {
+      console.log('[RadarClassification]', {
+        sender: maskWhatsAppSender(candidate.senderPhone),
+        decision: 'ignored_existing_sales_contact',
+      });
+      return;
+    }
+
     // Uma mensagem que chegou ate a fila ja passou pelo pre-filtro comercial. A IA
     // enriquece a classificacao, mas nao pode vetar sinais comerciais objetivos.
     const deterministicEvaluation = this.deterministicQualification(candidate);
@@ -1161,6 +1192,12 @@ class RadarEngine {
     if (shouldCreateOpportunity) {
       const opportunity = this.createOpportunityRecord(candidate, evaluation);
       this.opportunities.unshift(opportunity);
+      this.rememberSalesContactPhone(opportunity.phone);
+      if (this.salesContactHandler) {
+        Promise.resolve(this.salesContactHandler(opportunity)).catch((error) =>
+          console.error('[Radar] Falha ao persistir contato comercial:', error)
+        );
+      }
 
       // Register into CRM Atendimento
       atendimentoEngine.registerFromRadar({
