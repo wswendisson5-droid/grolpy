@@ -343,6 +343,21 @@ async function getDatabase(): Promise<any> {
       // acompanha a conversa/pipeline independentemente da Evolution.
       const knownSalesPhones = await cachedDbModule.listSalesContactPhones();
       radarEngine.setKnownSalesContactPhones(knownSalesPhones);
+
+      // Oportunidades têm armazenamento próprio e sobrevivem à desconexão/troca
+      // da instância WhatsApp. admin_state fica apenas como compatibilidade de estado do Radar.
+      const persistedOpportunities = await cachedDbModule.listRadarOpportunities();
+      if (persistedOpportunities.length > 0) {
+        radarEngine.hydrateOpportunitiesFromDatabase(persistedOpportunities);
+      } else if (radarEngine.opportunities.length > 0) {
+        for (const legacyOpportunity of radarEngine.opportunities) {
+          await cachedDbModule.upsertRadarOpportunity(legacyOpportunity);
+        }
+      }
+      radarEngine.setOpportunityPersistenceHandler((opportunity) =>
+        cachedDbModule.upsertRadarOpportunity(opportunity)
+      );
+
       radarEngine.setSalesContactHandler(async (opportunity) => {
         await cachedDbModule.upsertSalesContact({
           phone: opportunity.phone,
@@ -688,6 +703,19 @@ app.patch("/api/admin/sales-contacts/:phone", requireAdminRoute, async (req, res
     });
     radarEngine.rememberSalesContactPhone(phone);
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.delete("/api/admin/sales-contacts/:phone", requireAdminRoute, async (req, res) => {
+  try {
+    const db: any = await getDatabase();
+    const phone = cleanPhoneDigits(req.params.phone);
+    if (phone.length < 8) return res.status(400).json({ success: false, error: "Telefone inválido" });
+    const deleted = await db.deleteSalesContact(phone);
+    radarEngine.forgetSalesContactPhone(phone);
+    res.json({ success: true, deleted });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }

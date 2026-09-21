@@ -574,6 +574,7 @@ class RadarEngine {
   public contactStages: Map<string, string> = new Map();
   private knownSalesContactPhones = new Set<string>();
   private salesContactHandler?: (opportunity: RadarOpportunity) => Promise<void> | void;
+  private opportunityPersistenceHandler?: (opportunity: RadarOpportunity) => Promise<void> | void;
   public contactTags: Map<string, string[]> = new Map();
 
   // Sequential Group Round-Robin Scanning
@@ -712,6 +713,30 @@ class RadarEngine {
   public ensureMonitoringStarted() {
     if (this.status === 'active' && !this.listenerIntervalTimer) {
       this.startLiveGroupListener();
+    }
+  }
+
+  public setOpportunityPersistenceHandler(handler: (opportunity: RadarOpportunity) => Promise<void> | void) {
+    this.opportunityPersistenceHandler = handler;
+  }
+
+  public hydrateOpportunitiesFromDatabase(opportunities: RadarOpportunity[]) {
+    if (!Array.isArray(opportunities)) return;
+    this.opportunities = opportunities.filter((opp) => opp && !this.isOpportunityDisqualified(opp));
+  }
+
+  private persistOpportunity(opportunity: RadarOpportunity) {
+    if (!this.opportunityPersistenceHandler) return;
+    Promise.resolve(this.opportunityPersistenceHandler(opportunity)).catch((error) =>
+      console.error('[Radar] Falha ao persistir oportunidade:', error)
+    );
+  }
+
+  public forgetSalesContactPhone(phone: string) {
+    const clean = cleanPhoneDigits(phone);
+    if (!clean) return;
+    for (const known of Array.from(this.knownSalesContactPhones)) {
+      if (arePhonesEquivalent(known, clean)) this.knownSalesContactPhones.delete(known);
     }
   }
 
@@ -1192,6 +1217,7 @@ class RadarEngine {
     if (shouldCreateOpportunity) {
       const opportunity = this.createOpportunityRecord(candidate, evaluation);
       this.opportunities.unshift(opportunity);
+      this.persistOpportunity(opportunity);
       this.rememberSalesContactPhone(opportunity.phone);
       if (this.salesContactHandler) {
         Promise.resolve(this.salesContactHandler(opportunity)).catch((error) =>
@@ -1898,6 +1924,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
     });
 
     this.persistState();
+    this.persistOpportunity(opp);
     return opp;
   }
 
@@ -1952,6 +1979,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
     });
 
     this.persistState();
+    this.persistOpportunity(opp);
 
     // Register assumption in Atendimento Engine
     try {
