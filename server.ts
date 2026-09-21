@@ -2318,7 +2318,7 @@ setInterval(() => {
       atendimentoInboundSyncRunning = false;
     }
   })();
-}, 8000);
+}, 3000);
 
 // List leads originating from Radar in CRM Atendimento
 app.get("/api/atendimento/leads", requireAdminRoute, (_req, res) => {

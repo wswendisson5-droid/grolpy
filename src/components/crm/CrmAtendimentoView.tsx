@@ -202,7 +202,9 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 10000);
+    // Estado do atendimento vem do backend; atualização curta para o chat refletir
+    // mensagens recebidas praticamente em tempo real sem depender do Evolution no browser.
+    const interval = setInterval(loadData, 1000);
     return () => clearInterval(interval);
   }, [activeInstance]);
 
