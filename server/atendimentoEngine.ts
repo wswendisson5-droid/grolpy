@@ -616,7 +616,9 @@ export class AtendimentoEngine {
     if (this.config.enabled && lead.aiActiveForContact && this.config.mode === 'auto') {
       lead.status = 'ia_em_atendimento';
       if (this.incomingRevisions.get(queueKey) !== revision) return;
-      await new Promise((resolve) => setTimeout(resolve, 1800));
+      // Janela de escuta: se o contato mandar 2–3 mensagens em sequência, as revisões
+      // anteriores são canceladas e só a última gera UMA resposta usando todo o histórico.
+      await new Promise((resolve) => setTimeout(resolve, 3500));
       if (this.incomingRevisions.get(queueKey) !== revision) return;
       await this.generateContextualAiReply(lead, text, () => this.incomingRevisions.get(queueKey) === revision);
     } else {
@@ -797,6 +799,15 @@ ${safeUnicodeTruncate(latestMessage, 2000)}`,
         if (!isCurrent() || !lead.aiActiveForContact || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
         sendPricingTable = parsed.sendPricingTable === true || isDirectPricingRequest(latestMessage);
         replyText = cleanAssistantReply(String(parsed.replyText || ''));
+        // Trava de funil: um simples "sim" após perguntarmos se divulga manualmente
+        // não autoriza pitch. Primeiro entendemos o volume/processo para a conversa soar humana.
+        const normalizedLatest = latestMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+        const simpleAffirmative = /^(sim|ss|s|sou|sou eu|eu mesmo|isso|isso mesmo|faco|faço)[.! ]*$/.test(normalizedLatest);
+        if (lead.conversationStep === 'context_sent' && simpleAffirmative) {
+          replyText = 'Você costuma divulgar em quantos grupos mais ou menos?';
+          sendPricingTable = false;
+          parsed.nextStep = 'context_sent';
+        }
         detectedName = String(parsed.detectedName || '').trim();
         extractedMemories = Object.fromEntries(
           (Array.isArray(parsed.memories) ? parsed.memories : [])
@@ -910,6 +921,15 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
           console.warn(`[AtendimentoEngine] Falha no modelo ${model}:`, err?.message || err);
         }
       }
+    }
+
+    // Guarda comum aos provedores: confirmação curta de divulgação manual serve para
+    // aprofundar contexto, não para disparar um textão comercial.
+    const normalizedLatestForGuard = latestMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    const isShortManualConfirmation = /^(sim|ss|s|sou|sou eu|eu mesmo|isso|isso mesmo|faco|faço)[.! ]*$/.test(normalizedLatestForGuard);
+    if (lead.conversationStep === 'context_sent' && isShortManualConfirmation) {
+      replyText = 'Você costuma divulgar em quantos grupos mais ou menos?';
+      sendPricingTable = false;
     }
 
     if (!isCurrent() || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
