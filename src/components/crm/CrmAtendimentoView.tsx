@@ -87,6 +87,8 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
     Array<{ name: string; connectionStatus: string; profileName?: string; contactCount?: number }>
   >([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const loadInFlightRef = useRef(false);
+  const hasLoadedRef = useRef(false);
   const [isForcingAiConversation, setIsForcingAiConversation] = useState(false);
 
   // Mobile View Navigation State: 'list' -> 'chat' -> 'details'
@@ -114,7 +116,9 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
 
   // Sync Leads and Contacts (estritamente oportunidades com contatos salvos no arquivo JSON)
   const loadData = async () => {
-    setIsRefreshing(true);
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+    if (!hasLoadedRef.current) setIsRefreshing(true);
     try {
       // 1. Fetch Radar Atendimento leads directly from persistent backend storage (crm_contatos_oportunidades.json)
       const leads = await atendimentoService.getLeads();
@@ -196,15 +200,17 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
     } catch (err) {
       console.error('[CrmAtendimentoView] Erro ao sincronizar dados:', err);
     } finally {
+      loadInFlightRef.current = false;
+      hasLoadedRef.current = true;
       setIsRefreshing(false);
     }
   };
 
   useEffect(() => {
     loadData();
-    // Estado do atendimento vem do backend; atualização curta para o chat refletir
-    // mensagens recebidas praticamente em tempo real sem depender do Evolution no browser.
-    const interval = setInterval(loadData, 1000);
+    // Avoid overlapping requests: the old 1s polling could stack calls on mobile
+    // and make the contact list progressively slower. Three seconds is still near-real-time.
+    const interval = setInterval(loadData, 3000);
     return () => clearInterval(interval);
   }, [activeInstance]);
 

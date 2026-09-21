@@ -2243,55 +2243,59 @@ app.post("/api/radar/status", requireAdminRoute, (req, res) => {
   res.status(400).json({ error: "Status inválido (use 'active' ou 'paused')" });
 });
 
-// Real Groups from connected Evolution instance
+// Real Groups from connected Evolution instance.
+// Keep a short admin cache: opening Radar / "Adicionar grupo" must be instant and
+// must not block the UI on a fresh Evolution round-trip every time.
+const radarGroupsCache = new Map<string, { timestamp: number; groups: any[] }>();
+const RADAR_GROUPS_CACHE_TTL = 30_000;
+
+async function refreshRadarGroups(instance: string): Promise<any[]> {
+  const chatsRes = await callEvolution(`/chat/findChats/${instance}`, {
+    method: "POST",
+    body: JSON.stringify({ limit: 150 }),
+  }, 6000, 0);
+  if (!chatsRes.ok) throw new Error(`Evolution HTTP ${chatsRes.status}`);
+
+  const chatsList = Array.isArray(chatsRes.data) ? chatsRes.data : [];
+  const groups = chatsList
+    .filter((c: any) => c.remoteJid?.includes("@g.us") || c.isGroup)
+    .map((c: any) => {
+      const jid = c.remoteJid;
+      const isMonitored = radarEngine.monitoredGroupJids.has(jid);
+      const name = c.name || c.pushName || c.subject || "Grupo WhatsApp";
+      const avatar = c.profilePicUrl || profilePicCache.get(jid) || "";
+      radarEngine.updateGroupMetadata(jid, name, avatar);
+      return {
+        id: jid, jid, name, avatar,
+        messageCount: c.unreadCount || 0,
+        status: isMonitored ? "active" : "inactive",
+        isMonitored,
+        lastMessageTime: formatChatTime(c.lastMessage?.messageTimestamp || c.updatedAt),
+      };
+    });
+  radarGroupsCache.set(instance, { timestamp: Date.now(), groups });
+  return groups;
+}
+
 app.get("/api/radar/groups", requireAdminRoute, async (req, res) => {
   const instance = (req.query.instance as string) || memoryState.instanceName;
+  const cached = radarGroupsCache.get(instance);
+  const isFresh = cached && Date.now() - cached.timestamp < RADAR_GROUPS_CACHE_TTL;
+
+  if (cached?.groups?.length) {
+    // Return immediately. If stale, refresh silently for the next open.
+    if (!isFresh) refreshRadarGroups(instance).catch((err) =>
+      console.warn("[RadarGroups] background refresh failed:", err?.message || err)
+    );
+    return res.json({ success: true, instanceName: instance, total: cached.groups.length, groups: cached.groups, cached: true });
+  }
 
   try {
-    const chatsRes = await callEvolution(`/chat/findChats/${instance}`, {
-      method: "POST",
-      body: JSON.stringify({ limit: 150 }),
-    });
-
-    if (!chatsRes.ok) {
-      return res.json({ success: true, groups: [] });
-    }
-
-    const chatsList = Array.isArray(chatsRes.data) ? chatsRes.data : [];
-    const groups = chatsList
-      .filter((c: any) => c.remoteJid?.includes("@g.us") || c.isGroup)
-      .map((c: any) => {
-        const jid = c.remoteJid;
-        const isMonitored = radarEngine.monitoredGroupJids.has(jid);
-        const name = c.name || c.pushName || c.subject || "Grupo WhatsApp";
-        const avatar =
-          c.profilePicUrl ||
-          profilePicCache.get(jid) ||
-          "";
-
-        // Keep radarEngine metadata cache in sync
-        radarEngine.updateGroupMetadata(jid, name, avatar);
-
-        return {
-          id: jid,
-          jid,
-          name,
-          avatar,
-          messageCount: c.unreadCount || 0,
-          status: isMonitored ? "active" : "inactive",
-          isMonitored,
-          lastMessageTime: formatChatTime(c.lastMessage?.messageTimestamp || c.updatedAt),
-        };
-      });
-
-    res.json({
-      success: true,
-      instanceName: instance,
-      total: groups.length,
-      groups,
-    });
+    const groups = await refreshRadarGroups(instance);
+    res.json({ success: true, instanceName: instance, total: groups.length, groups });
   } catch (err: any) {
-    res.status(500).json({ error: err.message, groups: [] });
+    // Never turn an upstream delay into a broken modal.
+    res.json({ success: true, instanceName: instance, total: cached?.groups?.length || 0, groups: cached?.groups || [], warning: err?.message });
   }
 });
 

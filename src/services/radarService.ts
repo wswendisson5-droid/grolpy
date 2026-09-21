@@ -24,6 +24,8 @@ export interface RealGroupItem {
 }
 
 class RadarService {
+  private groupsCache: RealGroupItem[] = [];
+  private groupsLoadedAt = 0;
   /**
    * Get current Radar system status & queue metrics
    */
@@ -56,16 +58,26 @@ class RadarService {
   /**
    * Fetch REAL WhatsApp groups from the connected Evolution instance
    */
+  getCachedGroups(): RealGroupItem[] {
+    return this.groupsCache;
+  }
+
   async getRealGroups(): Promise<RealGroupItem[]> {
+    const cached = this.groupsCache;
+    if (cached.length > 0 && Date.now() - this.groupsLoadedAt < 30_000) {
+      return cached;
+    }
     try {
       const res = await fetch('/api/radar/groups');
       const data = await res.json();
       if (res.ok && data.success && Array.isArray(data.groups)) {
+        this.groupsCache = data.groups;
+        this.groupsLoadedAt = Date.now();
         return data.groups;
       }
-      return [];
+      return cached;
     } catch {
-      return [];
+      return cached;
     }
   }
 

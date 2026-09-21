@@ -24,12 +24,12 @@ export const AddGroupModal: React.FC<AddGroupModalProps> = ({
 
     let isMounted = true;
     const loadGroups = async () => {
-      setIsLoading(true);
+      const cached = radarService.getCachedGroups();
+      if (cached.length > 0) setAvailableGroups(cached);
+      setIsLoading(cached.length === 0);
       try {
         const groups = await radarService.getRealGroups();
-        if (isMounted) {
-          setAvailableGroups(groups);
-        }
+        if (isMounted) setAvailableGroups(groups);
       } finally {
         if (isMounted) setIsLoading(false);
       }
