@@ -21,10 +21,23 @@ export function normalizeConversationText(text: string) {
 export function isDirectPricingRequest(text: string) {
  const t = normalizeConversationText(text).split('[respondendo a:')[0].trim();
  if (/\b(nao|nem|pare|para de|cancela|cancelar|dispenso|sem)\b/.test(t)) return false;
+ // Exige pedido explícito. Textos comerciais/autorespostas que apenas mencionam
+ // "valores", "pedido" ou links não podem disparar nossa tabela automaticamente.
  return /\b(tabela|tabelinha)\b.*\b(precos?|planos?|valores?)\b/.test(t)
-  || /\b(manda|mande|envia|envie|mostra|mostre|ver|quais|conhecer)\b.*\b(planos|precos|valores|tabela)\b/.test(t)
+  || /\b(manda|mande|envia|envie|mostra|mostre|quero ver|quero conhecer|quais (?:sao )?)\b.*\b(planos|precos|valores|tabela)\b/.test(t)
   || /^(planos|precos|valores|tabela)[?!. ]*$/.test(t)
   || /\b(o que|oque)\b.*\b(cada plano|cada um dos planos)\b/.test(t);
+}
+export function looksLikeBusinessAutoReply(text: string) {
+ const t = normalizeConversationText(text);
+ const autoSignals = [
+  /obrigad[oa] pelo contato/, /agradecemos (?:o|seu) contato/, /mensagem automatica/,
+  /horario de atendimento/, /atendimento de segunda/, /nosso cardapio/, /cardapio digital/,
+  /fale diretamente com nosso/, /em breve (?:um|uma) atendente/, /assim que possivel responderemos/
+ ];
+ const signalCount = autoSignals.filter((pattern) => pattern.test(t)).length;
+ const hasLinkOrPhone = /https?:\/\/|wa\.me\/|\b\d{8,13}\b/.test(t);
+ return signalCount >= 2 || (signalCount >= 1 && hasLinkOrPhone && t.length > 120);
 }
 export function isSimpleGreeting(text: string) {
  return /^(oi|ola|opa|bom dia|boa tarde|boa noite|tudo bem|sim|pode falar|quem fala)([!?,.\s]*(oi|ola|bom dia|boa tarde|boa noite|tudo bem))*[!?,.\s]*$/.test(normalizeConversationText(text));

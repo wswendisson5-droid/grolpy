@@ -3,7 +3,7 @@ import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import { arePhonesEquivalent, cleanPhoneDigits } from './phoneUtils';
 import { createOpenAIStructuredResponse, getAiRuntimeInfo } from './openaiClient';
-import { CONVERSATION_POLICY, cleanAssistantReply, isDirectPricingRequest } from './conversationPolicy';
+import { CONVERSATION_POLICY, cleanAssistantReply, isDirectPricingRequest, looksLikeBusinessAutoReply } from './conversationPolicy';
 import { ConversationMemory, DecisionLog, createConversationMemory, decideConversation, fallbackForDecision, isDuplicateInboundMessage, updateMemoryFromTurn, validateCommercialReply } from './conversationIntelligence';
 
 export function safeUnicodeTruncate(text: string, maxChars: number): string {
@@ -648,6 +648,19 @@ export class AtendimentoEngine {
       type: 'system',
     });
 
+    // Resposta automática do estabelecimento não é interesse nem pergunta para o Groply.
+    // Guardamos no histórico para auditoria, mas esperamos uma mensagem humana real.
+    if (looksLikeBusinessAutoReply(text)) {
+      lead.notes.push({
+        id: `note-${Date.now()}-auto-reply`, timestamp: now, timeFormatted,
+        author: 'Sistema', text: 'Resposta automática comercial detectada; IA aguardou interação humana.', type: 'system',
+      });
+      lead.clientReplied = false;
+      this.saveToDisk();
+      this.syncSalesContact(lead);
+      return;
+    }
+
     // Se o atendimento da IA estiver ativo, gerar resposta contextual analisando TODO o histórico
     if (this.config.enabled && lead.aiActiveForContact && this.config.mode === 'auto') {
       lead.status = 'ia_em_atendimento';
@@ -898,7 +911,10 @@ ${safeUnicodeTruncate(latestMessage, 2000)}`,
         });
 
         if (!isCurrent() || !lead.aiActiveForContact || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
-        sendPricingTable = parsed.sendPricingTable === true || isDirectPricingRequest(latestMessage);
+        // A imagem de preços só sai por intenção explícita detectada no texto atual.
+        // Não confiar no booleano do modelo: respostas automáticas de empresas podem
+        // conter "valores", "pedido" e links sem estarem pedindo nossos preços.
+        sendPricingTable = isDirectPricingRequest(latestMessage);
         replyText = cleanAssistantReply(String(parsed.replyText || ''));
         // Trava de funil: um simples "sim" após perguntarmos se divulga manualmente
         // não autoriza pitch. Primeiro entendemos o volume/processo para a conversa soar humana.
@@ -1008,7 +1024,10 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
             const parsed = JSON.parse(response.text);
             if (parsed.replyText && parsed.replyText.trim()) {
               if (!isCurrent() || !lead.aiActiveForContact || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
-              sendPricingTable = parsed.sendPricingTable === true || isDirectPricingRequest(latestMessage);
+              // A imagem de preços só sai por intenção explícita detectada no texto atual.
+        // Não confiar no booleano do modelo: respostas automáticas de empresas podem
+        // conter "valores", "pedido" e links sem estarem pedindo nossos preços.
+        sendPricingTable = isDirectPricingRequest(latestMessage);
               replyText = cleanAssistantReply(parsed.replyText);
               if (parsed.detectedName && typeof parsed.detectedName === 'string' && parsed.detectedName.trim()) {
                 detectedName = parsed.detectedName.trim();

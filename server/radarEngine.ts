@@ -1011,6 +1011,15 @@ class RadarEngine {
       return reject('social_banter_filtered');
     }
 
+    // Quem está procurando/comprando algo não é o público do Groply: queremos quem
+    // está OFERECENDO e repetindo divulgação própria nos grupos.
+    const buyerSeekingPattern = /\b(procuro|procurando|estou procurando|preciso de|alguem (?:tem|sabe|indica)|alguém (?:tem|sabe|indica)|busco|queria alugar|quero alugar)\b/;
+    if (buyerSeekingPattern.test(textLower)) {
+      this.prefilterMetrics.rejectedNoCommercial++;
+      this.prefilterMetrics.totalTokensSaved += 450;
+      return reject('buyer_or_seeker_not_advertiser');
+    }
+
     // STAGE 2.1: STRICT DISQUALIFICATION CHECK
     // Elimina sumariamente: revenda Vivo/Claro/operadoras, maquininhas, afiliados, fretes informais, desapegos usados
     for (const disqTerm of DISQUALIFIED_PATTERNS) {
@@ -1181,13 +1190,11 @@ class RadarEngine {
       return;
     }
 
-    // Uma mensagem que chegou ate a fila ja passou pelo pre-filtro comercial. A IA
-    // enriquece a classificacao, mas nao pode vetar sinais comerciais objetivos.
-    const deterministicEvaluation = this.deterministicQualification(candidate);
-    const deterministicCommercial = deterministicEvaluation.isOpportunity && deterministicEvaluation.confidence >= 70;
-    const modelCommercial = evaluation.isOpportunity && evaluation.confidence >= 70;
-    if (deterministicCommercial && !modelCommercial) evaluation = deterministicEvaluation;
-    const shouldCreateOpportunity = deterministicCommercial || modelCommercial;
+    // Se um provedor de IA analisou a mensagem, a decisão semântica dele é a trava final.
+    // O pré-filtro por palavras-chave não pode ressuscitar alguém que a IA reconheceu
+    // como comprador/procurando algo em vez de anunciante. O fallback determinístico
+    // continua sendo usado acima somente quando não há provedor disponível ou ele falha.
+    const shouldCreateOpportunity = evaluation.isOpportunity && evaluation.confidence >= 70;
 
     if (shouldCreateOpportunity) {
       const opportunity = this.createOpportunityRecord(candidate, evaluation);
@@ -1237,7 +1244,7 @@ class RadarEngine {
   private async callOpenAIAnalysis(candidate: CandidateMessage): Promise<RadarAIEvaluation> {
     const parsed = await createOpenAIStructuredResponse<any>({
       name: 'radar_opportunity_evaluation',
-      instructions: 'Você é o motor de qualificação B2B do Grolpy Radar. Priorize pequenos negócios divulgando produtos ou serviços manualmente em grupos. Rejeite conversa social, desapego pontual, afiliados, apostas, maquininhas e revenda institucional de operadoras.',
+      instructions: 'Você é o motor de qualificação B2B do Grolpy Radar. Só aprove quem está OFERECENDO/divulgando o próprio produto, serviço ou negócio no grupo e portanto poderia se beneficiar de automatizar essas divulgações. Rejeite quem está apenas PROCURANDO/comprando/pedindo algo (ex.: procuro ponto para alugar, alguém indica, preciso de, estou procurando), conversa social, desapego pontual, afiliados, apostas, maquininhas e revenda institucional de operadoras. Na dúvida entre anunciante e comprador, rejeite.',
       input: `Contato: ${candidate.senderName}\nGrupo: ${candidate.groupName}\nMensagem: ${candidate.messageText}`,
       schema: {
         type: 'object',
@@ -1298,6 +1305,7 @@ CRITÉRIOS DE ELIMINAÇÃO SUMÁRIA ("isOpportunity": false e "confidence": 10 a
 3. Links de afiliados (Shopee, Shein, AliExpress), esquemas de renda extra, roleta, tigrinho, cassinos.
 4. Desapegos pessoais pontuais de itens velhos/usados de pessoas físicas (ex: "vendo meu sofá usado").
 5. Conversas puramente sociais sem nenhum anúncio, produto, serviço ou oferta comercial.
+6. Pessoas que estão PROCURANDO, comprando, pedindo indicação ou querendo alugar/comprar algo para si (ex.: "procuro ponto para alugar", "preciso de eletricista", "alguém indica..."). Elas são demanda/compradores, não anunciantes do próprio negócio; rejeite mesmo que a mensagem contenha preço, aluguel, contato ou WhatsApp.
 
 Dados do Contato:
 - Nome/PushName: "${candidate.senderName}"
@@ -1378,6 +1386,16 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
    */
   private deterministicQualification(candidate: CandidateMessage): RadarAIEvaluation {
     const text = candidate.messageText.toLowerCase();
+
+    // 0. Comprador/procurando algo não é anunciante do próprio negócio.
+    if (/\b(procuro|procurando|estou procurando|preciso de|alguem (?:tem|sabe|indica)|alguém (?:tem|sabe|indica)|busco|queria alugar|quero alugar)\b/.test(text)) {
+      return {
+        isOpportunity: false, confidence: 10, segment: 'Demanda / Comprador',
+        businessType: 'Não anunciante', recommendedService: 'Nenhum',
+        reason: 'Contato está procurando/comprando algo, não divulgando o próprio negócio.',
+        signals: ['buyer_or_seeker'], intent: 'Não Qualificado', budget: 'Nenhum', urgency: 'Baixa', sentiment: 'neutral',
+      };
+    }
 
     // 1. Check strict disqualifications (telecom, maquininhas, afiliados, desapegos usados)
     for (const disq of DISQUALIFIED_PATTERNS) {
