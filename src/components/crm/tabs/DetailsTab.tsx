@@ -36,12 +36,17 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({
   const [copiedPhone, setCopiedPhone] = useState(false);
 
   const stageLabels: Record<CRMStage, string> = {
-    novo: 'Novo',
-    em_atendimento: 'Em atendimento',
-    proposta_enviada: 'Proposta enviada',
-    concluido: 'Concluído',
-    descartado: 'Descartado',
-  };
+      novo: 'Novo contato',
+      em_atendimento: 'Em atendimento',
+      interessado: 'Interessado',
+      proposta_enviada: 'Planos enviados',
+      follow_up: 'Follow-up',
+      assinatura_concluida: 'Assinatura concluída',
+      concluido: 'Concluído',
+      sem_retorno: 'Sem retorno',
+      cancelado: 'Cancelado',
+      descartado: 'Descartado',
+    };
 
   const handleCopyPhone = () => {
     navigator.clipboard.writeText(contact.phone);
@@ -71,7 +76,7 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({
 
             {isStageDropdownOpen && (
               <div className="absolute right-0 top-8 w-44 bg-white rounded-xl shadow-lg border border-[#e2eae5] py-1 z-30 select-none">
-                {(['novo', 'em_atendimento', 'proposta_enviada', 'concluido'] as CRMStage[]).map(
+                {(['novo', 'em_atendimento', 'interessado', 'proposta_enviada', 'follow_up', 'assinatura_concluida', 'sem_retorno', 'cancelado', 'descartado'] as CRMStage[]).map(
                   (st) => (
                     <button
                       key={st}
@@ -277,7 +282,7 @@ export const DetailsTab: React.FC<DetailsTabProps> = ({
 
           {isMoveMenuOpen && (
             <div className="absolute right-0 bottom-12 w-48 bg-white rounded-xl shadow-xl border border-[#e2eae5] py-1 z-30 select-none">
-              {(['novo', 'em_atendimento', 'proposta_enviada', 'concluido', 'descartado'] as CRMStage[]).map(
+              {(['novo', 'em_atendimento', 'interessado', 'proposta_enviada', 'follow_up', 'assinatura_concluida', 'sem_retorno', 'cancelado', 'descartado'] as CRMStage[]).map(
                 (st) => (
                   <button
                     key={st}

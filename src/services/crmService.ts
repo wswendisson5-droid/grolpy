@@ -41,20 +41,21 @@ class CRMService {
         const isGroup = contact.isGroup || jid.includes('@g.us');
 
         const stageMap: Record<string, any> = {
-          lead: 'novo',
-          qualificacao: 'em_atendimento',
-          proposta: 'proposta_enviada',
-          negociacao: 'proposta_enviada',
-          fechado: 'concluido',
+          lead: 'novo', novo: 'novo',
+          qualificacao: 'em_atendimento', em_atendimento: 'em_atendimento',
+          interessado: 'interessado',
+          proposta: 'proposta_enviada', negociacao: 'proposta_enviada', proposta_enviada: 'proposta_enviada',
+          follow_up: 'follow_up',
+          assinatura_concluida: 'assinatura_concluida', fechado: 'assinatura_concluida', concluido: 'assinatura_concluida',
+          sem_retorno: 'sem_retorno', cancelado: 'cancelado', descartado: 'descartado',
         };
 
         const status = stageMap[contact.stage] || 'em_atendimento';
         const statusLabelMap: Record<string, string> = {
-          novo: 'Novo Lead',
-          em_atendimento: 'Em atendimento',
-          proposta_enviada: 'Proposta enviada',
-          concluido: 'Fechado',
-          descartado: 'Descartado',
+          novo: 'Novo contato', em_atendimento: 'Em atendimento', interessado: 'Interessado',
+          proposta_enviada: 'Planos enviados', follow_up: 'Follow-up',
+          assinatura_concluida: 'Assinatura concluída', concluido: 'Concluído',
+          sem_retorno: 'Sem retorno', cancelado: 'Cancelado', descartado: 'Descartado',
         };
 
         return {

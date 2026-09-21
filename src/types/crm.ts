@@ -6,8 +6,13 @@
 export type CRMStage =
   | 'novo'
   | 'em_atendimento'
+  | 'interessado'
   | 'proposta_enviada'
+  | 'follow_up'
+  | 'assinatura_concluida'
   | 'concluido'
+  | 'sem_retorno'
+  | 'cancelado'
   | 'descartado';
 
 export interface CRMAssignee {

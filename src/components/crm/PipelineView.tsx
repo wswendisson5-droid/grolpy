@@ -15,10 +15,14 @@ interface PipelineViewProps {
 }
 
 const STAGES: { id: CRMStage; title: string; color: string }[] = [
-  { id: 'novo', title: 'Novo', color: 'bg-amber-500' },
+  { id: 'novo', title: 'Novo contato', color: 'bg-amber-500' },
   { id: 'em_atendimento', title: 'Em atendimento', color: 'bg-emerald-500' },
-  { id: 'proposta_enviada', title: 'Proposta enviada', color: 'bg-blue-500' },
-  { id: 'concluido', title: 'Concluído', color: 'bg-purple-500' },
+  { id: 'interessado', title: 'Interessado', color: 'bg-cyan-500' },
+  { id: 'proposta_enviada', title: 'Planos enviados', color: 'bg-blue-500' },
+  { id: 'follow_up', title: 'Follow-up', color: 'bg-indigo-500' },
+  { id: 'assinatura_concluida', title: 'Assinatura concluída', color: 'bg-purple-500' },
+  { id: 'sem_retorno', title: 'Sem retorno', color: 'bg-orange-500' },
+  { id: 'cancelado', title: 'Cancelado', color: 'bg-rose-500' },
   { id: 'descartado', title: 'Descartado', color: 'bg-slate-400' },
 ];
 

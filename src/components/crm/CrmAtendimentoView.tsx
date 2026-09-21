@@ -351,18 +351,28 @@ export const CrmAtendimentoView: React.FC<CrmAtendimentoViewProps> = ({
   // Status / Stage update
   const handleUpdateStatus = (contactId: string, newStatus: CRMStage) => {
     const stageLabels: Record<CRMStage, string> = {
-      novo: 'Novo',
+      novo: 'Novo contato',
       em_atendimento: 'Em atendimento',
-      proposta_enviada: 'Proposta enviada',
-      concluido: 'ConcluÃ­do',
+      interessado: 'Interessado',
+      proposta_enviada: 'Planos enviados',
+      follow_up: 'Follow-up',
+      assinatura_concluida: 'Assinatura concluída',
+      concluido: 'Concluído',
+      sem_retorno: 'Sem retorno',
+      cancelado: 'Cancelado',
       descartado: 'Descartado',
     };
 
     const leadStatusMap: Record<CRMStage, string> = {
       novo: 'aberto',
       em_atendimento: 'humano_assumiu',
-      proposta_enviada: 'humano_assumiu',
+      interessado: 'ia_em_atendimento',
+      proposta_enviada: 'ia_em_atendimento',
+      follow_up: 'ia_em_atendimento',
+      assinatura_concluida: 'convertido',
       concluido: 'convertido',
+      sem_retorno: 'respondido_cliente',
+      cancelado: 'descartado',
       descartado: 'descartado',
     };
 

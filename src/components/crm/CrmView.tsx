@@ -309,10 +309,15 @@ export const CrmView: React.FC<CrmViewProps> = ({ onOpenMobileMenu, onNavigateTo
   // Update Status / Stage
   const handleUpdateStatus = (contactId: string, newStatus: CRMStage) => {
     const stageLabels: Record<CRMStage, string> = {
-      novo: 'Novo',
+      novo: 'Novo contato',
       em_atendimento: 'Em atendimento',
-      proposta_enviada: 'Proposta enviada',
+      interessado: 'Interessado',
+      proposta_enviada: 'Planos enviados',
+      follow_up: 'Follow-up',
+      assinatura_concluida: 'Assinatura concluída',
       concluido: 'Concluído',
+      sem_retorno: 'Sem retorno',
+      cancelado: 'Cancelado',
       descartado: 'Descartado',
     };
 

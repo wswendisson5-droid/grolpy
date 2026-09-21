@@ -2252,6 +2252,9 @@ app.get("/api/crm/typing-status", requireAdminRoute, (req, res) => {
 // CRM ATENDIMENTO & AI AGENT ROUTES
 // ----------------------------------------------------
 
+// Keep the commercial pipeline synchronized with what the AI learns in the conversation.
+atendimentoEngine.setStageUpdater((jid, stage) => radarEngine.setContactStage(jid, stage));
+
 // Wire up real Evolution sender for AI Agent follow-ups
 atendimentoEngine.setEvolutionSender(async (targetJid: string, text: string, kind = "proactive") => {
   try {
