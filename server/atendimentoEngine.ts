@@ -165,6 +165,7 @@ export class AtendimentoEngine {
   private incomingMessageQueues = new Map<string, Promise<void>>();
   private incomingRevisions = new Map<string, number>();
   private pendingIncoming = new Set<string>();
+  private recoveryInFlight = new Set<string>();
   // Global cadence for first-contact prospecting. Multiple qualified opportunities
   // can arrive together from different groups; serialize greetings so WhatsApp is
   // never hit with a burst of proactive messages.
@@ -675,6 +676,10 @@ export class AtendimentoEngine {
       const decisionText = burstMessages.length > 1 ? burstMessages.map((message) => message.text).join('\n') : text;
       const decision = decideConversation(memory, decisionText, clientMessageCount);
       lead.conversationMemory = updateMemoryFromTurn(memory, decisionText, decision, now);
+      // A pipeline precisa refletir a mensagem recebida imediatamente, mesmo se o provedor
+      // de IA ou o envio pela Evolution falhar depois. Assim o contato nunca fica parado
+      // numa etapa antiga enquanto existe uma conversa real acontecendo.
+      this.syncSalesContact(lead);
       lead.decisionLog = Array.isArray(lead.decisionLog) ? lead.decisionLog : [];
       lead.decisionLog.push({
         ...decision,
@@ -1042,6 +1047,15 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       sendPricingTable = false;
     }
 
+    // Se o provedor falhar ou devolver vazio, não abandonamos a conversa. Usamos o
+    // fallback determinístico do próprio motor e ainda passamos pelo mesmo validador.
+    if (!replyText) {
+      const decisionFallback = fallbackForDecision(decision);
+      const deterministicFallback = this.generateDeterministicContextualReply(lead, latestMessage, lead.collectedInfo['nome'] || lead.contactName || '').replyText;
+      replyText = cleanAssistantReply(decisionFallback || deterministicFallback || 'Vi sua mensagem. Me conta só um pouco mais pra eu te responder certinho.');
+      sendPricingTable = false;
+    }
+
     // Validador final independente do prompt. Resposta reprovada não vai direto ao WhatsApp.
     const previousAiMessages = lead.messages.filter((message) => message.sender === 'ai').slice(-8).map((message) => message.text);
     let validation = validateCommercialReply(replyText, decision, previousAiMessages);
@@ -1343,14 +1357,50 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
 
     this.workerTimer = setInterval(() => {
       this.checkFollowUps();
-    }, 45000); // verifica a cada 45 segundos
+    }, 10000); // watchdog de respostas a cada 10 segundos; não envia follow-up sem mensagem do cliente
   }
 
   private async checkFollowUps() {
     // A abordagem automática para por completo após a saudação enquanto o lead não responder.
     // Isso evita insistência/spam e preserva os campos legados de follow-up sem apagá-los.
     if (!this.config.enabled || this.config.mode !== 'auto' || !this.evolutionSender || !getAiRuntimeInfo().configured) return;
-    return; // follow-up comercial sem nova mensagem do lead desativado por política
+
+    // Recuperação de conversa: follow-up comercial continua desativado, mas uma mensagem
+    // REAL do cliente nunca pode ficar sem resposta por perda de webhook, falha transitória
+    // do modelo ou envio. Se o último balão é do cliente e não existe resposta posterior,
+    // retomamos exatamente daquele ponto sem criar uma nova mensagem de prospecção.
+    const recoveryNow = Date.now();
+    for (const lead of this.atendimentos) {
+      if (!lead.aiActiveForContact || lead.status === 'convertido' || lead.status === 'descartado' || lead.status === 'humano_assumiu') continue;
+      const lastClient = [...lead.messages].reverse().find((message) => message.sender === 'client');
+      if (!lastClient || recoveryNow - lastClient.timestamp < 10_000) continue;
+      const hasReplyAfter = lead.messages.some((message) => message.sender === 'ai' && message.timestamp > lastClient.timestamp);
+      if (hasReplyAfter) continue;
+      const queueKey = cleanPhoneDigits(lead.contactJid) || lead.contactJid;
+      if (this.recoveryInFlight.has(queueKey) || this.incomingMessageQueues.has(queueKey)) continue;
+      this.recoveryInFlight.add(queueKey);
+      try {
+        const clientMessages = lead.messages.filter((message) => message.sender === 'client');
+        const burst = clientMessages.filter((message) => lastClient.timestamp - message.timestamp <= 8000).slice(-4);
+        const decisionText = burst.length > 1 ? burst.map((message) => message.text).join('\n') : lastClient.text;
+        const memory = lead.conversationMemory || createConversationMemory(lead.createdAt || recoveryNow);
+        const decision = decideConversation(memory, decisionText, clientMessages.length);
+        if (!decision.shouldRespond) continue;
+        lead.conversationMemory = updateMemoryFromTurn(memory, decisionText, decision, recoveryNow);
+        lead.status = 'ia_em_atendimento';
+        this.syncSalesContact(lead);
+        lead.decisionLog = Array.isArray(lead.decisionLog) ? lead.decisionLog : [];
+        lead.decisionLog.push({ ...decision, messageId: lastClient.id, contactId: lead.id, timestamp: recoveryNow, validationResult: 'recovery_pending' });
+        lead.decisionLog = lead.decisionLog.slice(-200);
+        const revision = this.incomingRevisions.get(queueKey) || 0;
+        await this.generateContextualAiReply(lead, lastClient.text, () => (this.incomingRevisions.get(queueKey) || 0) === revision, decision);
+      } catch (error) {
+        console.error('[AtendimentoEngine] Falha ao recuperar conversa sem resposta:', error);
+      } finally {
+        this.recoveryInFlight.delete(queueKey);
+      }
+    }
+    return; // follow-up comercial sem nova mensagem do lead permanece desativado
 
     const now = Date.now();
     const f1ThresholdMs = (this.config.followUp1Hours || 2) * 60 * 60 * 1000;

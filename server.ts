@@ -2482,7 +2482,10 @@ setInterval(() => {
       const instance = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
       const response = await callEvolution(`/chat/findMessages/${instance}`, {
         method: "POST",
-        body: JSON.stringify({ limit: 100 }),
+        // Fallback do webhook: volume maior evita perder respostas quando vários contatos
+        // respondem no mesmo intervalo. O processamento abaixo continua filtrando apenas
+        // conversas privadas que pertencem a leads reais do Radar.
+        body: JSON.stringify({ limit: 500 }),
       });
       const payload = response.data;
       const records = payload?.messages?.records || payload?.records || (Array.isArray(payload) ? payload : []);
