@@ -591,10 +591,11 @@ export class AtendimentoEngine {
     this.pendingIncoming.add(pendingKey);
     const revision = (this.incomingRevisions.get(queueKey) || 0) + 1;
     this.incomingRevisions.set(queueKey, revision);
-    const previous = this.incomingMessageQueues.get(queueKey) || Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(() => this.processIncomingClientMessage(contactJid, text, externalMessageId, queueKey, revision));
+    // Não serializar mensagens do mesmo contato antes do debounce: isso fazia a
+    // primeira mensagem esperar 3,5s e bloquear a segunda na fila, quebrando a
+    // janela deslizante. Cada evento é persistido imediatamente; a revisão mais
+    // nova cancela somente a GERAÇÃO de resposta das revisões anteriores.
+    const next = this.processIncomingClientMessage(contactJid, text, externalMessageId, queueKey, revision);
     this.incomingMessageQueues.set(queueKey, next);
     const cleanup = () => {
       this.pendingIncoming.delete(pendingKey);
@@ -757,7 +758,7 @@ export class AtendimentoEngine {
     const apiKey = process.env.GEMINI_API_KEY;
     const aiRuntime = getAiRuntimeInfo();
     if (!aiRuntime.configured) {
-      const fallbackReply = this.buildSafeFallbackReply(lead, latestMessage);
+      const fallbackReply = fallbackForDecision(decision) || this.buildSafeFallbackReply(lead, latestMessage);
       if (fallbackReply && this.evolutionSender && isCurrent()) {
         const delivered = await this.evolutionSender(lead.contactJid, fallbackReply, 'reply').catch(() => false);
         if (delivered) {
