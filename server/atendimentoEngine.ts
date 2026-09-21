@@ -849,15 +849,15 @@ ${messagesHistory}
 "${safeUnicodeTruncate(latestMessage, 2000)}"
 
 FLUXO DA CONVERSA (ADAPTE AO CONTEXTO REAL):
-1. Se for a primeira resposta após a saudação inicial ("Bom dia, tudo bem?", "Quem é?", "Em que posso ajudar?"):
-   - Dê contexto e confirme se a pessoa é a responsável pelo serviço/negócio:
-   - Exemplo: "Bom dia! Vi sua mensagem no grupo ${lead.groupName} divulgando ${lead.demandSummary}. É você quem cuida dessa parte?"
-2. Se a pessoa confirmar que é ela quem cuida / é a responsável ("Sim", "Sou eu", "Sim, eu mesmo", "Trabalho com isso"):
-   - Apresente a nossa solução de divulgação automática em grupos:
-   - Exemplo: "Legal! Nós desenvolvemos uma ferramenta que automatiza a divulgação em dezenas de grupos de WhatsApp todos os dias, sem você precisar ficar postando um por um manualmente. Você já usa algo automático ou faz as divulgações na mão?"
-3. Se a pessoa demonstrar interesse ("Como funciona?", "Quero saber mais", "Faço na mão", "Pode mandar"):
-   - Responda diretamente ao interesse atual; não ofereça vídeo ou demonstração indisponíveis:
-   - Se quiser começar, informe o acesso ao sistema e um próximo passo conhecido.
+1. Se for a primeira resposta após a saudação inicial ("Bom dia", "Quem é?", "Em que posso ajudar?"):
+   - Dê contexto curto de que viu a divulgação no grupo e faça UMA pergunta sobre o processo.
+   - Prefira descobrir se a pessoa envia manualmente/grupo por grupo. Não exija nome e não pergunte "é você quem cuida?" sem necessidade.
+2. Se a pessoa disser que faz manualmente:
+   - Continue descobrindo o processo, uma pergunta por vez: quantidade de grupos, frequência ou tempo gasto.
+   - Não apresente a ferramenta imediatamente só porque recebeu "sim".
+3. Quando já houver contexto/dor, ou se a pessoa perguntar diretamente "como funciona?":
+   - Explique o Groply em uma ou duas frases e responda ao interesse atual.
+   - Não ofereça vídeo, demonstração ou especialista indisponíveis.
 4. Se perguntar sobre preço ou investimento:
    - Decida sendPricingTable conforme a intenção. Dúvida específica recebe só a informação pedida.
 5. Se for dúvida complexa, preço, negociação ou pedir humano:
@@ -892,7 +892,7 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
             const parsed = JSON.parse(response.text);
             if (parsed.replyText && parsed.replyText.trim()) {
               if (!isCurrent() || !lead.aiActiveForContact || !this.config.enabled || this.config.mode !== 'auto' || lead.status === 'humano_assumiu') return;
-              sendPricingTable = parsed.sendPricingTable === true;
+              sendPricingTable = parsed.sendPricingTable === true || isDirectPricingRequest(latestMessage);
               replyText = cleanAssistantReply(parsed.replyText);
               if (parsed.detectedName && typeof parsed.detectedName === 'string' && parsed.detectedName.trim()) {
                 detectedName = parsed.detectedName.trim();
@@ -931,8 +931,16 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
 
     // Atualizar nome do cliente se identificado
     if (detectedName) {
-      lead.contactName = detectedName;
-      lead.collectedInfo['nome'] = detectedName;
+      const latestOwnText = latestMessage.split('[Respondendo a:')[0].trim();
+      const normalizedLatest = latestOwnText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const normalizedName = detectedName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      const declaredPrefix = /\b(me chamo|meu nome (e|eh)|pode me chamar de|aqui (e|eh)|sou (o|a))\b/.test(normalizedLatest);
+      if (declaredPrefix && normalizedLatest.includes(normalizedName)) {
+        lead.contactName = detectedName;
+        lead.collectedInfo['nome'] = detectedName;
+      } else {
+        detectedName = '';
+      }
     }
 
     // Atualizar memórias
