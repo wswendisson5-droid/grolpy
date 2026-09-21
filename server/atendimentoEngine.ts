@@ -165,6 +165,12 @@ export class AtendimentoEngine {
   private incomingMessageQueues = new Map<string, Promise<void>>();
   private incomingRevisions = new Map<string, number>();
   private pendingIncoming = new Set<string>();
+  // Global cadence for first-contact prospecting. Multiple qualified opportunities
+  // can arrive together from different groups; serialize greetings so WhatsApp is
+  // never hit with a burst of proactive messages.
+  private proactiveSendChain: Promise<void> = Promise.resolve();
+  private lastProactiveSendAt = 0;
+  private readonly proactiveMinIntervalMs = 45_000;
 
   constructor() {
     this.startFollowUpWorker();
@@ -176,6 +182,21 @@ export class AtendimentoEngine {
 
   public exportState() {
     return { config: this.config, atendimentos: this.atendimentos };
+  }
+
+  private queueProactiveSend(send: () => Promise<boolean>): Promise<boolean> {
+    let resolveResult!: (value: boolean) => void;
+    const result = new Promise<boolean>((resolve) => { resolveResult = resolve; });
+    this.proactiveSendChain = this.proactiveSendChain
+      .catch(() => {})
+      .then(async () => {
+        const waitMs = Math.max(0, this.proactiveMinIntervalMs - (Date.now() - this.lastProactiveSendAt));
+        if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+        const ok = await send().catch(() => false);
+        if (ok) this.lastProactiveSendAt = Date.now();
+        resolveResult(ok);
+      });
+    return result;
   }
 
   public hydrateFromState(state: any) {
@@ -361,7 +382,7 @@ export class AtendimentoEngine {
 
       // Só registra como enviada depois de confirmação real da Evolution.
       if (this.evolutionSender) {
-        this.evolutionSender(opportunity.remoteJid, greetingText)
+        this.queueProactiveSend(() => this.evolutionSender!(opportunity.remoteJid, greetingText, 'proactive'))
           .then((ok) => {
             if (!ok) return;
             const sentAt = Date.now();
@@ -714,12 +735,45 @@ export class AtendimentoEngine {
     return { ok: true as const, lead, message: text };
   }
 
+  private buildSafeFallbackReply(lead: CRMAtendimentoLead, latestMessage: string): string {
+    const normalized = latestMessage.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+    if (/\b(nao tenho interesse|sem interesse|nao quero|pare|parar|nao me chame)\b/.test(normalized)) return '';
+    if (/\b(preco|precos|valor|valores|quanto custa|planos?)\b/.test(normalized)) {
+      return 'Temos planos a partir de R$ 39,90 por mês. Se quiser, eu te explico qual faz mais sentido pro seu volume de grupos.';
+    }
+    if (lead.conversationStep === 'greeting_sent') {
+      return 'Vi você divulgando em alguns grupos e queria te fazer uma pergunta: você faz esses envios manualmente?';
+    }
+    if (lead.conversationStep === 'context_sent' && /^(sim|ss|s|isso|isso mesmo|faco|faço)[.! ]*$/.test(normalized)) {
+      return 'Você costuma divulgar em quantos grupos mais ou menos?';
+    }
+    return '';
+  }
+
   /**
    * Revisa TODO o histórico da conversa e gera a resposta contextual mais humana e adequada
    */
   private async generateContextualAiReply(lead: CRMAtendimentoLead, latestMessage: string, isCurrent = () => true, decision = decideConversation(lead.conversationMemory || createConversationMemory(), latestMessage, lead.messages.filter((m) => m.sender === 'client').length)) {
     const apiKey = process.env.GEMINI_API_KEY;
     const aiRuntime = getAiRuntimeInfo();
+    if (!aiRuntime.configured) {
+      const fallbackReply = this.buildSafeFallbackReply(lead, latestMessage);
+      if (fallbackReply && this.evolutionSender && isCurrent()) {
+        const delivered = await this.evolutionSender(lead.contactJid, fallbackReply, 'reply').catch(() => false);
+        if (delivered) {
+          const sentAt = Date.now();
+          lead.messages.push({
+            id: `msg-ia-fallback-${sentAt}`, sender: 'ai', senderName: `IA ${this.config.agentName}`,
+            text: fallbackReply, timestamp: sentAt, time: getSaoPauloTime(new Date(sentAt)).time,
+            status: 'delivered', type: 'text',
+          });
+          lead.lastInteractionAt = sentAt;
+          lead.conversationStep = lead.conversationStep === 'greeting_sent' ? 'context_sent' : 'in_dialogue';
+          this.saveToDisk();
+        }
+      }
+      return;
+    }
     const now = Date.now();
     const timeFormatted = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
