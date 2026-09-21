@@ -3639,10 +3639,17 @@ app.delete("/api/client/campaigns/:id", async (req, res) => {
 });
 
 // Helper to look up real group name
-function lookupGroupName(jid: string, instance: string): string {
+function lookupGroupSnapshot(jid: string, instance: string) {
   const list = clientImportedGroupsStore.get(instance) || [];
   const found = list.find((g: any) => g.jid === jid || g.id === jid);
-  return found?.name || "Grupo WhatsApp";
+  return {
+    name: found?.name || found?.subject || "Grupo WhatsApp",
+    membersCount: Number(found?.membersCount || found?.participants?.length || 0),
+  };
+}
+
+function lookupGroupName(jid: string, instance: string): string {
+  return lookupGroupSnapshot(jid, instance).name;
 }
 
 // Real Dispatch Function with robust base64 / URL media support and fail-safe text fallback
@@ -3687,13 +3694,15 @@ async function executeGroupDispatch(
       const targetJid = String(rawTarget || "").trim();
       const normJid = targetJid;
       if (!normJid.endsWith("@g.us") || normJid.includes("@broadcast") || normJid.includes("@newsletter") || normJid.includes("@s.whatsapp.net") || normJid.includes("@lid")) continue;
-      const gName = lookupGroupName(normJid, instance);
+      const groupSnapshot = lookupGroupSnapshot(normJid, instance);
+      const gName = groupSnapshot.name;
       try {
         const histId = await db.addHistoryForUser(userId, {
           campaignId: campaignId || "manual",
           campaignTitle: campaignTitle || "Divulgação",
           groupJid: normJid,
           groupName: gName,
+          groupMembersCount: groupSnapshot.membersCount,
           messageText: textToSend,
           imageUrl: imgToSend || null,
           mediaType: imgToSend ? "imagem" : "texto",
@@ -3707,7 +3716,8 @@ async function executeGroupDispatch(
   for (let i = 0; i < targets.length; i++) {
     const rawJid = String(targets[i] || "").trim();
     const jid = rawJid;
-    const groupName = lookupGroupName(jid, instance);
+    const groupSnapshot = lookupGroupSnapshot(jid, instance);
+    const groupName = groupSnapshot.name;
     const startRequestTime = Date.now();
 
     // Strict validation: target must be a real WhatsApp group (@g.us)
@@ -3893,6 +3903,7 @@ async function executeGroupDispatch(
             campaignTitle: campaignTitle || "Divulgação",
             groupJid: jid,
             groupName,
+            groupMembersCount: groupSnapshot.membersCount,
             messageText: textToSend,
             imageUrl: imgToSend || null,
             mediaType: imgToSend ? "imagem" : "texto",
@@ -3924,6 +3935,7 @@ async function executeGroupDispatch(
             campaignTitle: campaignTitle || "Divulgação",
             groupJid: jid,
             groupName,
+            groupMembersCount: groupSnapshot.membersCount,
             messageText: textToSend,
             imageUrl: imgToSend || null,
             mediaType: imgToSend ? "imagem" : "texto",

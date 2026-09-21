@@ -665,6 +665,9 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       if (!histSet.has("error_text")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN error_text TEXT NULL").catch(() => {});
       }
+      if (!histSet.has("group_members_count")) {
+        await pool.query("ALTER TABLE user_history ADD COLUMN group_members_count INT NULL AFTER group_name").catch(() => {});
+      }
       if (!histSet.has("updated_at")) {
         await pool.query("ALTER TABLE user_history ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP").catch(() => {});
       }
@@ -844,7 +847,7 @@ export async function addHistoryForUser(userId: number, data: any): Promise<numb
   await ensureCampaignsTable().catch(() => {});
   try {
     const [result]: any = await pool.execute(
-      `INSERT INTO user_history(user_id,client_id,campaign_key,campaign_title,group_jid,group_name,message_text,media_url,media_type,status,error_text,duration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO user_history(user_id,client_id,campaign_key,campaign_title,group_jid,group_name,group_members_count,message_text,media_url,media_type,status,error_text,duration) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         userId,
         "client-" + userId,
@@ -852,6 +855,7 @@ export async function addHistoryForUser(userId: number, data: any): Promise<numb
         data.campaignTitle || null,
         data.groupJid || null,
         data.groupName || null,
+        Number.isFinite(Number(data.groupMembersCount)) ? Number(data.groupMembersCount) : null,
         data.messageText || "",
         data.imageUrl || data.mediaUrl || null,
         data.mediaType || (data.imageUrl || data.mediaUrl ? "imagem" : "texto"),
@@ -898,6 +902,7 @@ export async function listHistoryForUser(userId: number, days = 90) {
               COALESCE(campaign_title, 'Divulgação') AS campaignTitle,
               group_jid AS groupJid,
               COALESCE(group_name, 'Grupo') AS groupName,
+              group_members_count AS groupMembersCount,
               COALESCE(message_text, '') AS messageText,
               media_url AS imageUrl,
               media_type AS mediaType,
