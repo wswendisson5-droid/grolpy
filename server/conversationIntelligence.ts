@@ -118,7 +118,9 @@ export function decideConversation(
   } else if (intent === 'how_it_works') {
     stage = 'SOLUTION_INTRODUCTION'; responseGoal = 'explicar somente como funciona, em até duas frases'; reasonCode = 'direct_product_question';
   } else if (intent === 'objection') {
-    stage = 'OBJECTION'; responseGoal = 'responder a objeção sem prometer garantia'; reasonCode = 'objection';
+    stage = 'OBJECTION';
+    responseGoal = 'responder diretamente à preocupação com bloqueio/banimento: reconhecer que divulgação pode sofrer limitações, explicar que o Groply permite espaçar os envios com intervalos configuráveis de 30 segundos, 1, 2, 3, 5 ou 10 minutos para evitar disparos agressivos, sem prometer risco zero; depois manter a conversa comercial natural';
+    reasonCode = 'blocking_risk';
   } else if (intent === 'interest') {
     stage = 'INTEREST';
     if (!memory.confirmedFacts.name) {
@@ -134,7 +136,12 @@ export function decideConversation(
     stage = 'QUALIFICATION'; responseGoal = 'descobrir quantidade de grupos, uma pergunta curta'; reasonCode = 'qualify_volume';
   } else if (intent === 'process_detail') {
     stage = memory.confirmedFacts.manual === 'sim' ? 'PAIN_DISCOVERY' : 'QUALIFICATION';
-    responseGoal = 'entender o processo ou a dor sem interrogatório'; reasonCode = 'discover_process';
+    responseGoal = 'usar o detalhe que a pessoa acabou de dar, sem repetir pergunta já respondida; se ainda não souber o volume, descobrir quantos grupos ela costuma usar; se ela explicou que faz manualmente/encaminha grupo por grupo, avançar naturalmente para a dor e depois apresentar o Groply';
+    reasonCode = 'discover_process';
+  } else if (intent === 'other' && (memory.stage === 'CONVERSATION_STARTED' || memory.stage === 'QUALIFICATION' || memory.stage === 'PAIN_DISCOVERY')) {
+    stage = memory.confirmedFacts.manual === 'sim' ? 'PAIN_DISCOVERY' : 'QUALIFICATION';
+    responseGoal = 'dar continuidade comercial ao que a pessoa acabou de explicar; não travar nem reiniciar o roteiro. Aproveitar os fatos já informados e fazer no máximo uma pergunta útil que aproxime da apresentação do Groply';
+    reasonCode = 'continue_qualification';
   } else if (intent === 'ambiguous') {
     responseGoal = 'não inventar contexto; aguardar complemento ou esclarecer somente se necessário';
     shouldRespond = false;
@@ -213,6 +220,7 @@ export function fallbackForDecision(decision: ConversationDecision): string {
     case 'first_reply': return 'Vi você divulgando em alguns grupos e queria te perguntar uma coisa. Você faz esses envios manualmente?';
     case 'opt_out': return 'Tudo certo. Não vou continuar com as mensagens por aqui.';
     case 'not_interested': return 'Tranquilo, obrigado por responder.';
+    case 'blocking_risk': return 'Esse cuidado faz sentido. No Groply dá pra configurar intervalos entre os envios — de 30 segundos até 10 minutos — justamente pra não fazer disparos todos de uma vez; isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
     case 'ask_confirmed_name': return 'Claro. Antes, qual é o seu nome pra eu te chamar certinho por aqui?';
     default: return '';
   }
