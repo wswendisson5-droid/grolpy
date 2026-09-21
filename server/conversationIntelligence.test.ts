@@ -13,11 +13,11 @@ test('primeira resposta cria contexto em vez de pitch', () => {
   assert.equal(d.reasonCode, 'first_reply');
 });
 
-test('sim qualifica volume sem vender', () => {
+test('sim continua qualificacao sem cair no roteiro de quantidade de grupos', () => {
   const m = { ...createConversationMemory(), stage: 'CONVERSATION_STARTED' as const };
   const d = decideConversation(m, 'sim', 2);
   assert.equal(d.stage, 'QUALIFICATION');
-  assert.equal(fallbackForDecision(d), 'Você costuma divulgar em quantos grupos mais ou menos?');
+  assert.equal(fallbackForDecision(d), 'E essa rotina de ficar fazendo os envios acaba tomando muito do seu tempo?');
 });
 
 test('volume informado apos manual encerra interrogatorio e apresenta solucao', () => {

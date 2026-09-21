@@ -146,9 +146,9 @@ export function decideConversation(
       reasonCode = 'advance_interest';
     }
   } else if (clientMessageCount === 1 || memory.stage === 'WAITING_FIRST_REPLY' || memory.stage === 'INITIAL_CONTACT') {
-    stage = 'CONVERSATION_STARTED'; responseGoal = 'dar contexto curto e descobrir se a divulgação é manual'; reasonCode = 'first_reply';
+    stage = 'CONVERSATION_STARTED'; responseGoal = 'explicar em UMA frase curta por que chamou: viu a divulgação no grupo e trabalha com uma ferramenta que automatiza esse tipo de envio. Não iniciar interrogatório e não perguntar se é manual'; reasonCode = 'first_reply';
   } else if (intent === 'manual_confirmation') {
-    stage = 'QUALIFICATION'; responseGoal = 'descobrir quantidade de grupos, uma pergunta curta'; reasonCode = 'qualify_volume';
+    stage = 'QUALIFICATION'; responseGoal = 'não perguntar quantidade de grupos. Fazer uma pergunta curta e variável sobre a rotina/dificuldade do envio, por exemplo se toma muito tempo ou se precisa ficar entrando grupo por grupo. Nunca repetir uma pergunta já feita'; reasonCode = 'qualify_volume';
   } else if (intent === 'process_detail') {
     const normalized = normalizeConversationText(latestText);
     const hasGroupVolume = /\b\d{1,3}\s*grupos?\b/.test(normalized) || /^(?:uns?\s*)?\d{1,3}$/.test(normalized);
@@ -245,8 +245,8 @@ export function isDuplicateInboundMessage(
 
 export function fallbackForDecision(decision: ConversationDecision): string {
   switch (decision.reasonCode) {
-    case 'qualify_volume': return 'Você costuma divulgar em quantos grupos mais ou menos?';
-    case 'first_reply': return 'Vi você divulgando em alguns grupos e queria te perguntar uma coisa. Você faz esses envios manualmente?';
+    case 'qualify_volume': return 'E essa rotina de ficar fazendo os envios acaba tomando muito do seu tempo?';
+    case 'first_reply': return 'Vi sua divulgação no grupo e te chamei porque trabalho com uma ferramenta que automatiza justamente esse tipo de envio.';
     case 'opt_out': return 'Tudo certo. Não vou continuar com as mensagens por aqui.';
     case 'not_interested': return 'Tranquilo, obrigado por responder.';
     case 'blocking_risk': return 'Esse cuidado faz sentido. A ferramenta permite configurar intervalos entre os envios, de 30 segundos até 10 minutos, pra não disparar tudo de uma vez. Isso ajuda a deixar o envio menos agressivo, mas não existe garantia de risco zero de bloqueio.';
