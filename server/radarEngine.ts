@@ -560,7 +560,7 @@ export interface CurrentScanState {
   foundOpportunitySummary?: string;
 }
 
-class RadarEngine {
+export class RadarEngine {
   public status: 'active' | 'paused' = 'active';
   public activationTimestamp: number = Date.now();
   public monitoredGroupJids: Set<string> = new Set();
@@ -607,7 +607,12 @@ class RadarEngine {
   private isScannerBusy: boolean = false;
   private queueIntervalTimer: any = null;
   private listenerIntervalTimer: any = null;
+  private persistenceTimer: NodeJS.Timeout | null = null;
   private lastCheckedMessageTimestamps: Map<string, number> = new Map();
+  private scannerBackoffUntil = 0;
+  private consecutiveScanFailures = 0;
+  private lastSuccessfulScanAt = 0;
+  private lastScanError = '';
 
   // Evolution & AI providers
   public instanceName: string = 'nexus-radar';
@@ -748,6 +753,14 @@ class RadarEngine {
     }
   }
 
+  private scheduleStatePersistence(delayMs = 1000) {
+    if (this.persistenceTimer) return;
+    this.persistenceTimer = setTimeout(() => {
+      this.persistenceTimer = null;
+      this.persistState();
+    }, delayMs);
+  }
+
   private pruneProcessedMessageIds() {
     const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
     for (const [messageId, processedAt] of this.processedMessageIds) {
@@ -879,6 +892,7 @@ class RadarEngine {
     accepted: boolean;
     reason: string;
     heuristicScore?: number;
+    ingestionSource?: string;
   }) {
     console.log('[RadarDecision]', {
       messageId: params.messageId || 'missing',
@@ -892,6 +906,7 @@ class RadarEngine {
       classification: params.accepted ? 'candidate' : 'discarded',
       reason: params.reason,
       heuristicScore: params.heuristicScore || 0,
+      source: params.ingestionSource || 'unknown',
     });
   }
 
@@ -916,6 +931,7 @@ class RadarEngine {
     fromMe: boolean;
     timestamp: number;
     senderSource?: string;
+    ingestionSource?: 'webhook' | 'polling' | 'test';
   }) {
     const {
       groupJid,
@@ -929,6 +945,7 @@ class RadarEngine {
       fromMe,
       timestamp,
       senderSource,
+      ingestionSource,
     } = params;
 
     const reject = (reason: string, heuristicScore = 0) => {
@@ -942,8 +959,9 @@ class RadarEngine {
         accepted: false,
         reason,
         heuristicScore,
+        ingestionSource,
       });
-      return { accepted: false, reason };
+      return { accepted: false as const, reason };
     };
 
     // 0. Radar must be ACTIVE
@@ -970,16 +988,20 @@ class RadarEngine {
       return reject('invalid_phone');
     }
 
-    this.prefilterMetrics.totalInspected++;
+    const textLower = (messageText || '').toLowerCase().trim();
+    if (!textLower) return reject('message_without_text');
 
-    if (messageId && this.processedMessageIds.has(messageId)) {
+    const messageDedupKey = messageId ? `${groupJid}:${messageId}` : '';
+    if (messageDedupKey && (this.processedMessageIds.has(messageDedupKey) || this.processedMessageIds.has(messageId))) {
       return reject('duplicate_message_id');
     }
-    if (messageId) {
-      this.processedMessageIds.set(messageId, Date.now());
+    if (messageDedupKey) {
+      this.processedMessageIds.set(messageDedupKey, Date.now());
       this.pruneProcessedMessageIds();
-      this.persistState();
+      this.scheduleStatePersistence();
     }
+
+    this.prefilterMetrics.totalInspected++;
 
     // STAGE 1: DEDUPLICATION ESTRITA
     // "Não podemos pegar a mesma oportunidade usando o mesmo número. Se tiver o mesmo número não pode nem analisar ok."
@@ -989,8 +1011,6 @@ class RadarEngine {
     }
 
     // STAGE 2: DETERMINISTIC TOKEN-SAVER RULES
-    const textLower = (messageText || '').toLowerCase().trim();
-
     // Text length requirement (at least 12 chars and at least 3 distinct words)
     const words = textLower.split(/\s+/).filter((w) => w.length > 1);
     if (textLower.length < 12 || words.length < 3) {
@@ -1091,9 +1111,10 @@ class RadarEngine {
       accepted: true,
       reason: 'commercial_candidate_enqueued',
       heuristicScore,
+      ingestionSource,
     });
 
-    return { accepted: true, queuePosition: this.analysisQueue.length, heuristicScore };
+    return { accepted: true as const, queuePosition: this.analysisQueue.length, heuristicScore, candidateId: candidate.id, ingestionSource };
   }
 
   // ----------------------------------------------------
@@ -1116,20 +1137,25 @@ class RadarEngine {
         return;
       }
 
-      const candidate = this.analysisQueue.shift();
-      if (!candidate) return;
-
-      this.isWorkerBusy = true;
-      this.lastProcessedTimestamp = Date.now();
-
-      try {
-        await this.processCandidateWithAI(candidate);
-      } catch (err: any) {
-        console.error('[Radar Worker] Error analyzing candidate:', err);
-      } finally {
-        this.isWorkerBusy = false;
-      }
+      await this.processNextCandidate();
     }, 5000);
+  }
+
+  public async processNextCandidate() {
+    if (this.isWorkerBusy) return false;
+    const candidate = this.analysisQueue.shift();
+    if (!candidate) return false;
+    this.isWorkerBusy = true;
+    this.lastProcessedTimestamp = Date.now();
+    try {
+      await this.processCandidateWithAI(candidate);
+      return true;
+    } catch (err: any) {
+      console.error('[Radar Worker] Error analyzing candidate:', err);
+      return false;
+    } finally {
+      this.isWorkerBusy = false;
+    }
   }
 
   /**
@@ -1696,13 +1722,11 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       this.runSequentialGroupScan();
     }, 1000);
 
-    // Webhook continua sendo o caminho imediato. Este polling é a rede de segurança.
-    // Com ~40 grupos, 4,5s por grupo criava uma volta de ~3 minutos e parecia que o
-    // Radar tinha travado quando o webhook falhava. 1 grupo/segundo mantém a API
-    // controlada e reduz a reconciliação completa para ~40s.
+    // Webhook é o caminho imediato; polling é apenas recuperação. Uma consulta por
+    // segundo somada à reconciliação privada saturava o pool da Evolution.
     this.listenerIntervalTimer = setInterval(async () => {
       await this.runSequentialGroupScan();
-    }, 1000);
+    }, 5000);
   }
 
   private async runSequentialGroupScan() {
@@ -1712,6 +1736,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       return;
     }
     if (!this.evolutionCaller) return;
+    if (Date.now() < this.scannerBackoffUntil) return;
     if (this.monitoredGroupJids.size === 0) {
       this.currentScanState.status = 'idle';
       this.currentScanState.statusMessage = 'Nenhum grupo adicionado. Clique em "+ Adicionar Grupos" para começar.';
@@ -1765,13 +1790,20 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       }).catch(() => null);
 
       if (!res?.ok || !res?.data) {
+        this.consecutiveScanFailures++;
+        const backoffMs = Math.min(120_000, 5000 * 2 ** Math.min(this.consecutiveScanFailures, 5));
+        this.scannerBackoffUntil = Date.now() + backoffMs;
+        this.lastScanError = `evolution_http_${res?.status || 'unavailable'}`;
         this.currentScanState.statusMessage = `Grupo ${groupIndex} (${groupName}): aguardando resposta da API. Avançando...`;
-        this.currentScanIndex = (this.currentScanIndex + 1) % groupList.length;
-        this.isScannerBusy = false;
+        console.warn('[RadarPolling]', { groupJid, result: 'failed', status: res?.status || 0, backoffMs });
         return;
       }
 
-      const records = res.data.messages?.records || (Array.isArray(res.data) ? res.data : []);
+      this.consecutiveScanFailures = 0;
+      this.scannerBackoffUntil = 0;
+      this.lastScanError = '';
+      this.lastSuccessfulScanAt = Date.now();
+      const records = res.data.messages?.records || res.data.records || (Array.isArray(res.data) ? res.data : []);
       let analyzedCount = 0;
       let foundCandidateInThisGroup = false;
 
@@ -1821,6 +1853,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
           fromMe,
           timestamp: msgTimestamp,
           senderSource: sender.source,
+          ingestionSource: 'polling',
         });
 
         analyzedCount++;
@@ -1839,6 +1872,11 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         this.currentScanState.statusMessage = `Grupo ${groupIndex} de ${totalGroups} ("${groupName}") verificado: ${records.length} msgs analisadas. Nenhuma nova solicitação no momento. Avançando...`;
       }
     } catch (e: any) {
+      this.consecutiveScanFailures++;
+      const backoffMs = Math.min(120_000, 5000 * 2 ** Math.min(this.consecutiveScanFailures, 5));
+      this.scannerBackoffUntil = Date.now() + backoffMs;
+      this.lastScanError = String(e?.message || 'polling_exception').slice(0, 120);
+      console.error('[RadarPolling]', { groupJid, result: 'exception', backoffMs, error: this.lastScanError });
       this.currentScanState.statusMessage = `Grupo "${groupName}" verificado. Avançando para o próximo grupo...`;
     } finally {
       // Advance to next group index for next round!
@@ -1868,6 +1906,16 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       currentScan: this.currentScanState,
       prefilterMetrics: this.prefilterMetrics,
       ai,
+      diagnostics: {
+        lastSuccessfulScanAt: this.lastSuccessfulScanAt,
+        scannerBackoffUntil: this.scannerBackoffUntil,
+        consecutiveScanFailures: this.consecutiveScanFailures,
+        lastScanError: this.lastScanError,
+        processedMessageIdsCount: this.processedMessageIds.size,
+        oldestQueuedCandidateAgeMs: this.analysisQueue.length
+          ? Math.max(0, Date.now() - Math.min(...this.analysisQueue.map((candidate) => candidate.addedAt)))
+          : 0,
+      },
     };
   }
 

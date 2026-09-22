@@ -205,8 +205,30 @@ async function callEvolution(endpoint: string, options: RequestInit = {}, timeou
   }
 }
 
+// Serializa somente leituras pesadas de histórico. Envios e webhooks não entram
+// nesta fila, então uma reconciliação lenta nunca segura uma resposta ao contato.
+let evolutionHistoryReadChain: Promise<void> = Promise.resolve();
+let lastEvolutionHistoryReadAt = 0;
+function callEvolutionHistory(
+  endpoint: string,
+  options: RequestInit = {},
+  timeoutMs = 8000
+): Promise<{ ok: boolean; status: number; data: any }> {
+  const task = evolutionHistoryReadChain
+    .catch(() => {})
+    .then(async () => {
+      const waitMs = Math.max(0, 750 - (Date.now() - lastEvolutionHistoryReadAt));
+      if (waitMs) await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const result = await callEvolution(endpoint, options, timeoutMs, 0);
+      lastEvolutionHistoryReadAt = Date.now();
+      return result;
+    });
+  evolutionHistoryReadChain = task.then(() => undefined, () => undefined);
+  return task;
+}
+
 // Connect Evolution API caller to Radar Engine for real group messages polling
-radarEngine.setEvolutionCaller(callEvolution);
+radarEngine.setEvolutionCaller((endpoint, options) => callEvolutionHistory(endpoint, options, 8000));
 
 // Evolution metadata is loaded on demand. Never call Evolution during Passenger startup:
 // a slow/unreachable upstream must not block or destabilize the web worker.
@@ -1832,6 +1854,7 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
           fromMe: Boolean(msg.key?.fromMe),
           timestamp: getWhatsAppMessageTimestamp(msg),
           senderSource: sender.source,
+          ingestionSource: 'webhook',
         });
       } else if (!msg.key?.fromMe) {
         // Private replies from Radar leads belong to IA Chat. Other inbound contacts
@@ -2414,6 +2437,10 @@ app.get("/api/crm/typing-status", requireAdminRoute, (req, res) => {
 
 // Keep the commercial pipeline synchronized with what the AI learns in the conversation.
 atendimentoEngine.setStageUpdater((jid, stage) => radarEngine.setContactStage(jid, stage));
+atendimentoEngine.setProactiveEligibilityChecker(async (targetJid) => {
+  const db = await getDatabase();
+  return !(await db.isOutboundProtectedNumber(targetJid));
+});
 
 // Wire up real Evolution sender for AI Agent follow-ups
 atendimentoEngine.setEvolutionSender(async (
@@ -2479,6 +2506,7 @@ atendimentoEngine.setEvolutionSender(async (
 // Webhook is primary. Reconcile real Evolution history too, so private replies
 // cannot disappear from IA Chat when webhook delivery is interrupted.
 let atendimentoInboundSyncRunning = false;
+const atendimentoLastHistorySync = new Map<string, number>();
 setInterval(() => {
   if (atendimentoInboundSyncRunning) return;
   atendimentoInboundSyncRunning = true;
@@ -2489,9 +2517,13 @@ setInterval(() => {
       // O histórico global pode ser ocupado rapidamente por mensagens dos grupos. Ele ajuda,
       // mas NÃO pode bloquear a recuperação direta dos leads: antes as consultas eram
       // sequenciais e um timeout da Evolution podia congelar a rodada por dezenas de segundos.
-      const activeLeads = atendimentoEngine.atendimentos.filter((lead) =>
-        lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
-      );
+      const syncNow = Date.now();
+      const activeLeads = atendimentoEngine.atendimentos
+        .filter((lead) =>
+          lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
+        )
+        .filter((lead) => syncNow - (atendimentoLastHistorySync.get(lead.id) || 0) >= 30_000)
+        .sort((a, b) => (b.lastInteractionAt || 0) - (a.lastInteractionAt || 0));
       // Evolution desta instancia opera com pool pequeno. Consultas privadas em paralelo com o Radar
       // saturavam o upstream e podiam atrasar webhook e envios. Reconcilia um lead por rodada.
       const batchSize = 1;
@@ -2506,10 +2538,11 @@ setInterval(() => {
       const globalPromise = Promise.resolve(null);
 
       const directPromises = leadBatch.map(async (lead) => {
-        const directResponse = await callEvolution(`/chat/findMessages/${instance}`, {
+        atendimentoLastHistorySync.set(lead.id, Date.now());
+        const directResponse = await callEvolutionHistory(`/chat/findMessages/${instance}`, {
           method: "POST",
           body: JSON.stringify({ where: { key: { remoteJid: lead.contactJid } }, limit: 20 }),
-        }, 4000, 0).catch(() => null);
+        }, 6000).catch(() => null);
         const directPayload = directResponse?.data;
         const found = directPayload?.messages?.records || directPayload?.records || (Array.isArray(directPayload) ? directPayload : []);
         return Array.isArray(found) ? found : [];
@@ -2548,7 +2581,7 @@ setInterval(() => {
       atendimentoInboundSyncRunning = false;
     }
   })();
-}, 3000);
+}, 5000);
 
 // List leads originating from Radar in CRM Atendimento
 app.get("/api/atendimento/leads", requireAdminRoute, (_req, res) => {
@@ -2603,6 +2636,10 @@ app.get("/api/atendimento/config", requireAdminRoute, (_req, res) => {
     config: atendimentoEngine.config,
     ai: atendimentoEngine.getAiRuntimeInfo(),
   });
+});
+
+app.get("/api/atendimento/diagnostics", requireAdminRoute, (_req, res) => {
+  res.json({ success: true, ...atendimentoEngine.getOperationalStatus() });
 });
 
 // Update AI Agent configuration

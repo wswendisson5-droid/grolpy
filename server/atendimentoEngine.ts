@@ -114,6 +114,10 @@ export interface CRMAtendimentoLead {
   createdAt: number;
   lastInteractionAt: number;
   firstMessageSentAt?: number;
+  greetingStatus?: 'pending' | 'sending' | 'sent' | 'blocked' | 'failed';
+  greetingAttempts?: number;
+  greetingLastAttemptAt?: number;
+  nextGreetingAttemptAt?: number;
   followUp1SentAt?: number;
   followUp2SentAt?: number;
   clientReplied: boolean;
@@ -153,6 +157,7 @@ export class AtendimentoEngine {
   public config: AIAgentConfig = { ...DEFAULT_CONFIG };
   public atendimentos: CRMAtendimentoLead[] = [];
   private workerTimer: NodeJS.Timeout | null = null;
+  private followUpWorkerBusy = false;
   private evolutionSender?: (
     targetJid: string,
     text: string,
@@ -160,12 +165,15 @@ export class AtendimentoEngine {
     mediaPath?: string
   ) => Promise<boolean>;
   private persistenceHandler?: (payload: any) => Promise<void> | void;
+  private persistenceChain: Promise<void> = Promise.resolve();
   private stageUpdater?: (jid: string, stage: string) => void;
   private salesContactHandler?: (lead: CRMAtendimentoLead) => Promise<void> | void;
+  private proactiveEligibilityChecker?: (targetJid: string) => Promise<boolean>;
   private incomingMessageQueues = new Map<string, Promise<void>>();
   private incomingRevisions = new Map<string, number>();
   private pendingIncoming = new Set<string>();
   private recoveryInFlight = new Set<string>();
+  private greetingInFlight = new Set<string>();
   // Global cadence for first-contact prospecting. Multiple qualified opportunities
   // can arrive together from different groups; serialize greetings so WhatsApp is
   // never hit with a burst of proactive messages.
@@ -200,6 +208,65 @@ export class AtendimentoEngine {
     return result;
   }
 
+  private async attemptInitialGreeting(lead: CRMAtendimentoLead) {
+    if (lead.firstMessageSentAt || lead.greetingStatus === 'sent' || lead.greetingStatus === 'blocked') return false;
+    if (this.greetingInFlight.has(lead.id)) return false;
+    if ((lead.greetingAttempts || 0) >= 5) {
+      lead.greetingStatus = 'failed';
+      this.saveToDisk();
+      return false;
+    }
+    if ((lead.nextGreetingAttemptAt || 0) > Date.now()) return false;
+    if (lead.greetingStatus === 'sending' && Date.now() - (lead.greetingLastAttemptAt || 0) < 5 * 60_000) return false;
+
+    this.greetingInFlight.add(lead.id);
+    try {
+      if (this.proactiveEligibilityChecker && !(await this.proactiveEligibilityChecker(lead.contactJid))) {
+        lead.greetingStatus = 'blocked';
+        lead.notes.push({
+          id: `note-${Date.now()}-outbound-blocked`, timestamp: Date.now(), timeFormatted: getSaoPauloTime().time,
+          author: 'Sistema', text: 'Saudação automática bloqueada: número protegido/registrado.', type: 'system',
+        });
+        this.saveToDisk();
+        return false;
+      }
+      if (!this.evolutionSender) return false;
+
+      lead.greetingStatus = 'sending';
+      lead.greetingAttempts = (lead.greetingAttempts || 0) + 1;
+      lead.greetingLastAttemptAt = Date.now();
+      this.saveToDisk();
+      const greetingText = getGreetingForSaoPaulo();
+      const ok = await this.queueProactiveSend(() => this.evolutionSender!(lead.contactJid, greetingText, 'proactive'));
+      if (!ok) {
+        const delays = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000, 4 * 60 * 60_000];
+        lead.greetingStatus = (lead.greetingAttempts || 0) >= 5 ? 'failed' : 'pending';
+        lead.nextGreetingAttemptAt = Date.now() + delays[Math.min((lead.greetingAttempts || 1) - 1, delays.length - 1)];
+        this.saveToDisk();
+        return false;
+      }
+
+      const sentAt = Date.now();
+      lead.firstMessageSentAt = sentAt;
+      lead.greetingStatus = 'sent';
+      lead.nextGreetingAttemptAt = undefined;
+      lead.messages.push({
+        id: `msg-ia-initial-${sentAt}`, sender: 'ai', senderName: `IA ${this.config.agentName}`,
+        text: greetingText, timestamp: sentAt, time: getSaoPauloTime(new Date(sentAt)).time,
+        status: 'delivered', type: 'text',
+      });
+      lead.notes.push({
+        id: `note-${sentAt}-2`, timestamp: sentAt, timeFormatted: getSaoPauloTime(new Date(sentAt)).time,
+        author: `IA ${this.config.agentName}`, text: `🤖 IA ${this.config.agentName} enviou a saudação inicial: "${greetingText}".`, type: 'ai',
+      });
+      this.saveToDisk();
+      this.syncSalesContact(lead);
+      return true;
+    } finally {
+      this.greetingInFlight.delete(lead.id);
+    }
+  }
+
   public hydrateFromState(state: any) {
     if (!state || typeof state !== 'object') return;
     if (state.config && typeof state.config === 'object') {
@@ -220,9 +287,11 @@ export class AtendimentoEngine {
   public saveToDisk() {
     const payload = this.exportState();
     if (this.persistenceHandler) {
-      Promise.resolve(this.persistenceHandler(payload)).catch((e) =>
-        console.error('[AtendimentoEngine] Falha ao persistir no banco:', e)
-      );
+      this.persistenceChain = this.persistenceChain
+        .catch(() => {})
+        .then(() => this.persistenceHandler?.(payload))
+        .then(() => undefined)
+        .catch((e) => console.error('[AtendimentoEngine] Falha ao persistir no banco:', e));
     }
   }
 
@@ -239,6 +308,10 @@ export class AtendimentoEngine {
 
   public setSalesContactHandler(handler: (lead: CRMAtendimentoLead) => Promise<void> | void) {
     this.salesContactHandler = handler;
+  }
+
+  public setProactiveEligibilityChecker(checker: (targetJid: string) => Promise<boolean>) {
+    this.proactiveEligibilityChecker = checker;
   }
 
   private syncSalesContact(lead: CRMAtendimentoLead) {
@@ -260,6 +333,24 @@ export class AtendimentoEngine {
 
   public getAiRuntimeInfo() {
     return getAiRuntimeInfo();
+  }
+
+  public getOperationalStatus() {
+    const unansweredClientMessages = this.atendimentos.filter((lead) => {
+      const lastClient = [...lead.messages].reverse().find((message) => message.sender === 'client');
+      if (!lastClient) return false;
+      return !lead.messages.some((message) => message.sender === 'ai' && message.timestamp > lastClient.timestamp);
+    }).length;
+    return {
+      totalLeads: this.atendimentos.length,
+      pendingGreetings: this.atendimentos.filter((lead) => !lead.firstMessageSentAt && (lead.greetingStatus === 'pending' || lead.greetingStatus === 'sending')).length,
+      failedGreetings: this.atendimentos.filter((lead) => lead.greetingStatus === 'failed').length,
+      blockedGreetings: this.atendimentos.filter((lead) => lead.greetingStatus === 'blocked').length,
+      unansweredClientMessages,
+      inboundQueues: this.incomingMessageQueues.size,
+      recoveryInFlight: this.recoveryInFlight.size,
+      greetingInFlight: this.greetingInFlight.size,
+    };
   }
 
   /**
@@ -362,6 +453,9 @@ export class AtendimentoEngine {
       assignedTo: automaticAiEnabled ? `IA ${this.config.agentName}` : undefined,
       createdAt: now,
       lastInteractionAt: now,
+      greetingStatus: 'pending',
+      greetingAttempts: 0,
+      nextGreetingAttemptAt: now,
       clientReplied: false,
       collectedInfo: {},
       conversationMemory: { ...createConversationMemory(now), stage: 'WAITING_FIRST_REPLY' },
@@ -379,49 +473,12 @@ export class AtendimentoEngine {
       messages: [],
     };
 
-    // A saudação é obrigatória para toda oportunidade captada pelo Radar,
-    // independentemente do toggle de resposta automática com IA.
-    // A saudação acompanha o horário local de São Paulo e não inclui o nome do contato.
-    {
-      const greetingText = getGreetingForSaoPaulo();
-
-      // Só registra como enviada depois de confirmação real da Evolution.
-      if (this.evolutionSender) {
-        this.queueProactiveSend(() => this.evolutionSender!(opportunity.remoteJid, greetingText, 'proactive'))
-          .then((ok) => {
-            if (!ok) return;
-            const sentAt = Date.now();
-            newLead.firstMessageSentAt = sentAt;
-            newLead.messages.push({
-              id: `msg-ia-initial-${sentAt}`,
-              sender: 'ai',
-              senderName: `IA ${this.config.agentName}`,
-              text: greetingText,
-              timestamp: sentAt,
-              time: getSaoPauloTime(new Date(sentAt)).time,
-              status: 'delivered',
-              type: 'text',
-            });
-            newLead.notes.push({
-              id: `note-${sentAt}-2`,
-              timestamp: sentAt,
-              timeFormatted: getSaoPauloTime(new Date(sentAt)).time,
-              author: `IA ${this.config.agentName}`,
-              text: `🤖 IA ${this.config.agentName} enviou a saudação inicial: "${greetingText}".`,
-              type: 'ai',
-            });
-            this.saveToDisk();
-            this.syncSalesContact(newLead);
-          })
-          .catch((err) => console.error('[AtendimentoEngine] Falha ao enviar abordagem inicial:', err));
-      } else {
-        console.warn('[AtendimentoEngine] Abordagem automática não enviada: Evolution sender indisponível.');
-      }
-    }
-
     this.atendimentos.unshift(newLead);
     this.saveToDisk();
     this.syncSalesContact(newLead);
+    void this.attemptInitialGreeting(newLead).catch((err) =>
+      console.error('[AtendimentoEngine] Falha ao enviar abordagem inicial:', err)
+    );
     return newLead;
   }
 
@@ -1369,11 +1426,25 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
     if (this.workerTimer) clearInterval(this.workerTimer);
 
     this.workerTimer = setInterval(() => {
-      this.checkFollowUps();
+      if (this.followUpWorkerBusy) return;
+      this.followUpWorkerBusy = true;
+      void this.checkFollowUps()
+        .catch((error) => console.error('[AtendimentoEngine] Falha no watchdog:', error?.message || error))
+        .finally(() => { this.followUpWorkerBusy = false; });
     }, 10000); // watchdog de respostas a cada 10 segundos; não envia follow-up sem mensagem do cliente
   }
 
   private async checkFollowUps() {
+    // Recupera somente saudações novas/pendentes. Uma falha transitória da Evolution
+    // não pode deixar a oportunidade parada, e números protegidos são marcados sem envio.
+    const greetingCandidate = this.atendimentos.find((lead) => {
+      if (lead.firstMessageSentAt || lead.greetingStatus === 'sent' || lead.greetingStatus === 'blocked' || lead.greetingStatus === 'failed') return false;
+      const explicitlyPending = lead.greetingStatus === 'pending' || lead.greetingStatus === 'sending';
+      const recentLegacyLead = !lead.greetingStatus && Date.now() - lead.createdAt < 6 * 60 * 60_000;
+      return (explicitlyPending || recentLegacyLead) && (lead.nextGreetingAttemptAt || 0) <= Date.now();
+    });
+    if (greetingCandidate) await this.attemptInitialGreeting(greetingCandidate);
+
     // A abordagem automática para por completo após a saudação enquanto o lead não responder.
     // Isso evita insistência/spam e preserva os campos legados de follow-up sem apagá-los.
     if (!this.config.enabled || this.config.mode !== 'auto' || !this.evolutionSender || !getAiRuntimeInfo().configured) return;
