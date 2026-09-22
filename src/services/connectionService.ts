@@ -88,6 +88,20 @@ class ConnectionService {
     }
   }
 
+  async requestPairingCode(phone: string): Promise<{ success: boolean; pairingCode?: string; error?: string }> {
+    try {
+      const res = await fetch('/api/evolution/pairing-code', {
+        method: 'POST',
+        headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      return { success: res.ok && Boolean(data.pairingCode || data.code), pairingCode: data.pairingCode || data.code, error: data.error || (!res.ok ? 'Falha ao gerar código.' : undefined) };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Falha ao gerar código.' };
+    }
+  }
+
   /**
    * Restart / Reconnect instance
    */

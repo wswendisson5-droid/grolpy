@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { HugeIcon, RefreshIcon, WhatsappIcon } from '../icons/HugeIcon';
 import { Info } from 'lucide-react';
 import { QrCodeData } from '../../types/connection';
@@ -8,6 +8,7 @@ interface WaitingQrViewProps {
   isLoading: boolean;
   onRefreshQr: () => void;
   onResetInstance?: () => void;
+  onPairingCode?: (phone: string) => Promise<string | null>;
   isResetting?: boolean;
 }
 
@@ -16,8 +17,18 @@ export const WaitingQrView: React.FC<WaitingQrViewProps> = ({
   isLoading,
   onRefreshQr,
   onResetInstance,
+  onPairingCode,
   isResetting,
 }) => {
+  const [phone, setPhone] = useState('');
+  const [pairingCode, setPairingCode] = useState(qrCode?.pairingCode || '');
+  const [pairingLoading, setPairingLoading] = useState(false);
+  const requestPairing = async () => {
+    if (!onPairingCode || !phone.trim() || pairingLoading) return;
+    setPairingLoading(true);
+    try { setPairingCode((await onPairingCode(phone.trim())) || ''); }
+    finally { setPairingLoading(false); }
+  };
   return (
     <div className="bg-white rounded-3xl border border-[#e2eae5] p-6 sm:p-8 lg:p-10 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
@@ -78,6 +89,18 @@ export const WaitingQrView: React.FC<WaitingQrViewProps> = ({
               </button>
             )}
           </div>
+
+          {onPairingCode && (
+            <div className="mt-5 w-full max-w-sm rounded-2xl border border-[#d8e3dd] bg-[#f8faf9] p-4">
+              <div className="text-sm font-extrabold text-[#12382c]">Conectar pelo número</div>
+              <div className="text-[11px] text-[#66786e] mt-1 mb-3">Use esta opção quando estiver acessando o Groply pelo mesmo celular do WhatsApp.</div>
+              <div className="flex gap-2">
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="DDD + número" className="min-w-0 flex-1 rounded-xl border border-[#d6e0db] bg-white px-3 py-2.5 text-sm outline-none" />
+                <button onClick={requestPairing} disabled={pairingLoading || !phone.trim()} className="rounded-xl bg-[#12382c] px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">{pairingLoading ? 'Gerando...' : 'Gerar código'}</button>
+              </div>
+              {pairingCode && <div className="mt-3 rounded-xl bg-white border border-[#d6e0db] p-3 text-center"><div className="text-[10px] uppercase font-bold text-[#66786e]">Código para digitar no WhatsApp</div><div className="mt-1 font-mono text-2xl font-black tracking-[0.2em] text-[#12382c]">{pairingCode}</div></div>}
+            </div>
+          )}
         </div>
 
         {/* Right: Instructions & Steps */}

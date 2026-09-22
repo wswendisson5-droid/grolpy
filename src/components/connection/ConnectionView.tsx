@@ -167,8 +167,9 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
           const instances = res.instances || [];
           setAvailableInstances(instances);
 
+          // Backend returns only the authenticated account's owned instance.
+          // Never prefer an arbitrary open Evolution session from another tenant.
           const preferred =
-            instances.find((i: any) => i.connectionStatus === 'open') ||
             instances.find((i: any) => i.name === res.currentInstance) ||
             instances[0];
 
@@ -394,6 +395,14 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
                 isLoading={isLoadingQr}
                 onRefreshQr={handleRefreshQr}
                 onResetInstance={handleResetInstance}
+                onPairingCode={async (phone) => {
+                  const result = await connectionService.requestPairingCode(phone);
+                  if (!result.success) {
+                    setInfo(prev => ({ ...prev, error: result.error || 'Falha ao gerar código.' }));
+                    return null;
+                  }
+                  return result.pairingCode || null;
+                }}
                 isResetting={isResetting}
               />
             )}

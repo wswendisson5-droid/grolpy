@@ -794,58 +794,42 @@ app.post("/api/admin/subscriptions/:userId/action", async (req, res) => {
   }
 });
 
-// 2. Fetch all instances available on the Evolution server
+// 2. Return ONLY the authenticated account's Evolution instance.
+// Never expose or auto-select another tenant's WhatsApp session in the ADM panel.
 app.get("/api/evolution/instances", async (req, res) => {
-  const admin=await requireAdmin(req); if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 400).json({ error: own.error });
   try {
     const fetchRes = await callEvolution("/instance/fetchInstances");
-    if (!fetchRes.ok) {
-      return res.status(fetchRes.status).json({
-        error: "Falha ao buscar instâncias na Evolution API",
-        details: fetchRes.data,
-      });
-    }
-
-    const instancesList = Array.isArray(fetchRes.data) ? fetchRes.data : [];
-    const formatted = instancesList.map((inst: any) => ({
-      id: inst.id,
-      name: inst.name,
-      connectionStatus: inst.connectionStatus, // 'open' | 'close' | 'connecting'
-      ownerJid: inst.ownerJid,
-      ownerPhone: inst.ownerJid ? formatPhone(inst.ownerJid) : null,
-      profileName: inst.profileName || inst.name,
-      profilePicUrl: inst.profilePicUrl || null,
-      messageCount: inst._count?.Message || 0,
-      contactCount: inst._count?.Contact || 0,
-      chatCount: inst._count?.Chat || 0,
-      updatedAt: inst.updatedAt,
-      isCurrent: inst.name === memoryState.instanceName,
-    }));
-
-    res.json({
-      success: true,
-      currentInstance: memoryState.instanceName,
-      instances: formatted,
-    });
+    const all = fetchRes.ok && Array.isArray(fetchRes.data) ? fetchRes.data : [];
+    const live = all.find((inst: any) => inst.name === own.instance);
+    const formatted = [{
+      id: live?.id || own.record?.id || String(own.user.id),
+      name: own.instance,
+      connectionStatus: live?.connectionStatus || "close",
+      ownerJid: live?.ownerJid || null,
+      ownerPhone: live?.ownerJid ? formatPhone(live.ownerJid) : (own.record?.owner_phone || null),
+      profileName: live?.profileName || own.record?.profile_name || own.user?.name || own.instance,
+      profilePicUrl: live?.profilePicUrl || own.record?.profile_pic_url || null,
+      messageCount: live?._count?.Message || 0,
+      contactCount: live?._count?.Contact || 0,
+      chatCount: live?._count?.Chat || 0,
+      updatedAt: live?.updatedAt || null,
+      isCurrent: true,
+    }];
+    res.json({ success: true, currentInstance: own.instance, instances: formatted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3. Select active instance
+// 3. The account instance is fixed by ownership; cross-tenant selection is forbidden.
 app.post("/api/evolution/select-instance", async (req, res) => {
-  const admin=await requireAdmin(req);
-  if(!admin)return res.status(403).json({error:"ADMIN_REQUIRED"});
-  const { instanceName } = req.body;
-  if (!instanceName) {
-    return res.status(400).json({ error: "instanceName é obrigatório." });
-  }
-  memoryState.instanceName = instanceName;
-  memoryState.qrCode = undefined;
-  res.json({
-    success: true,
-    instanceName: memoryState.instanceName,
-  });
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 400).json({ error: own.error });
+  const requested = String(req.body?.instanceName || "");
+  if (requested && requested !== own.instance) return res.status(403).json({ error: "INSTANCE_NOT_OWNED" });
+  res.json({ success: true, instanceName: own.instance });
 });
 
 // Helper: robust check for connected state across all Evolution API v2 payload schemas
