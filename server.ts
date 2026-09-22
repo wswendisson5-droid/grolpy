@@ -1141,7 +1141,19 @@ app.get("/api/evolution/status", async (req, res) => {
           lastSyncAt: new Date().toLocaleString("pt-BR"),
           version: "v2.3.7",
         };
-        currentInst.webhookStatus = "active";
+        // A connected WhatsApp is not enough: every tenant instance needs its own
+        // inbound webhook so Radar/CRM/AI receive replies from that same account.
+        const publicAppUrl = String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+        const webhookRes = await callEvolution(`/webhook/set/${activeInstance}`, {
+          method: "POST",
+          body: JSON.stringify({ webhook: {
+            enabled: true,
+            url: `${publicAppUrl}/api/evolution/webhook`,
+            webhookByEvents: false,
+            events: ["QRCODE_UPDATED", "MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
+          } }),
+        }, 6000, 0).catch(() => ({ ok: false } as any));
+        currentInst.webhookStatus = webhookRes.ok ? "active" : "inactive";
         try {
           await own.db.setUserInstanceStatus(
             own.user.id,
@@ -1180,7 +1192,7 @@ app.get("/api/evolution/status", async (req, res) => {
       qrCode: currentInst.qrCode,
       connectedProfile: currentInst.connectedProfile,
       webhook: {
-        status: appState === "connected" ? "active" : currentInst.webhookStatus,
+        status: currentInst.webhookStatus,
         url: `${req.protocol}://${req.get("host")}/api/evolution/webhook`,
       },
       lastUpdated: currentInst.lastUpdated,
@@ -2331,24 +2343,26 @@ async function refreshRadarGroups(instance: string): Promise<any[]> {
 }
 
 app.get("/api/radar/groups", requireAdminRoute, async (req, res) => {
-  const instance = (req.query.instance as string) || memoryState.instanceName;
-  const cached = radarGroupsCache.get(instance);
-  const isFresh = cached && Date.now() - cached.timestamp < RADAR_GROUPS_CACHE_TTL;
+  const own: any = await ownedInstance(req, false, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 400).json({ error: own.error });
+  const instance = own.instance;
 
-  if (cached?.groups?.length) {
-    // Return immediately. If stale, refresh silently for the next open.
-    if (!isFresh) refreshRadarGroups(instance).catch((err) =>
-      console.warn("[RadarGroups] background refresh failed:", err?.message || err)
-    );
-    return res.json({ success: true, instanceName: instance, total: cached.groups.length, groups: cached.groups, cached: true });
+  // Radar must reflect the authenticated admin's real WhatsApp only. Never serve
+  // a global/default-instance cache or persisted groups while that session is offline.
+  const { isConnected } = await resolveActiveInstance(instance, own.user?.id, own.db);
+  if (!isConnected) {
+    radarGroupsCache.delete(instance);
+    cachedGroupsByInstance.delete(instance);
+    clientImportedGroupsStore.delete(instance);
+    return res.json({ success: true, instanceName: instance, total: 0, groups: [], isConnected: false });
   }
 
   try {
-    const groups = await refreshRadarGroups(instance);
-    res.json({ success: true, instanceName: instance, total: groups.length, groups });
+    const groups = await syncAllWhatsAppGroups(true, instance, { id: own.user.id, db: own.db });
+    radarGroupsCache.set(instance, { timestamp: Date.now(), groups });
+    res.json({ success: true, instanceName: instance, total: groups.length, groups, isConnected: true });
   } catch (err: any) {
-    // Never turn an upstream delay into a broken modal.
-    res.json({ success: true, instanceName: instance, total: cached?.groups?.length || 0, groups: cached?.groups || [], warning: err?.message });
+    res.json({ success: true, instanceName: instance, total: 0, groups: [], isConnected: true, warning: err?.message });
   }
 });
 
@@ -2790,8 +2804,23 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   const now = Date.now();
   if (!targetInstance) return [];
 
-  // Try to get cached for this specific instance
+  // Keep cache tenant-scoped, but never trust it before checking the live session.
   const cachedForInstance = cachedGroupsByInstance.get(targetInstance);
+
+  // Verify the real session before returning any cached/persisted groups. Offline means
+  // zero live groups: stale snapshots must never make the UI look connected.
+  try {
+    const { isConnected } = await resolveActiveInstance(targetInstance, dbUser?.id, dbUser?.db);
+    if (!isConnected) {
+      cachedGroupsByInstance.delete(targetInstance);
+      clientImportedGroupsStore.delete(targetInstance);
+      if (dbUser?.db && dbUser?.id) await dbUser.db.clearGroupsForUser(dbUser.id).catch(() => {});
+      return [];
+    }
+  } catch {
+    return [];
+  }
+
   if (!force && cachedForInstance && now - cachedForInstance.timestamp < 15000 && cachedForInstance.groups.length > 0) {
     return cachedForInstance.groups;
   }
@@ -2801,20 +2830,8 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   const blockedUntil = groupSyncBlockedUntil.get(targetInstance) || 0;
   if (now < blockedUntil) {
     if (cachedForInstance) return cachedForInstance.groups;
-    if (dbUser?.db && dbUser?.id) {
-      const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
-      if (Array.isArray(persisted)) return persisted;
-    }
     return [];
   }
-
-  // Verify that targetInstance is actually connected before attempting Evolution group fetch
-  try {
-    const { isConnected } = await resolveActiveInstance(targetInstance, dbUser?.id, dbUser?.db);
-    if (!isConnected) {
-      return [];
-    }
-  } catch {}
 
   const collectedGroupsMap = new Map<string, any>();
   let evolutionQuerySucceeded = false;
