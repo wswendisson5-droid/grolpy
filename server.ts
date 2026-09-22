@@ -4545,7 +4545,8 @@ async function startServer() {
     // private inbound messages. Re-register the admin webhook on every boot.
     const appUrl = String(process.env.APP_URL || "https://grolpy.minhabagg.com.br").replace(/\/$/, "");
     if (appUrl && DEFAULT_EVOLUTION_URL && DEFAULT_EVOLUTION_KEY) {
-      void callEvolution(`/webhook/set/${DEFAULT_INSTANCE_NAME}`, {
+      const ensureEvolutionWebhook = async () => {
+        const result = await callEvolution(`/webhook/set/${DEFAULT_INSTANCE_NAME}`, {
         method: "POST",
         body: JSON.stringify({
           webhook: {
@@ -4555,13 +4556,24 @@ async function startServer() {
             events: ["QRCODE_UPDATED", "MESSAGES_UPSERT", "MESSAGES_UPDATE", "SEND_MESSAGE", "CONNECTION_UPDATE"],
           },
         }),
-      }).then((result) => {
+        });
         memoryState.webhookStatus = result.ok ? "active" : "inactive";
         if (!result.ok) console.error("[Evolution webhook] Falha ao registrar webhook:", result.status);
-      }).catch((error) => {
+        return result.ok;
+      };
+      void ensureEvolutionWebhook().catch((error) => {
         memoryState.webhookStatus = "inactive";
         console.error("[Evolution webhook] Falha ao registrar webhook:", error?.message || error);
       });
+      // Se a Evolution estiver sob pressao no boot, uma unica falha nao pode deixar
+      // respostas privadas sem webhook ate o proximo deploy/restart.
+      setInterval(() => {
+        if (memoryState.webhookStatus === "active") return;
+        void ensureEvolutionWebhook().catch((error) => {
+          memoryState.webhookStatus = "inactive";
+          console.error("[Evolution webhook] Retry falhou:", error?.message || error);
+        });
+      }, 60_000);
     }
   });
 }

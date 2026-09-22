@@ -1441,9 +1441,11 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
     // Recupera somente saudações novas/pendentes. Uma falha transitória da Evolution
     // não pode deixar a oportunidade parada, e números protegidos são marcados sem envio.
     const greetingCandidate = this.atendimentos.find((lead) => {
-      if (lead.firstMessageSentAt || lead.greetingStatus === 'sent' || lead.greetingStatus === 'blocked' || lead.greetingStatus === 'failed') return false;
-      const explicitlyPending = lead.greetingStatus === 'pending' || lead.greetingStatus === 'sending';
-      const recentLegacyLead = !lead.greetingStatus && Date.now() - lead.createdAt < 6 * 60 * 60_000;
+      if (lead.firstMessageSentAt || lead.greetingStatus === 'sent' || lead.greetingStatus === 'blocked') return false;
+      const recoverableFailed = lead.greetingStatus === 'failed' && Date.now() - lead.createdAt < 48 * 60 * 60_000;
+      const explicitlyPending = lead.greetingStatus === 'pending' || lead.greetingStatus === 'sending' || recoverableFailed;
+      const recentLegacyLead = !lead.greetingStatus && Date.now() - lead.createdAt < 48 * 60 * 60_000;
+      if (recoverableFailed) lead.greetingAttempts = Math.min(4, lead.greetingAttempts || 0);
       return (explicitlyPending || recentLegacyLead) && (lead.nextGreetingAttemptAt || 0) <= Date.now();
     });
     // Respostas recebidas têm prioridade. Uma saudação presa na cadência proativa
