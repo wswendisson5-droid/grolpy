@@ -358,6 +358,25 @@ async function getDatabase(): Promise<any> {
       if (radarState) radarEngine.hydrateFromState(radarState);
       if (atendimentoState) atendimentoEngine.hydrateFromState(atendimentoState);
 
+      // O admin_state legado pode estar vazio mesmo com os grupos reais do WhatsApp
+      // persistidos em user_groups. Nesse caso o Radar ficava "active" monitorando 0 grupos.
+      // Recupere automaticamente a instancia/grupos do usuario operacional do Groply.
+      if (radarEngine.monitoredGroupJids.size === 0 && cachedDbModule?.getUserInstance && cachedDbModule?.listGroupsForUser) {
+        const operationalUserId = Number(process.env.RADAR_USER_ID || 1);
+        const operationalInstance = await cachedDbModule.getUserInstance(operationalUserId).catch(() => null);
+        const persistedGroups = await cachedDbModule.listGroupsForUser(operationalUserId).catch(() => []);
+        const persistedGroupJids = (Array.isArray(persistedGroups) ? persistedGroups : [])
+          .map((group: any) => String(group?.jid || group?.id || group?.groupJid || '').trim())
+          .filter((jid: string) => jid.endsWith('@g.us'));
+        if (persistedGroupJids.length > 0) {
+          radarEngine.setMonitoredGroups(persistedGroupJids);
+          if (operationalInstance?.instance_name) {
+            radarEngine.instanceName = String(operationalInstance.instance_name);
+          }
+          console.log(`[RadarStartup] Recuperados ${persistedGroupJids.length} grupos persistidos para ${radarEngine.instanceName}.`);
+        }
+      }
+
       radarEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("radar", payload));
       atendimentoEngine.setPersistenceHandler((payload) => cachedDbModule.setAdminState("atendimento", payload));
 
@@ -445,7 +464,9 @@ async function getDatabase(): Promise<any> {
       // O Radar é um worker de servidor e não pode depender de alguém abrir a tela
       // /api/radar/status para começar a varredura. Após hidratar grupos/status do banco,
       // inicia o monitoramento automaticamente quando estiver ativo.
-      radarEngine.instanceName = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
+      if (!radarEngine.instanceName) {
+        radarEngine.instanceName = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
+      }
       radarEngine.ensureMonitoringStarted();
     })();
   }
