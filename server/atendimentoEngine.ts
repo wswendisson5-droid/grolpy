@@ -335,8 +335,9 @@ export class AtendimentoEngine {
       return existing;
     }
 
-    // Em modo automático, uma oportunidade nova já entra no atendimento da IA.
-    // O envio continua protegido pelo gate do Evolution sender e pelas configurações globais.
+    // A saudação inicial é parte da prospecção do Radar, não da resposta automática da IA.
+    // Portanto, toda oportunidade nova recebe Bom dia/Boa tarde/Boa noite mesmo com a IA
+    // desligada. O toggle da IA controla somente o que acontece DEPOIS que o contato responde.
     const automaticAiEnabled = this.config.enabled && this.config.mode === 'auto';
 
     const newLead: CRMAtendimentoLead = {
@@ -355,13 +356,15 @@ export class AtendimentoEngine {
       urgency: opportunity.urgency || 'Alta',
       status: automaticAiEnabled ? 'ia_em_atendimento' : 'aberto',
       aiActiveForContact: automaticAiEnabled,
-      conversationStep: automaticAiEnabled ? 'greeting_sent' : 'human_control',
+      // greeting_sent também com IA desligada: a saudação foi enviada pelo Radar e,
+      // se a IA for ligada depois, ela retoma corretamente a partir da resposta do lead.
+      conversationStep: 'greeting_sent',
       assignedTo: automaticAiEnabled ? `IA ${this.config.agentName}` : undefined,
       createdAt: now,
       lastInteractionAt: now,
       clientReplied: false,
       collectedInfo: {},
-      conversationMemory: { ...createConversationMemory(now), stage: automaticAiEnabled ? 'WAITING_FIRST_REPLY' : 'INITIAL_CONTACT' },
+      conversationMemory: { ...createConversationMemory(now), stage: 'WAITING_FIRST_REPLY' },
       decisionLog: [],
       notes: [
         {
@@ -376,9 +379,10 @@ export class AtendimentoEngine {
       messages: [],
     };
 
-    // Só dispara automaticamente quando a IA estiver habilitada em modo auto.
-    // A saudação acompanha o horário local do servidor e não inclui o nome do contato.
-    if (automaticAiEnabled) {
+    // A saudação é obrigatória para toda oportunidade captada pelo Radar,
+    // independentemente do toggle de resposta automática com IA.
+    // A saudação acompanha o horário local de São Paulo e não inclui o nome do contato.
+    {
       const greetingText = getGreetingForSaoPaulo();
 
       // Só registra como enviada depois de confirmação real da Evolution.
