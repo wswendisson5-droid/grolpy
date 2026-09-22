@@ -23,11 +23,19 @@ export const WaitingQrView: React.FC<WaitingQrViewProps> = ({
   const [phone, setPhone] = useState('');
   const [pairingCode, setPairingCode] = useState(qrCode?.pairingCode || '');
   const [pairingLoading, setPairingLoading] = useState(false);
+  const [pairingError, setPairingError] = useState('');
   const requestPairing = async () => {
     if (!onPairingCode || !phone.trim() || pairingLoading) return;
     setPairingLoading(true);
-    try { setPairingCode((await onPairingCode(phone.trim())) || ''); }
-    finally { setPairingLoading(false); }
+    setPairingError('');
+    try {
+      const code = await Promise.race([
+        onPairingCode(phone.trim()),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
+      ]);
+      if (code) setPairingCode(code);
+      else setPairingError('Não foi possível obter o código agora. Tente novamente.');
+    } finally { setPairingLoading(false); }
   };
   return (
     <div className="bg-white rounded-3xl border border-[#e2eae5] p-6 sm:p-8 lg:p-10 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
@@ -99,6 +107,7 @@ export const WaitingQrView: React.FC<WaitingQrViewProps> = ({
                 <button onClick={requestPairing} disabled={pairingLoading || !phone.trim()} className="rounded-xl bg-[#12382c] px-3 py-2.5 text-xs font-bold text-white disabled:opacity-50">{pairingLoading ? 'Gerando...' : 'Gerar código'}</button>
               </div>
               {pairingCode && <div className="mt-3 rounded-xl bg-white border border-[#d6e0db] p-3 text-center"><div className="text-[10px] uppercase font-bold text-[#66786e]">Código para digitar no WhatsApp</div><div className="mt-1 font-mono text-2xl font-black tracking-[0.2em] text-[#12382c]">{pairingCode}</div></div>}
+              {pairingError && <div className="mt-3 text-xs font-semibold text-red-600">{pairingError}</div>}
             </div>
           )}
         </div>

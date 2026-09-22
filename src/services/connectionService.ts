@@ -96,7 +96,14 @@ class ConnectionService {
         body: JSON.stringify({ phone }),
       });
       const data = await res.json().catch(() => ({}));
-      return { success: res.ok && Boolean(data.pairingCode || data.code), pairingCode: data.pairingCode || data.code, error: data.error || (!res.ok ? 'Falha ao gerar código.' : undefined) };
+      const pairingCode = data.pairingCode || (typeof data.code === 'string' && data.code.length <= 15 ? data.code : undefined);
+      if (res.ok && data.state === 'connected' && !pairingCode) {
+        return { success: false, error: 'Esta sessão já está conectada. Desconecte-a antes de gerar um novo código.' };
+      }
+      if (res.ok && data.pending && !pairingCode) {
+        return { success: false, error: data.message || 'A Evolution ainda não retornou o código. Tente novamente.' };
+      }
+      return { success: res.ok && Boolean(pairingCode), pairingCode, error: data.error || (!pairingCode ? 'A Evolution não retornou um código de pareamento.' : undefined) };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Falha ao gerar código.' };
     }
