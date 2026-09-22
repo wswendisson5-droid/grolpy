@@ -179,7 +179,9 @@ export class AtendimentoEngine {
   // never hit with a burst of proactive messages.
   private proactiveSendChain: Promise<void> = Promise.resolve();
   private lastProactiveSendAt = 0;
-  private readonly proactiveMinIntervalMs = 45_000;
+  // 45s por lead criava horas de backlog quando o Radar encontrava dezenas de oportunidades.
+  // Mantemos cadencia serial para nao disparar em rajada, mas sem paralisar a prospeccao.
+  private readonly proactiveMinIntervalMs = 12_000;
 
   constructor() {
     this.startFollowUpWorker();

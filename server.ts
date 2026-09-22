@@ -361,10 +361,12 @@ async function getDatabase(): Promise<any> {
       // O admin_state legado pode estar vazio mesmo com os grupos reais do WhatsApp
       // persistidos em user_groups. Nesse caso o Radar ficava "active" monitorando 0 grupos.
       // Recupere automaticamente a instancia/grupos do usuario operacional do Groply.
-      if (radarEngine.monitoredGroupJids.size === 0 && cachedDbModule?.getUserInstance && cachedDbModule?.listGroupsForUser) {
-        const operationalUserId = Number(process.env.RADAR_USER_ID || 1);
-        const operationalInstance = await cachedDbModule.getUserInstance(operationalUserId).catch(() => null);
-        const persistedGroups = await cachedDbModule.listGroupsForUser(operationalUserId).catch(() => []);
+      if (radarEngine.monitoredGroupJids.size === 0 && cachedDbModule?.getUserByInstance && cachedDbModule?.listGroupsForUser) {
+        const configuredRadarUserId = Number(process.env.RADAR_USER_ID || 0);
+        const instanceOwner = await cachedDbModule.getUserByInstance(DEFAULT_INSTANCE_NAME).catch(() => null);
+        const operationalUserId = configuredRadarUserId || Number(instanceOwner?.id || instanceOwner?.user_id || 0);
+        const operationalInstance = operationalUserId ? await cachedDbModule.getUserInstance(operationalUserId).catch(() => null) : null;
+        const persistedGroups = operationalUserId ? await cachedDbModule.listGroupsForUser(operationalUserId).catch(() => []) : [];
         const persistedGroupJids = (Array.isArray(persistedGroups) ? persistedGroups : [])
           .map((group: any) => String(group?.jid || group?.id || group?.groupJid || '').trim())
           .filter((jid: string) => jid.endsWith('@g.us'));
@@ -2562,7 +2564,9 @@ setInterval(() => {
         atendimentoLastHistorySync.set(lead.id, Date.now());
         const directResponse = await callEvolutionHistory(`/chat/findMessages/${instance}`, {
           method: "POST",
-          body: JSON.stringify({ where: { key: { remoteJid: lead.contactJid } }, limit: 20 }),
+          // Evolution usa offset/page nesta versao; `limit` era ignorado e fazia a
+          // reconciliacao trabalhar com a paginacao default, atrasando respostas.
+          body: JSON.stringify({ where: { key: { remoteJid: lead.contactJid } }, offset: 20, page: 1 }),
         }, 6000).catch(() => null);
         const directPayload = directResponse?.data;
         const found = directPayload?.messages?.records || directPayload?.records || (Array.isArray(directPayload) ? directPayload : []);
