@@ -2494,8 +2494,36 @@ setInterval(() => {
         body: JSON.stringify({ limit: 500 }),
       });
       const payload = response.data;
-      const records = payload?.messages?.records || payload?.records || (Array.isArray(payload) ? payload : []);
-      if (!Array.isArray(records)) return;
+      const globalRecords = payload?.messages?.records || payload?.records || (Array.isArray(payload) ? payload : []);
+      if (!Array.isArray(globalRecords)) return;
+
+      // O historico global pode ser rapidamente ocupado por centenas de mensagens dos grupos.
+      // Por isso ele NAO e suficiente como fallback para respostas privadas. Em cada ciclo,
+      // consultamos tambem uma fatia dos leads conhecidos diretamente pelo JID da conversa.
+      // Assim uma resposta curta continua sendo encontrada mesmo com webhook interrompido e
+      // muito movimento simultaneo nos grupos.
+      const activeLeads = atendimentoEngine.atendimentos.filter((lead) =>
+        lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
+      );
+      const batchSize = 12;
+      const cursor = Number((globalThis as any).__atendimentoLeadSyncCursor || 0);
+      const leadBatch = activeLeads.length
+        ? Array.from({ length: Math.min(batchSize, activeLeads.length) }, (_, index) => activeLeads[(cursor + index) % activeLeads.length])
+        : [];
+      (globalThis as any).__atendimentoLeadSyncCursor = activeLeads.length ? (cursor + leadBatch.length) % activeLeads.length : 0;
+
+      const directRecords: any[] = [];
+      for (const lead of leadBatch) {
+        const directResponse = await callEvolution(`/chat/findMessages/${instance}`, {
+          method: "POST",
+          body: JSON.stringify({ where: { key: { remoteJid: lead.contactJid } }, limit: 20 }),
+        }).catch(() => null);
+        const directPayload = directResponse?.data;
+        const found = directPayload?.messages?.records || directPayload?.records || (Array.isArray(directPayload) ? directPayload : []);
+        if (Array.isArray(found)) directRecords.push(...found);
+      }
+
+      const records = [...globalRecords, ...directRecords];
       const ordered = [...records].sort((a: any, b: any) => getWhatsAppMessageTimestamp(a) - getWhatsAppMessageTimestamp(b));
       for (const msg of ordered) {
         const remoteJid = String(msg?.key?.remoteJid || msg?.remoteJid || "");
