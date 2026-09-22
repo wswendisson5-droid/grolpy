@@ -2486,43 +2486,41 @@ setInterval(() => {
     try {
       await getDatabase();
       const instance = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
-      const response = await callEvolution(`/chat/findMessages/${instance}`, {
-        method: "POST",
-        // Fallback do webhook: volume maior evita perder respostas quando vários contatos
-        // respondem no mesmo intervalo. O processamento abaixo continua filtrando apenas
-        // conversas privadas que pertencem a leads reais do Radar.
-        body: JSON.stringify({ limit: 500 }),
-      });
-      const payload = response.data;
-      const globalRecords = payload?.messages?.records || payload?.records || (Array.isArray(payload) ? payload : []);
-      if (!Array.isArray(globalRecords)) return;
-
-      // O historico global pode ser rapidamente ocupado por centenas de mensagens dos grupos.
-      // Por isso ele NAO e suficiente como fallback para respostas privadas. Em cada ciclo,
-      // consultamos tambem uma fatia dos leads conhecidos diretamente pelo JID da conversa.
-      // Assim uma resposta curta continua sendo encontrada mesmo com webhook interrompido e
-      // muito movimento simultaneo nos grupos.
+      // O histórico global pode ser ocupado rapidamente por mensagens dos grupos. Ele ajuda,
+      // mas NÃO pode bloquear a recuperação direta dos leads: antes as consultas eram
+      // sequenciais e um timeout da Evolution podia congelar a rodada por dezenas de segundos.
       const activeLeads = atendimentoEngine.atendimentos.filter((lead) =>
         lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
       );
-      const batchSize = 12;
+      const batchSize = 8;
       const cursor = Number((globalThis as any).__atendimentoLeadSyncCursor || 0);
       const leadBatch = activeLeads.length
         ? Array.from({ length: Math.min(batchSize, activeLeads.length) }, (_, index) => activeLeads[(cursor + index) % activeLeads.length])
         : [];
       (globalThis as any).__atendimentoLeadSyncCursor = activeLeads.length ? (cursor + leadBatch.length) % activeLeads.length : 0;
 
-      const directRecords: any[] = [];
-      for (const lead of leadBatch) {
+      // Global + consultas diretas rodam em paralelo, com timeout curto e sem retry.
+      // Assim tráfego pesado de 40+ grupos não deixa respostas privadas esperando atrás da fila.
+      const globalPromise = callEvolution(`/chat/findMessages/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({ limit: 500 }),
+      }, 4000, 0).catch(() => null);
+
+      const directPromises = leadBatch.map(async (lead) => {
         const directResponse = await callEvolution(`/chat/findMessages/${instance}`, {
           method: "POST",
           body: JSON.stringify({ where: { key: { remoteJid: lead.contactJid } }, limit: 20 }),
-        }).catch(() => null);
+        }, 4000, 0).catch(() => null);
         const directPayload = directResponse?.data;
         const found = directPayload?.messages?.records || directPayload?.records || (Array.isArray(directPayload) ? directPayload : []);
-        if (Array.isArray(found)) directRecords.push(...found);
-      }
+        return Array.isArray(found) ? found : [];
+      });
 
+      const [globalResponse, ...directBatches] = await Promise.all([globalPromise, ...directPromises]);
+      const globalPayload = globalResponse?.data;
+      const globalRecordsRaw = globalPayload?.messages?.records || globalPayload?.records || (Array.isArray(globalPayload) ? globalPayload : []);
+      const globalRecords = Array.isArray(globalRecordsRaw) ? globalRecordsRaw : [];
+      const directRecords = directBatches.flat();
       const records = [...globalRecords, ...directRecords];
       const ordered = [...records].sort((a: any, b: any) => getWhatsAppMessageTimestamp(a) - getWhatsAppMessageTimestamp(b));
       for (const msg of ordered) {

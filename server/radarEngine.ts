@@ -161,20 +161,18 @@ export const DISQUALIFIED_PATTERNS = [
   'maquina ton',
   'point mini',
 
-  // Afiliados, renda extra, jogos de aposta
+  // Golpes/apostas e promessas genéricas de dinheiro. "Renda extra" isoladamente
+  // NÃO é descarte: revendedores e prestadores reais usam essa expressão nas divulgações
+  // e continuam sendo público do Groply quando há CTA/contato/oferta comercial.
   'link de afiliado',
   'ganhe dinheiro rápido',
   'ganhe dinheiro facil',
-  'renda extra',
-  'trabalhe em casa',
-  'trabalhe de casa',
-  'renda passiva',
+  'plataforma pagando',
   'roleta',
   'tigrinho',
   'bet365',
   'cassino',
   'jogos de aposta',
-  'plataforma pagando',
   'urubu do pix',
 
   // Desapegos pessoais pontuais de usados de pessoas físicas
@@ -1698,10 +1696,13 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
       this.runSequentialGroupScan();
     }, 1000);
 
-    // Poll sequentially one group at a time every 4.5 seconds
+    // Webhook continua sendo o caminho imediato. Este polling é a rede de segurança.
+    // Com ~40 grupos, 4,5s por grupo criava uma volta de ~3 minutos e parecia que o
+    // Radar tinha travado quando o webhook falhava. 1 grupo/segundo mantém a API
+    // controlada e reduz a reconciliação completa para ~40s.
     this.listenerIntervalTimer = setInterval(async () => {
       await this.runSequentialGroupScan();
-    }, 4500);
+    }, 1000);
   }
 
   private async runSequentialGroupScan() {
