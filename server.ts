@@ -365,16 +365,17 @@ async function getDatabase(): Promise<any> {
         const configuredRadarUserId = Number(process.env.RADAR_USER_ID || 0);
         const instanceOwner = await cachedDbModule.getUserByInstance(DEFAULT_INSTANCE_NAME).catch(() => null);
         const operationalUserId = configuredRadarUserId || Number(instanceOwner?.id || instanceOwner?.user_id || 0);
-        const operationalInstance = operationalUserId ? await cachedDbModule.getUserInstance(operationalUserId).catch(() => null) : null;
+
         const persistedGroups = operationalUserId ? await cachedDbModule.listGroupsForUser(operationalUserId).catch(() => []) : [];
         const persistedGroupJids = (Array.isArray(persistedGroups) ? persistedGroups : [])
           .map((group: any) => String(group?.jid || group?.id || group?.groupJid || '').trim())
           .filter((jid: string) => jid.endsWith('@g.us'));
         if (persistedGroupJids.length > 0) {
           radarEngine.setMonitoredGroups(persistedGroupJids);
-          if (operationalInstance?.instance_name) {
-            radarEngine.instanceName = String(operationalInstance.instance_name);
-          }
+          // O Radar administrativo usa a instancia operacional da Evolution (DEFAULT_INSTANCE_NAME).
+          // O registro evolution_instances do usuario pode apontar para uma instancia de cliente
+          // desconectada e nao deve substituir a instancia que realmente recebe os grupos do Radar.
+          radarEngine.instanceName = DEFAULT_INSTANCE_NAME;
           console.log(`[RadarStartup] Recuperados ${persistedGroupJids.length} grupos persistidos para ${radarEngine.instanceName}.`);
         }
       }
@@ -2540,21 +2541,21 @@ setInterval(() => {
       // O histórico global pode ser ocupado rapidamente por mensagens dos grupos. Ele ajuda,
       // mas NÃO pode bloquear a recuperação direta dos leads: antes as consultas eram
       // sequenciais e um timeout da Evolution podia congelar a rodada por dezenas de segundos.
-      const syncNow = Date.now();
+
       const activeLeads = atendimentoEngine.atendimentos
         .filter((lead) =>
           lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
         )
-        .filter((lead) => syncNow - (atendimentoLastHistorySync.get(lead.id) || 0) >= 30_000)
-        .sort((a, b) => (b.lastInteractionAt || 0) - (a.lastInteractionAt || 0));
+
+        .sort((a, b) => {
+          const aSync = atendimentoLastHistorySync.get(a.id) || 0;
+          const bSync = atendimentoLastHistorySync.get(b.id) || 0;
+          if (aSync !== bSync) return aSync - bSync;
+          return (b.lastInteractionAt || 0) - (a.lastInteractionAt || 0);
+        });
       // Evolution desta instancia opera com pool pequeno. Consultas privadas em paralelo com o Radar
       // saturavam o upstream e podiam atrasar webhook e envios. Reconcilia um lead por rodada.
-      const batchSize = 1;
-      const cursor = Number((globalThis as any).__atendimentoLeadSyncCursor || 0);
-      const leadBatch = activeLeads.length
-        ? Array.from({ length: Math.min(batchSize, activeLeads.length) }, (_, index) => activeLeads[(cursor + index) % activeLeads.length])
-        : [];
-      (globalThis as any).__atendimentoLeadSyncCursor = activeLeads.length ? (cursor + leadBatch.length) % activeLeads.length : 0;
+      const leadBatch = activeLeads.length ? [activeLeads[0]] : [];
 
       // O webhook e o caminho primario. A reconciliacao consulta somente o lead da rodada;
       // uma busca global de 500 mensagens a cada 3s concorria com o Radar e saturava a Evolution.
@@ -2606,7 +2607,7 @@ setInterval(() => {
       atendimentoInboundSyncRunning = false;
     }
   })();
-}, 5000);
+}, 1000);
 
 // List leads originating from Radar in CRM Atendimento
 app.get("/api/atendimento/leads", requireAdminRoute, (_req, res) => {
