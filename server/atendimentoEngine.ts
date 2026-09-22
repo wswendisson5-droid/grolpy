@@ -337,6 +337,7 @@ export class AtendimentoEngine {
 
   public getOperationalStatus() {
     const unansweredClientMessages = this.atendimentos.filter((lead) => {
+      if (!lead.aiActiveForContact || lead.status === 'convertido' || lead.status === 'descartado' || lead.status === 'humano_assumiu') return false;
       const lastClient = [...lead.messages].reverse().find((message) => message.sender === 'client');
       if (!lastClient) return false;
       return !lead.messages.some((message) => message.sender === 'ai' && message.timestamp > lastClient.timestamp);
@@ -1443,18 +1444,16 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       const recentLegacyLead = !lead.greetingStatus && Date.now() - lead.createdAt < 6 * 60 * 60_000;
       return (explicitlyPending || recentLegacyLead) && (lead.nextGreetingAttemptAt || 0) <= Date.now();
     });
-    if (greetingCandidate) await this.attemptInitialGreeting(greetingCandidate);
-
-    // A abordagem automática para por completo após a saudação enquanto o lead não responder.
-    // Isso evita insistência/spam e preserva os campos legados de follow-up sem apagá-los.
-    if (!this.config.enabled || this.config.mode !== 'auto' || !this.evolutionSender || !getAiRuntimeInfo().configured) return;
+    // Respostas recebidas têm prioridade. Uma saudação presa na cadência proativa
+    // não pode bloquear a recuperação de contatos que já responderam.
+    const canRecoverInbound = this.config.enabled && this.config.mode === 'auto' && this.evolutionSender && getAiRuntimeInfo().configured;
 
     // Recuperação de conversa: follow-up comercial continua desativado, mas uma mensagem
     // REAL do cliente nunca pode ficar sem resposta por perda de webhook, falha transitória
     // do modelo ou envio. Se o último balão é do cliente e não existe resposta posterior,
     // retomamos exatamente daquele ponto sem criar uma nova mensagem de prospecção.
     const recoveryNow = Date.now();
-    for (const lead of this.atendimentos) {
+    if (canRecoverInbound) for (const lead of this.atendimentos) {
       if (!lead.aiActiveForContact || lead.status === 'convertido' || lead.status === 'descartado' || lead.status === 'humano_assumiu') continue;
       const lastClient = [...lead.messages].reverse().find((message) => message.sender === 'client');
       if (!lastClient || recoveryNow - lastClient.timestamp < 10_000) continue;
@@ -1483,6 +1482,11 @@ Retorne EXCLUSIVAMENTE um JSON no seguinte formato:
       } finally {
         this.recoveryInFlight.delete(queueKey);
       }
+    }
+    if (greetingCandidate) {
+      void this.attemptInitialGreeting(greetingCandidate).catch((error) =>
+        console.error('[AtendimentoEngine] Falha ao recuperar saudação pendente:', error?.message || error)
+      );
     }
     return; // follow-up comercial sem nova mensagem do lead permanece desativado
 
