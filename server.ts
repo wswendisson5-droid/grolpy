@@ -2492,19 +2492,18 @@ setInterval(() => {
       const activeLeads = atendimentoEngine.atendimentos.filter((lead) =>
         lead.status !== 'descartado' && lead.status !== 'convertido' && lead.status !== 'humano_assumiu'
       );
-      const batchSize = 8;
+      // Evolution desta instancia opera com pool pequeno. Consultas privadas em paralelo com o Radar
+      // saturavam o upstream e podiam atrasar webhook e envios. Reconcilia um lead por rodada.
+      const batchSize = 1;
       const cursor = Number((globalThis as any).__atendimentoLeadSyncCursor || 0);
       const leadBatch = activeLeads.length
         ? Array.from({ length: Math.min(batchSize, activeLeads.length) }, (_, index) => activeLeads[(cursor + index) % activeLeads.length])
         : [];
       (globalThis as any).__atendimentoLeadSyncCursor = activeLeads.length ? (cursor + leadBatch.length) % activeLeads.length : 0;
 
-      // Global + consultas diretas rodam em paralelo, com timeout curto e sem retry.
-      // Assim tráfego pesado de 40+ grupos não deixa respostas privadas esperando atrás da fila.
-      const globalPromise = callEvolution(`/chat/findMessages/${instance}`, {
-        method: "POST",
-        body: JSON.stringify({ limit: 500 }),
-      }, 4000, 0).catch(() => null);
+      // O webhook e o caminho primario. A reconciliacao consulta somente o lead da rodada;
+      // uma busca global de 500 mensagens a cada 3s concorria com o Radar e saturava a Evolution.
+      const globalPromise = Promise.resolve(null);
 
       const directPromises = leadBatch.map(async (lead) => {
         const directResponse = await callEvolution(`/chat/findMessages/${instance}`, {
@@ -2516,7 +2515,13 @@ setInterval(() => {
         return Array.isArray(found) ? found : [];
       });
 
-      const [globalResponse, ...directBatches] = await Promise.all([globalPromise, ...directPromises]);
+      // Nao dispara global + varias consultas diretas ao mesmo tempo. O webhook e primario;
+      // esta reconciliacao e apenas a rede de seguranca e deve respeitar o pool da Evolution.
+      const globalResponse = await globalPromise;
+      const directBatches: any[][] = [];
+      for (const directPromise of directPromises) {
+        directBatches.push(await directPromise);
+      }
       const globalPayload = globalResponse?.data;
       const globalRecordsRaw = globalPayload?.messages?.records || globalPayload?.records || (Array.isArray(globalPayload) ? globalPayload : []);
       const globalRecords = Array.isArray(globalRecordsRaw) ? globalRecordsRaw : [];
