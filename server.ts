@@ -419,6 +419,12 @@ async function getDatabase(): Promise<any> {
 
       if (!radarState) await cachedDbModule.setAdminState("radar", radarEngine.exportState());
       if (!atendimentoState) await cachedDbModule.setAdminState("atendimento", atendimentoEngine.exportState());
+
+      // O Radar é um worker de servidor e não pode depender de alguém abrir a tela
+      // /api/radar/status para começar a varredura. Após hidratar grupos/status do banco,
+      // inicia o monitoramento automaticamente quando estiver ativo.
+      radarEngine.instanceName = memoryState.instanceName || DEFAULT_INSTANCE_NAME;
+      radarEngine.ensureMonitoringStarted();
     })();
   }
   if (adminStateHydrationPromise) await adminStateHydrationPromise;
@@ -4466,5 +4472,12 @@ async function startServer() {
     }
   });
 }
+
+// Inicializa banco/estado administrativo no boot. Sem isso, depois de um restart/deploy
+// o Radar podia ficar "ativo" no banco, porém sem o polling iniciado até alguém abrir
+// o painel. Isso deixava mensagens novas dos grupos sem análise/prospecção.
+void getDatabase().catch((error) => {
+  console.error("[Startup] Falha ao hidratar estado do Radar/Atendimento:", error?.message || error);
+});
 
 startServer();
