@@ -1,0 +1,16 @@
+name: Inspecionar FTPS WAZZO
+on:
+  workflow_dispatch:
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Listar raiz FTPS
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lftp
+          lftp -e "set ftp:ssl-force true; set ssl:verify-certificate no; pwd; cls -1; bye" -u "$FTP_USERNAME","$FTP_PASSWORD" "$FTP_SERVER"
