@@ -314,19 +314,20 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         return;
       }
       if (type === 'image') {
-        try {
-          const optimizedDataUrl = await compressImageIfNeeded(file);
-          const newMedia: MediaItem = {
-            id: `m-${Date.now()}`,
-            type,
-            url: optimizedDataUrl,
-            name: file.name,
-          };
-          setMediaList((prev) => [...prev, newMedia]);
-          return;
-        } catch {
-          // fallback to standard reader
-        }
+        // Show the selected image immediately on the first tap. Compression can be
+        // expensive on mobile, so it must not block the preview from appearing.
+        const mediaId = `m-${Date.now()}`;
+        const reader = new FileReader();
+        reader.onload = () => {
+          if (typeof reader.result !== 'string') return;
+          setMediaList((prev) => [...prev, { id: mediaId, type, url: reader.result as string, name: file.name }]);
+          void compressImageIfNeeded(file).then((optimizedDataUrl) => {
+            setMediaList((prev) => prev.map((item) => item.id === mediaId ? { ...item, url: optimizedDataUrl } : item));
+          }).catch(() => {});
+        };
+        reader.onerror = () => setValidationError('Não foi possível carregar a imagem selecionada.');
+        reader.readAsDataURL(file);
+        return;
       }
       const reader = new FileReader();
       reader.onload = () => {

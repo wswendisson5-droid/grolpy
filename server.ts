@@ -2896,6 +2896,29 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       evolutionQuerySucceeded = true;
       groupSyncBlockedUntil.delete(instName);
       extractGroupsFromPayload(groupsResponse.data, instName);
+
+      // Some Evolution v2 builds return HTTP 200 with an empty group payload even
+      // while the connected account has groups. In that case, recover the real
+      // @g.us chats from the same instance instead of publishing a false empty list.
+      if (collectedGroupsMap.size === 0) {
+        const chatAttempts = [
+          () => callEvolution(`/chat/findChats/${instName}`, {}, 15000, 0),
+          () => callEvolution(`/chat/findChats/${instName}`, { method: "POST", body: JSON.stringify({ limit: 1000 }) }, 15000, 0),
+        ];
+        for (const attempt of chatAttempts) {
+          const chatsResponse = await attempt().catch(() => null);
+          if (!chatsResponse) continue;
+          const chatsText = JSON.stringify(chatsResponse.data || "").toLowerCase();
+          if (chatsResponse.status === 429 || chatsText.includes("rate-overlimit") || chatsText.includes("rate limit")) {
+            groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
+            break;
+          }
+          if (chatsResponse.ok) {
+            extractGroupsFromPayload(chatsResponse.data, instName);
+            if (collectedGroupsMap.size > 0) break;
+          }
+        }
+      }
     } else {
       console.warn(`[GroupsSync] Evolution respondeu HTTP ${groupsResponse.status} para ${instName}; preservando snapshot.`);
     }
