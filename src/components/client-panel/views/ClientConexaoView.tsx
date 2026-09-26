@@ -24,8 +24,8 @@ export interface ClientConexaoViewProps {
 }
 
 export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnected: propConnected, initialProfile }) => {
-  const cachedConnected = propConnected !== undefined ? propConnected : clientService.isWhatsAppConnected();
-  const cachedProfile = initialProfile || clientService.getCachedProfile();
+  const cachedConnected = propConnected === true;
+  const cachedProfile = cachedConnected ? initialProfile : null;
 
   const [status, setStatus] = useState<'loading' | 'disconnected' | 'waiting_qr' | 'connected' | 'error'>(() => {
     if (cachedConnected) return 'connected';
@@ -93,7 +93,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/evolution/status', { headers: authHeaders() });
+      const res = await fetch('/api/client/whatsapp/status', { headers: authHeaders() });
       if (!res.ok) {
         if (status === 'loading') setStatus('disconnected');
         return;
@@ -101,12 +101,11 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const data = await res.json();
       const appState = data.state;
 
-      if (appState === 'connected' || appState === 'open') {
+      if (data.isConnected === true && (appState === 'connected' || appState === 'open')) {
         isWaitingQrRef.current = false;
         setStatus('connected');
-        if (data.connectedProfile) {
-          setProfile(data.connectedProfile);
-        }
+        const confirmedProfile = data.profile || data.connectedProfile || null;
+        setProfile(confirmedProfile);
         setQrCode(null);
         setPairingCode(null);
         setErrorMessage('');
@@ -114,8 +113,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       } else if (isWaitingQrRef.current && data.qrCode) {
         setStatus('waiting_qr');
         await handleSetQrCode(data.qrCode);
-      } else if (!isWaitingQrRef.current && status !== 'connected') {
+      } else if (!isWaitingQrRef.current) {
         setStatus('disconnected');
+        setProfile(null);
         setQrCode(null);
         setPairingCode(null);
       }
@@ -226,11 +226,14 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
   const handleDisconnect = async () => {
     setIsDisconnecting(true);
+    setErrorMessage('');
     try {
-      await fetch('/api/evolution/logout', {
+      const res = await fetch('/api/evolution/logout', {
         method: 'POST',
         headers: authHeaders(),
       });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Não foi possível desconectar o WhatsApp.');
       isWaitingQrRef.current = false;
       setStatus('disconnected');
 
@@ -241,6 +244,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: false, profile: null } }));
     } catch (e: any) {
       console.error('[ClientConexao] Logout error:', e);
+      setErrorMessage(e.message || 'Não foi possível desconectar o WhatsApp.');
+      await fetchStatus();
     } finally {
       setIsDisconnecting(false);
     }

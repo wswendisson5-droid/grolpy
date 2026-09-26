@@ -1642,6 +1642,11 @@ app.post("/api/evolution/logout", async (req, res) => {
     const logoutRes = await callEvolution(`/instance/logout/${instance}`, {
       method: "DELETE",
     });
+    // Logout is idempotent: an already-disconnected/missing remote instance must
+    // still clear our tenant state instead of leaving a fake connected snapshot.
+    if (!logoutRes.ok && logoutRes.status !== 404) {
+      throw new Error(`Evolution logout failed (${logoutRes.status})`);
+    }
 
     currentInst.state = "disconnected";
     currentInst.qrCode = undefined;

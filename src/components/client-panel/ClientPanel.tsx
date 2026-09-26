@@ -52,24 +52,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     connectedAt?: string;
     isConnected: boolean;
     isLoading: boolean;
-  }>(() => {
-    try {
-      const p = clientService.getCachedProfile();
-      if (p) {
-        return {
-          name: p.name && p.name !== 'WhatsApp Conectado' ? p.name : undefined,
-          number: p.number || undefined,
-          pictureUrl: p.pictureUrl || undefined,
-          connectedAt: p.connectedAt,
-          isConnected: Boolean(p.isConnected),
-          isLoading: false,
-        };
-      }
-    } catch {}
-    return {
-      isConnected: false,
-      isLoading: true,
-    };
+  }>({
+    isConnected: false,
+    isLoading: true,
   });
 
   const [dashboardStats, setDashboardStats] = useState<any>(null);
@@ -206,7 +191,11 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         setGroups([]);
       }
     } catch {
-      setWhatsappProfile((prev) => ({ ...prev, isLoading: false }));
+      setGroups([]);
+      setWhatsappProfile({
+        isConnected: false,
+        isLoading: false,
+      });
     }
   };
 
