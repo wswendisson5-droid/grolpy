@@ -3895,7 +3895,8 @@ async function executeGroupDispatch(
   intervalMs: number = 0,
   onProgress?: (processedCount: number, successfulCount: number, failedCount: number, targetTotal: number) => void,
   userId?: number,
-  db?: any
+  db?: any,
+  dispatchRunKey: string = "once"
 ) {
   const instance = preferredInstance;
   console.log(`\n[Dispatch] 🚀 Dispatching '${campaignTitle}' to ${targets.length} groups via '${instance}' (hasImage: ${Boolean(imgToSend)}, intervalMs: ${intervalMs})`);
@@ -3917,21 +3918,47 @@ async function executeGroupDispatch(
   let successfulCount = 0;
   let failedCount = 0;
 
-  // Pre-register pending history items in MySQL so they immediately reflect on Dashboard and History panel
+  // Cross-process idempotency: reserve each campaign/group/run in MySQL BEFORE
+  // creating history or touching Evolution. This prevents two Passenger workers
+  // from sending the same campaign to the same group at the same time.
+  if (userId && campaignId && db?.claimCampaignDelivery) {
+    const claimedTargets: string[] = [];
+    for (const rawTarget of targets) {
+      const targetJid = String(rawTarget || "").trim();
+      if (!targetJid.endsWith("@g.us") || targetJid.includes("@broadcast") || targetJid.includes("@newsletter") || targetJid.includes("@s.whatsapp.net") || targetJid.includes("@lid")) {
+        continue;
+      }
+      try {
+        const claimed = await db.claimCampaignDelivery(userId, campaignId, targetJid, dispatchRunKey);
+        if (claimed) {
+          claimedTargets.push(targetJid);
+        } else {
+          console.warn(`[Dispatch] DUPLICATE BLOCKED campaign=${campaignId} group=${targetJid} run=${dispatchRunKey}`);
+        }
+      } catch (claimErr) {
+        console.warn("[Dispatch] Falha ao adquirir trava de envio:", claimErr);
+      }
+    }
+    targets = claimedTargets;
+    if (targets.length === 0) {
+      console.log(`[Dispatch] Nenhum destino novo para ${campaignId}; outra execução já reservou/entregou esta rodada.`);
+      return [];
+    }
+  }
+
+  // Create pending history only AFTER the DB delivery claim was acquired.
   const targetHistoryIds = new Map<string, number>();
   if (userId && db?.addHistoryForUser) {
     for (const rawTarget of targets) {
-      const targetJid = String(rawTarget || "").trim();
-      const normJid = targetJid;
-      if (!normJid.endsWith("@g.us") || normJid.includes("@broadcast") || normJid.includes("@newsletter") || normJid.includes("@s.whatsapp.net") || normJid.includes("@lid")) continue;
+      const normJid = String(rawTarget || "").trim();
+      if (!normJid.endsWith("@g.us")) continue;
       const groupSnapshot = lookupGroupSnapshot(normJid, instance);
-      const gName = groupSnapshot.name;
       try {
         const histId = await db.addHistoryForUser(userId, {
           campaignId: campaignId || "manual",
           campaignTitle: campaignTitle || "Divulgação",
           groupJid: normJid,
-          groupName: gName,
+          groupName: groupSnapshot.name,
           groupMembersCount: groupSnapshot.membersCount,
           messageText: textToSend,
           imageUrl: imgToSend || null,
@@ -4145,6 +4172,18 @@ async function executeGroupDispatch(
           console.warn("[DB] Erro ao gravar historico de envio:", dbErr);
         }
       }
+
+      if (userId && campaignId) {
+        try {
+          if (isOk && db?.completeCampaignDelivery) {
+            await db.completeCampaignDelivery(userId, campaignId, jid, dispatchRunKey);
+          } else if (!isOk && db?.releaseCampaignDelivery) {
+            await db.releaseCampaignDelivery(userId, campaignId, jid, dispatchRunKey);
+          }
+        } catch (claimErr) {
+          console.warn("[Dispatch] Falha ao finalizar trava de envio:", claimErr);
+        }
+      }
     } catch (err: any) {
       const errDuration = ((Date.now() - startRequestTime) / 1000).toFixed(1);
       console.log(`[FAILED] Erro catastrofico ao enviar para ${jid}: ${err.message}`);
@@ -4173,6 +4212,11 @@ async function executeGroupDispatch(
             error: err.message,
             duration: `${errDuration} segundos`,
           });
+        } catch {}
+      }
+      if (userId && campaignId && db?.releaseCampaignDelivery) {
+        try {
+          await db.releaseCampaignDelivery(userId, campaignId, jid, dispatchRunKey);
         } catch {}
       }
       if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
@@ -4291,7 +4335,8 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
           }
         },
         own.user.id,
-        own.db
+        own.db,
+        `manual:${campaignId || "adhoc"}:${getBrazilTimeData().brDateStr}_${getBrazilTimeData().brTimeStr}`
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
@@ -4507,7 +4552,8 @@ setInterval(async () => {
               db.saveCampaignForUser(userId, camp).catch(() => {});
             },
             userId,
-            db
+            db,
+            camp.scheduleMode === 'recorrente' ? (camp.lastExecutedSlot || slotKey) : 'once'
           );
 
           const successCount = results.filter((r) => r.success).length;

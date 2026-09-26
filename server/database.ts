@@ -690,10 +690,60 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
     // Purge any non-group entries (contacts, broadcasts, newsletters) from user_groups
     await pool.query("DELETE FROM user_groups WHERE group_jid NOT LIKE '%@g.us' OR group_jid LIKE '%@broadcast%' OR group_jid LIKE '%@newsletter%' OR group_jid LIKE '%@s.whatsapp.net%'").catch(() => {});
 
+    // Cross-process idempotency lock for campaign deliveries.
+    // Passenger may run multiple Node workers; the UNIQUE key guarantees that
+    // only one worker can own a campaign/group/run delivery at a time.
+    await pool.query(`CREATE TABLE IF NOT EXISTS campaign_delivery_claims (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      user_id BIGINT UNSIGNED NOT NULL,
+      campaign_key VARCHAR(120) NOT NULL,
+      group_jid VARCHAR(190) NOT NULL,
+      run_key VARCHAR(120) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'claimed',
+      claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      delivered_at DATETIME NULL,
+      UNIQUE KEY uq_campaign_delivery (user_id, campaign_key, group_jid, run_key),
+      INDEX idx_campaign_delivery_status (status, claimed_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
     campaignsTableEnsured = true;
   } catch (err) {
     console.error("[DB] Falha ao verificar/criar tabelas de campanhas:", err);
   }
+}
+
+export async function claimCampaignDelivery(userId: number, campaignKey: string, groupJid: string, runKey: string): Promise<boolean> {
+  await ensureCampaignsTable().catch(() => {});
+  await pool.execute(
+    `DELETE FROM campaign_delivery_claims
+     WHERE user_id=? AND campaign_key=? AND group_jid=? AND run_key=?
+       AND status='claimed' AND claimed_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)`,
+    [userId, campaignKey, groupJid, runKey]
+  ).catch(() => {});
+  const [res]: any = await pool.execute(
+    `INSERT IGNORE INTO campaign_delivery_claims(user_id,campaign_key,group_jid,run_key,status)
+     VALUES(?,?,?,?,'claimed')`,
+    [userId, campaignKey, groupJid, runKey]
+  );
+  return Number(res?.affectedRows || 0) === 1;
+}
+
+export async function completeCampaignDelivery(userId: number, campaignKey: string, groupJid: string, runKey: string): Promise<void> {
+  await ensureCampaignsTable().catch(() => {});
+  await pool.execute(
+    `UPDATE campaign_delivery_claims SET status='delivered', delivered_at=NOW()
+     WHERE user_id=? AND campaign_key=? AND group_jid=? AND run_key=?`,
+    [userId, campaignKey, groupJid, runKey]
+  );
+}
+
+export async function releaseCampaignDelivery(userId: number, campaignKey: string, groupJid: string, runKey: string): Promise<void> {
+  await ensureCampaignsTable().catch(() => {});
+  await pool.execute(
+    `DELETE FROM campaign_delivery_claims
+     WHERE user_id=? AND campaign_key=? AND group_jid=? AND run_key=? AND status='claimed'`,
+    [userId, campaignKey, groupJid, runKey]
+  );
 }
 
 export async function saveCampaignForUser(userId: number, data: any) {
