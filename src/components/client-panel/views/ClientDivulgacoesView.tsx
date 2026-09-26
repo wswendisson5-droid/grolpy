@@ -29,6 +29,7 @@ interface ClientDivulgacoesViewProps {
   groups?: ClientGroup[];
   onToggleActive: (id: string) => void;
   onNewCampaign: () => void;
+  onEditCampaign?: (campaign: DivulgacaoCard) => void;
   onDeleteCampaign?: (id: string) => void;
   onDuplicateCampaign?: (campaign: DivulgacaoCard) => void;
   onSendNow?: (id: string) => void;
@@ -39,6 +40,7 @@ export const ClientDivulgacoesView: React.FC<ClientDivulgacoesViewProps> = ({
   groups = [],
   onToggleActive,
   onNewCampaign,
+  onEditCampaign,
   onDeleteCampaign,
   onDuplicateCampaign,
   onSendNow,
@@ -498,6 +500,15 @@ export const ClientDivulgacoesView: React.FC<ClientDivulgacoesViewProps> = ({
                               title="Disparar / Reenviar Agora"
                             >
                               <Send size={15} />
+                            </button>
+                          )}
+                          {onEditCampaign && (
+                            <button
+                              onClick={() => onEditCampaign(card)}
+                              className="p-1.5 rounded-lg text-[#109353] hover:text-[#0b6e3d] hover:bg-[#eaf6ef] transition-colors cursor-pointer"
+                              title="Editar divulgação"
+                            >
+                              <Edit2 size={15} />
                             </button>
                           )}
                           <button

@@ -148,6 +148,23 @@ class ClientService {
     }
   }
 
+  async updateCampaign(id: string, campaign: Partial<DivulgacaoCard>): Promise<DivulgacaoCard> {
+    const res = await fetch(`/api/client/campaigns/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(campaign),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success || !data.campaign) {
+      throw new Error(data.error || 'Não foi possível atualizar a divulgação.');
+    }
+    this.cachedCampaigns = [
+      data.campaign,
+      ...this.cachedCampaigns.filter((c) => c.id !== id),
+    ];
+    return data.campaign;
+  }
+
   async toggleCampaign(id: string): Promise<boolean> {
     try {
       const res = await fetch('/api/client/campaigns/toggle', {

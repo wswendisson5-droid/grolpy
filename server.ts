@@ -3699,6 +3699,100 @@ app.post("/api/client/campaigns/create", async (req, res) => {
   }
 });
 
+// Update an existing campaign. Keeps the same campaign id/history and resets the schedule safely.
+app.put("/api/client/campaigns/:id", async (req, res) => {
+  try {
+    const own: any = await ownedInstance(req, true, true);
+    if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+    if (own.db?.ensureCampaignsTable) await own.db.ensureCampaignsTable().catch(() => {});
+
+    const id = String(req.params.id || "").trim();
+    const campaigns: any[] = await own.db.listCampaignsForUser(own.user.id);
+    const existing = campaigns.find((c: any) => String(c.id) === id);
+    if (!existing) return res.status(404).json({ error: "Divulgação não encontrada." });
+    if (existing.status === "enviando") {
+      return res.status(409).json({ error: "Aguarde o envio atual terminar antes de editar esta divulgação." });
+    }
+
+    const incoming = req.body || {};
+    const title = String(incoming.title ?? existing.title ?? "").trim();
+    const previewText = String(incoming.previewText ?? existing.previewText ?? "").trim();
+    if (!title || !previewText) {
+      return res.status(400).json({ error: "Título e texto da mensagem são obrigatórios." });
+    }
+
+    const rawJids = Array.isArray(incoming.selectedGroupJids)
+      ? incoming.selectedGroupJids
+      : (Array.isArray(existing.selectedGroupJids) ? existing.selectedGroupJids : []);
+    const selectedGroupJids = Array.from(new Set(rawJids
+      .map((jid: any) => String(jid || "").trim())
+      .filter((jid: string) => jid.endsWith("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid"))));
+    if (selectedGroupJids.length === 0) {
+      return res.status(400).json({ error: "Selecione pelo menos um grupo real do WhatsApp." });
+    }
+
+    const persistedGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
+    const allowed = new Set((persistedGroups || []).map((g: any) => String(g.jid || g.id || "").trim()));
+    if (selectedGroupJids.some((jid: string) => !allowed.has(jid))) {
+      return res.status(400).json({ error: "Um ou mais grupos não pertencem à conexão atual. Atualize os grupos e tente novamente." });
+    }
+
+    let imageUrl = incoming.imageUrl ?? existing.imageUrl;
+    if (imageUrl && typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
+      imageUrl = saveBase64MediaToFile(imageUrl, "camp");
+    }
+    let mediaList = Array.isArray(incoming.mediaList) ? incoming.mediaList : existing.mediaList;
+    if (Array.isArray(mediaList)) {
+      mediaList = mediaList.map((m: any) => {
+        if (m?.url && typeof m.url === "string" && m.url.startsWith("data:")) {
+          return { ...m, url: saveBase64MediaToFile(m.url, "camp") };
+        }
+        return m;
+      });
+    }
+
+    const scheduleMode = incoming.scheduleMode || existing.scheduleMode || "agendar";
+    const scheduleTimes = Array.isArray(incoming.scheduleTimes) && incoming.scheduleTimes.length
+      ? incoming.scheduleTimes
+      : [incoming.scheduleTime || existing.scheduleTime || "14:00"];
+    const active = incoming.active !== undefined ? Boolean(incoming.active) : Boolean(existing.active);
+    const status = active
+      ? ((scheduleMode === "agendar" || scheduleMode === "recorrente") ? "agendada" : "ativa")
+      : "pausada";
+
+    const updated = {
+      ...existing,
+      ...incoming,
+      id,
+      title,
+      previewText,
+      selectedGroupJids,
+      groupsCount: selectedGroupJids.length,
+      totalTarget: selectedGroupJids.length,
+      imageUrl: imageUrl || undefined,
+      mediaList,
+      scheduleMode,
+      scheduleTime: scheduleTimes[0],
+      scheduleTimes,
+      active,
+      status,
+      executed: false,
+      totalSent: Number(existing.totalSent || 0),
+      totalFailed: Number(existing.totalFailed || 0),
+      createdAt: existing.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      instanceName: existing.instanceName || own.instance,
+      userId: own.user.id,
+    };
+
+    await own.db.saveCampaignForUser(own.user.id, updated);
+    return res.json({ success: true, campaign: updated });
+  } catch (err: any) {
+    console.error("[CAMPAIGNS] Erro ao editar divulgação:", err);
+    return res.status(500).json({ error: err.message || "Erro ao editar divulgação." });
+  }
+});
+
 // Toggle campaign active state
 app.post("/api/client/campaigns/toggle", async (req, res) => {
   try {

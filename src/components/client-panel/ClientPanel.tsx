@@ -37,6 +37,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId>('pro');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [editingCampaign, setEditingCampaign] = useState<DivulgacaoCard | null>(null);
 
   // Core Client Data State
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
@@ -322,7 +323,13 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
   const handleSaveCampaign = (newCamp: DivulgacaoCard, _createAgenda: boolean = true) => {
     setCampaigns((prev) => [newCamp, ...prev.filter((c) => c.id !== newCamp.id)]);
+    setEditingCampaign(null);
     void refreshCampaigns();
+  };
+
+  const handleEditCampaign = (campaign: DivulgacaoCard) => {
+    setEditingCampaign(campaign);
+    setCurrentTab('nova-divulgacao');
   };
 
   const handleDeleteCampaign = async (id: string) => {
@@ -442,7 +449,11 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               campaigns={campaigns}
               groups={groups}
               onToggleActive={handleToggleCampaignActive}
-              onNewCampaign={() => setCurrentTab('nova-divulgacao')}
+              onNewCampaign={() => {
+                setEditingCampaign(null);
+                setCurrentTab('nova-divulgacao');
+              }}
+              onEditCampaign={handleEditCampaign}
               onDeleteCampaign={handleDeleteCampaign}
               onDuplicateCampaign={handleDuplicateCampaign}
               onSendNow={handleSendNow}
@@ -451,13 +462,17 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
           {currentTab === 'nova-divulgacao' && (
             <ClientNovaDivulgacaoView
-              onBack={() => setCurrentTab('divulgacoes')}
+              onBack={() => {
+                setEditingCampaign(null);
+                setCurrentTab('divulgacoes');
+              }}
               onSaveCampaign={handleSaveCampaign}
               onNavigateToConnection={() => setCurrentTab('conexao')}
               onNavigateToPlanos={() => setCurrentTab('planos')}
               campaigns={campaigns}
               groups={groups}
               isWhatsappConnected={whatsappProfile.isConnected}
+              editingCampaign={editingCampaign}
             />
           )}
 

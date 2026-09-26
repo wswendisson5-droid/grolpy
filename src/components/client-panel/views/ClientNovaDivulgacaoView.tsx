@@ -45,6 +45,7 @@ interface ClientNovaDivulgacaoViewProps {
   campaigns?: DivulgacaoCard[];
   groups?: ClientGroup[];
   isWhatsappConnected?: boolean;
+  editingCampaign?: DivulgacaoCard | null;
 }
 
 interface MediaItem {
@@ -62,6 +63,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   campaigns = [],
   groups = [],
   isWhatsappConnected: propWhatsappConnected,
+  editingCampaign = null,
 }) => {
   // Stepper State (1: Mensagem, 2: Grupos, 3: Programação, 4: Revisar)
   const [currentStep, setCurrentStep] = useState<number>(1);
@@ -85,15 +87,25 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   });
 
   const currentPlan = planService.getSubscription().plan;
-  const existingUniqueGroups = planService.getUniqueGroupJidsInAutomations(campaigns);
+  const campaignsForValidation = editingCampaign
+    ? campaigns.filter((campaign) => campaign.id !== editingCampaign.id)
+    : campaigns;
+  const existingUniqueGroups = planService.getUniqueGroupJidsInAutomations(campaignsForValidation);
 
-  // ETAPA 1: Mensagem & Mídia (Zero mock, completely clean)
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Vendas & Ofertas');
-  const [messageText, setMessageText] = useState('');
-  const [mediaList, setMediaList] = useState<MediaItem[]>([]);
-  const [sendAsAlbum, setSendAsAlbum] = useState(false);
-  const [addCaptionToMedia, setAddCaptionToMedia] = useState(true);
+  const localDateInputValue = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // ETAPA 1: Mensagem & Mídia
+  const [title, setTitle] = useState(editingCampaign?.title || '');
+  const [category, setCategory] = useState(editingCampaign?.category || 'Vendas & Ofertas');
+  const [messageText, setMessageText] = useState(editingCampaign?.previewText || '');
+  const [mediaList, setMediaList] = useState<MediaItem[]>(editingCampaign?.mediaList || []);
+  const [sendAsAlbum, setSendAsAlbum] = useState(editingCampaign?.sendAsAlbum || false);
+  const [addCaptionToMedia, setAddCaptionToMedia] = useState(editingCampaign?.addCaptionToMedia ?? true);
 
   // ETAPA 2: Grupos reais do WhatsApp
   const [availableGroups, setAvailableGroups] = useState<ClientGroup[]>(() => {
@@ -102,7 +114,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       return jid.includes('@g.us') && !jid.includes('@broadcast') && !jid.includes('@newsletter');
     });
   });
-  const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>([]);
+  const [selectedGroupJids, setSelectedGroupJids] = useState<string[]>(editingCampaign?.selectedGroupJids || []);
   const [groupSearch, setGroupSearch] = useState('');
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [isWhatsappConnected, setIsWhatsappConnected] = useState<boolean>(() => {
@@ -128,18 +140,27 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   }, [propWhatsappConnected]);
 
   // ETAPA 3: Programação
-  const [scheduleMode, setScheduleMode] = useState<'agendar' | 'recorrente' | 'imediato'>('agendar');
-  const [startDate, setStartDate] = useState(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
-  const [startTime, setStartTime] = useState('14:00');
-  const [scheduleTimes, setScheduleTimes] = useState<string[]>(['14:00']);
+  const [scheduleMode, setScheduleMode] = useState<'agendar' | 'recorrente' | 'imediato'>(
+    editingCampaign?.scheduleMode === 'recorrente' || editingCampaign?.scheduleMode === 'imediato'
+      ? editingCampaign.scheduleMode
+      : 'agendar'
+  );
+  const [startDate, setStartDate] = useState(() => editingCampaign?.scheduleDate || localDateInputValue());
+  const [startTime, setStartTime] = useState(editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? editingCampaign.scheduleTime : '14:00');
+  const [scheduleTimes, setScheduleTimes] = useState<string[]>(
+    editingCampaign?.scheduleTimes?.length
+      ? editingCampaign.scheduleTimes
+      : [editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? editingCampaign.scheduleTime : '14:00']
+  );
   const [newTimeInput, setNewTimeInput] = useState('18:00');
-  const [intervalMinutes, setIntervalMinutes] = useState(2);
-  const [delaySeconds, setDelaySeconds] = useState(120);
-  const [selectedDays, setSelectedDays] = useState<string[]>(['Seg', 'Ter', 'Qua', 'Qui', 'Sex']);
-  const [dailyLimit, setDailyLimit] = useState('Sem limite');
+  const [intervalMinutes, setIntervalMinutes] = useState(editingCampaign?.intervalMinutes || 2);
+  const [delaySeconds, setDelaySeconds] = useState(editingCampaign?.delaySeconds || 120);
+  const [selectedDays, setSelectedDays] = useState<string[]>(
+    editingCampaign?.scheduleMode === 'recorrente' && editingCampaign.scheduleDays
+      ? editingCampaign.scheduleDays.split(',').map((d) => d.trim()).filter(Boolean)
+      : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex']
+  );
+  const [dailyLimit, setDailyLimit] = useState(editingCampaign?.dailyLimit || 'Sem limite');
 
   // Add a new recurring time slot
   const handleAddScheduleTime = () => {
@@ -380,7 +401,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       // Check Daily Rounds limit per plan
       const roundsCount = scheduleMode === 'recorrente' ? scheduleTimes.length : 1;
       const roundCheck = planService.checkDailyRoundsLimit(
-        campaigns,
+        campaignsForValidation,
         selectedGroupJids,
         availableGroups.map((g) => ({ jid: g.jid || g.id, name: g.name })),
         roundsCount,
@@ -462,7 +483,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
     // Plan validation 1: Active campaigns limit
     if (activateNow) {
-      const activeCheck = planService.canActivateCampaign(campaigns);
+      const activeCheck = planService.canActivateCampaign(campaignsForValidation);
       if (!activeCheck.allowed) {
         setCampaignsLimitData({ limit: activeCheck.limit, activeCount: activeCheck.activeCount });
         setIsCampaignsLimitModalOpen(true);
@@ -471,7 +492,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
     }
 
     // Plan validation 2: Unique groups limit
-    const reservedGroups = planService.getUniqueGroupJidsInAutomations(campaigns);
+    const reservedGroups = planService.getUniqueGroupJidsInAutomations(campaignsForValidation);
     const combinedUnique = new Set([...reservedGroups, ...selectedGroupJids]);
     if (combinedUnique.size > currentPlan.maxGroups) {
       setGroupLimitData({ limit: currentPlan.maxGroups, used: combinedUnique.size });
@@ -481,7 +502,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
     // Plan validation 3: Monthly sends limit if immediate dispatch
     if (sendImmediately || scheduleMode === 'imediato') {
-      const sendCheck = planService.canSendMessages(campaigns, selectedGroupJids.length);
+      const sendCheck = planService.canSendMessages(campaignsForValidation, selectedGroupJids.length);
       if (!sendCheck.allowed) {
         setMonthlySendsData({ limit: sendCheck.limit, used: sendCheck.used });
         setIsMonthlySendsModalOpen(true);
@@ -508,7 +529,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
     const selectedTimes = scheduleMode === 'recorrente' ? scheduleTimes : [startTime];
     const newCampaign: DivulgacaoCard = {
-      id: `div-${Date.now()}`,
+      id: editingCampaign?.id || `div-${Date.now()}`,
       title: title.trim(),
       category,
       active: activateNow,
@@ -526,7 +547,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       groupsCount: selectedGroupJids.length,
       groupsMembersCount: totalMembersSelected,
       selectedGroupJids,
-      totalSent: 0,
+      totalSent: editingCampaign?.totalSent || 0,
+      totalFailed: editingCampaign?.totalFailed || 0,
       totalTarget: selectedGroupJids.length,
       imageUrl: firstImage,
       mediaList,
@@ -535,13 +557,13 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       previewText: messageText.trim(),
       mediaType: mediaList.length > 0 ? (mediaList[0].type === 'image' ? 'imagem' : 'video') : 'texto',
       tags: [category.split(' ')[0]],
-      createdAt: new Date().toISOString(),
+      createdAt: editingCampaign?.createdAt || new Date().toISOString(),
       executed: false,
     };
 
     // Save to real backend
     try {
-      const created = await clientService.createCampaign({
+      const payload = {
         id: newCampaign.id,
         title: newCampaign.title,
         category: newCampaign.category,
@@ -560,13 +582,19 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         selectedGroupJids,
         groupsCount: selectedGroupJids.length,
         active: activateNow,
-      });
+        sendAsAlbum,
+        addCaptionToMedia,
+      };
+
+      const created = editingCampaign
+        ? await clientService.updateCampaign(editingCampaign.id, payload)
+        : await clientService.createCampaign(payload);
 
       if (!created) {
         throw new Error('Não foi possível salvar a divulgação no banco de dados.');
       }
 
-      // If user chose immediate dispatch, trigger real Evolution API dispatch now
+      // Só dispara imediatamente quando o usuário escolher envio imediato.
       if (sendImmediately || scheduleMode === 'imediato') {
         const dispatchRes = await clientService.dispatchNow({
           campaignId: created?.id || newCampaign.id,
@@ -602,6 +630,11 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
 
   return (
     <div className="flex-1 flex flex-col gap-5 max-w-5xl mx-auto w-full pb-16 font-sans">
+      {editingCampaign && (
+        <div className="px-4 py-3 rounded-2xl bg-[#eaf6ef] border border-[#c4e6ce] text-[#0b6e3d] text-sm font-bold">
+          Editando: {editingCampaign.title}
+        </div>
+      )}
       {/* 1. TOP BAR: Back Navigation + Step Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-3xl border border-[#e5ebe7] shadow-xs">
         <button
