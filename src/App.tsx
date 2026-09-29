@@ -766,6 +766,8 @@ export default function App() {
         </button>
       </nav>}
 
+      {isManagerPanel && <ManagerBottomNav currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} onOpenMenu={()=>setIsMobileSidebarOpen(true)} />}
+
       {/* Opportunity Details Inspection Modal for Radar view */}
       <OpportunityDetailsModal
         opportunity={selectedOpportunity}
