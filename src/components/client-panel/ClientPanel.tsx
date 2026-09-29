@@ -11,6 +11,7 @@ import { ClientRelatoriosView } from './views/ClientRelatoriosView';
 import { ClientConexaoView } from './views/ClientConexaoView';
 import { ClientConfiguracoesView } from './views/ClientConfiguracoesView';
 import { ClientAjudaView } from './views/ClientAjudaView';
+import { ClientWazzoView } from './views/ClientWazzoView';
 import { ImportarGruposModal } from './modals/ImportarGruposModal';
 import { PlanoModal } from './modals/PlanoModal';
 import { SuporteModal } from './modals/SuporteModal';
@@ -556,6 +557,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               onOpenPlanModal={() => setCurrentTab('planos')}
             />
           )}
+
+          {currentTab === 'wazzo' && <ClientWazzoView />}
 
           {currentTab === 'configuracoes' && <ClientConfiguracoesView />}
         </main>
