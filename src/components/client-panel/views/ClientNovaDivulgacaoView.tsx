@@ -146,13 +146,13 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       : 'agendar'
   );
   const [startDate, setStartDate] = useState(() => editingCampaign?.scheduleDate || localDateInputValue());
-  const [startTime, setStartTime] = useState(editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? editingCampaign.scheduleTime : '14:00');
+  const [startTime, setStartTime] = useState(editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? editingCampaign.scheduleTime : '');
   const [scheduleTimes, setScheduleTimes] = useState<string[]>(
     editingCampaign?.scheduleTimes?.length
       ? editingCampaign.scheduleTimes
-      : [editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? editingCampaign.scheduleTime : '14:00']
+      : (editingCampaign?.scheduleTime && editingCampaign.scheduleTime !== 'Agora' ? [editingCampaign.scheduleTime] : [])
   );
-  const [newTimeInput, setNewTimeInput] = useState('18:00');
+  const [newTimeInput, setNewTimeInput] = useState('');
   const [intervalMinutes, setIntervalMinutes] = useState(editingCampaign?.intervalMinutes || 2);
   const [delaySeconds, setDelaySeconds] = useState(editingCampaign?.delaySeconds || 120);
   const [selectedDays, setSelectedDays] = useState<string[]>(
@@ -166,13 +166,12 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
   const handleAddScheduleTime = () => {
     if (newTimeInput && !scheduleTimes.includes(newTimeInput)) {
       setScheduleTimes((prev) => [...prev, newTimeInput].sort());
+      setNewTimeInput('');
     }
   };
 
   const handleRemoveScheduleTime = (t: string) => {
-    if (scheduleTimes.length > 1) {
-      setScheduleTimes((prev) => prev.filter((item) => item !== t));
-    }
+    setScheduleTimes((prev) => prev.filter((item) => item !== t));
   };
 
   // UI state
@@ -342,8 +341,15 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         reader.onload = () => {
           if (typeof reader.result !== 'string') return;
           setMediaList((prev) => [...prev, { id: mediaId, type, url: reader.result as string, name: file.name }]);
-          void compressImageIfNeeded(file).then((optimizedDataUrl) => {
+          void compressImageIfNeeded(file).then(async (optimizedDataUrl) => {
+            // Keep the local preview visible while the optimized image is uploaded immediately.
             setMediaList((prev) => prev.map((item) => item.id === mediaId ? { ...item, url: optimizedDataUrl } : item));
+            try {
+              const uploadedUrl = await clientService.uploadMedia(optimizedDataUrl, 'image');
+              setMediaList((prev) => prev.map((item) => item.id === mediaId ? { ...item, url: uploadedUrl } : item));
+            } catch {
+              // Keep the optimized data URL as a safe fallback; campaign save can persist it server-side.
+            }
           }).catch(() => {});
         };
         reader.onerror = () => setValidationError('Não foi possível carregar a imagem selecionada.');
@@ -390,6 +396,14 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
       }
     }
     if (step === 3) {
+      if (scheduleMode === 'recorrente' && scheduleTimes.length === 0) {
+        setValidationError('Adicione ao menos um horário para o envio recorrente.');
+        return false;
+      }
+      if (scheduleMode === 'agendar' && !startTime) {
+        setValidationError('Selecione um horário válido para o agendamento.');
+        return false;
+      }
       if (scheduleMode === 'recorrente' && selectedDays.length === 0) {
         setValidationError('Selecione ao menos um dia da semana para o envio recorrente.');
         return false;
@@ -1235,7 +1249,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
                       className="inline-flex items-center gap-2 px-3 py-1.5 bg-white border border-[#109353] rounded-xl text-xs font-bold text-[#109353] shadow-2xs"
                     >
                       <span>{timeSlot}</span>
-                      {scheduleTimes.length > 1 && (
+                      {(
                         <button
                           type="button"
                           onClick={() => handleRemoveScheduleTime(timeSlot)}
@@ -1442,7 +1456,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
                 {scheduleMode === 'imediato'
                   ? 'Disparo Imediato'
                   : scheduleMode === 'recorrente'
-                  ? `Recorrente às ${startTime} (${selectedDays.join(', ')})`
+                  ? `Recorrente às ${scheduleTimes.join(', ')} (${selectedDays.join(', ')})`
                   : `Agendado para ${startDate} às ${startTime}`}
               </span>
             </div>
