@@ -60,7 +60,7 @@ import { sessionService } from './services/sessionService';
 
 export default function App() {
   const referralPath = window.location.pathname.match(/^\/representante(?:\/([a-zA-Z0-9_-]+))?\/?$/);
-  const [panelMode, setPanelMode] = useState<any>(referralPath ? 'referral-loading' : 'loading');
+  const [panelMode, setPanelMode] = useState<any>(referralPath ? 'referral-loading' : 'landing');
 
   const logout = async () => {
     await sessionService.logout();
@@ -98,14 +98,15 @@ export default function App() {
         else setPanelMode('public-plans');
       } catch (err: any) {
         if (!alive) return;
-        sessionService.clear();
-        setPanelMode(err?.status === 401 ? 'landing' : 'login');
+        if (err?.status === 401) sessionService.clear();
+        // Never block the application shell because account/status is slow or unavailable.
+        setPanelMode('landing');
       }
     })();
     return () => { alive = false; };
   }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'gerente' | 'equipe' | 'financeiro' | 'faturamento' | 'pagamentos' | 'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
+  const [currentTab, setCurrentTab] = useState<'gerente' | 'equipe' | 'financeiro' | 'faturamento' | 'pagamentos' | 'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('gerente');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
@@ -366,7 +367,7 @@ export default function App() {
     return opportunities.filter((o) => o.stage === 'nao_atribuidas').length;
   }, [opportunities]);
 
-  if (panelMode === 'loading' || panelMode === 'referral-loading') {
+  if (panelMode === 'referral-loading') {
     return (
       <div className="min-h-screen bg-[#f8faf9] flex flex-col items-center justify-center p-4 selection:bg-[#00c968] selection:text-white">
         <div className="flex flex-col items-center gap-4">
@@ -409,8 +410,8 @@ export default function App() {
               setPanelMode('representative');
               return;
             }
-            if (d?.user?.role === 'admin') {
-              setCurrentTab('radar');
+            if (d?.user?.role === 'admin' || d?.user?.role === 'manager') {
+              setCurrentTab('gerente');
               setPanelMode('admin');
               return;
             }
