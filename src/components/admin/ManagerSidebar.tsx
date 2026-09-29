@@ -1,10 +1,10 @@
 import React,{useState} from 'react';
-import {LayoutDashboard,Users,UserCheck,LogOut,MoreHorizontal,X,BriefcaseBusiness,WalletCards,ReceiptText,CreditCard} from 'lucide-react';
+import {LayoutDashboard,Users,UserCheck,LogOut,MoreHorizontal,X,BriefcaseBusiness,WalletCards,ReceiptText,CreditCard,Shield} from 'lucide-react';
 import {NexusLogo} from '../NexusLogo';
 
 export function ManagerSidebar({currentTab,onSelectTab,onCloseMobile,isOpenMobile,onSwitchPanel}:{currentTab:string;onSelectTab:(tab:string)=>void;onCloseMobile:()=>void;isOpenMobile:boolean;onSwitchPanel:(mode:any)=>void}){
  const[menu,setMenu]=useState(false);
- const items=[{id:'gerente',label:'Dashboard',icon:LayoutDashboard},{id:'assinantes',label:'Assinantes',icon:Users},{id:'financeiro',label:'Financeiro',icon:WalletCards},{id:'faturamento',label:'Faturamento',icon:ReceiptText},{id:'pagamentos',label:'Pagamentos',icon:CreditCard},{id:'representantes',label:'Representantes',icon:UserCheck}];
+ const items=[{id:'gerente',label:'Dashboard',icon:LayoutDashboard},{id:'assinantes',label:'Assinantes',icon:Users},{id:'financeiro',label:'Financeiro',icon:WalletCards},{id:'faturamento',label:'Faturamento',icon:ReceiptText},{id:'pagamentos',label:'Pagamentos',icon:CreditCard},{id:'representantes',label:'Representantes',icon:UserCheck},{id:'equipe',label:'Equipe e acessos',icon:Shield}];
  const go=(id:string)=>{onSelectTab(id);onCloseMobile()};
  return <>{isOpenMobile&&<div onClick={onCloseMobile} className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px] lg:hidden"/>}<aside className={`fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col border-r border-[#e8eeea] bg-white px-4 py-5 transition-transform lg:static lg:w-60 ${isOpenMobile?'translate-x-0':'-translate-x-full lg:translate-x-0'}`}>
   <div className="flex items-center justify-between px-2"><NexusLogo size={32}/><button onClick={onCloseMobile} className="rounded-lg p-2 text-[#66776e] lg:hidden"><X size={19}/></button></div>
