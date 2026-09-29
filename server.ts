@@ -633,6 +633,20 @@ app.post("/api/admin/representatives",requireAdminRoute,async(req,res)=>{
 });
 app.patch("/api/admin/representatives/:id",requireAdminRoute,async(req,res)=>{const pct=Number(req.body?.commissionPercent);if(!Number.isFinite(pct)||pct<0||pct>100)return res.status(400).json({error:"Porcentagem inválida"});const db:any=await getDatabase();await db.updateRepresentative(Number(req.params.id),pct,req.body?.isActive!==false);res.json({success:true});});
 
+
+async function syncUserToWazzo(payload: {name:string;email:string;phone?:string;password?:string;subscriptionActive?:boolean}) {
+  const base=String(process.env.WAZZO_API_URL||"https://wazzo.minhabagg.com.br/api").replace(/\/+$/,"");
+  const secret=String(process.env.WAZZO_GROPLY_SYNC_SECRET||"");
+  if(!secret){ console.warn("[WAZZO] WAZZO_GROPLY_SYNC_SECRET não configurado; sincronização ignorada."); return false; }
+  try{
+    const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),5000);
+    const response=await fetch(`${base}/groply-sync.php`,{method:"POST",headers:{"Content-Type":"application/json","X-Groply-Sync-Secret":secret},body:JSON.stringify(payload),signal:controller.signal});
+    clearTimeout(timer);
+    if(!response.ok){console.error("[WAZZO] sync falhou:",response.status,await response.text());return false;}
+    return true;
+  }catch(error:any){console.error("[WAZZO] sync indisponível:",error?.message||error);return false;}
+}
+
 // Authentication backed by MySQL, loaded lazily so DB errors never crash Passenger.
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -640,6 +654,7 @@ app.post("/api/auth/register", async (req, res) => {
     const { name, email, phone, password } = req.body || {};
     if (!name || !email || !password) return res.status(400).json({ success: false, error: "Preencha nome, e-mail e senha." });
     const user = await registerUser(String(name), String(email), String(phone || ""), String(password));
+    void syncUserToWazzo({name:String(name),email:String(email),phone:String(phone||""),password:String(password),subscriptionActive:false});
     const refSlug = cookieValue(req, "grolpy_ref");
     if (refSlug) {
       const db:any = await getDatabase();
@@ -823,6 +838,10 @@ app.post("/api/admin/subscriptions/:userId/action", async (req, res) => {
     if (!["approve", "renew", "suspend"].includes(action)) return res.status(400).json({ error: "Ação inválida" });
     const db: any = await getDatabase();
     await db.adminSetSubscription(Number(req.params.userId), action);
+    if(action==="approve" || action==="renew"){
+      const rows=await db.listAdminSubscriptions(); const row=(rows||[]).find((x:any)=>Number(x.user_id)===Number(req.params.userId));
+      if(row) void syncUserToWazzo({name:String(row.name||""),email:String(row.email||""),phone:String(row.phone||""),subscriptionActive:true});
+    }
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ success: false, error: "Não foi possível atualizar a assinatura." });
