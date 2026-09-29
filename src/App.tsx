@@ -650,7 +650,7 @@ export default function App() {
         )}
 
         {/* OTHER SECONDARY TABS FALLBACK */}
-        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && currentTab !== 'contatos' && currentTab !== 'assinantes' && (
+        {currentTab !== 'radar' && currentTab !== 'oportunidades' && currentTab !== 'crm' && currentTab !== 'crm_atendimento' && currentTab !== 'ia_config' && currentTab !== 'conexao' && currentTab !== 'contatos' && currentTab !== 'assinantes' && currentTab !== 'representantes' && currentTab !== 'equipe' && currentTab !== 'gerente' && currentTab !== 'financeiro' && currentTab !== 'faturamento' && currentTab !== 'pagamentos' && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-[#f7faf8]">
             <div className="w-14 h-14 rounded-2xl bg-[#eaf4ef] flex items-center justify-center text-[#12382c] mb-4">
               <HugeIcon icon={Target02Icon} size={28} />
@@ -672,7 +672,7 @@ export default function App() {
       </div>
 
       {/* Mobile Bottom Navigation Bar (Supreme ergonomic mobile access) */}
-      <nav
+      {!isManagerPanel && <nav
         id="mobile-bottom-nav"
         className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#e5ebe7] px-1 py-1 sm:px-2 sm:py-1.5 flex items-center justify-around select-none shadow-[0_-2px_10px_rgba(0,0,0,0.04)] pb-[max(0.35rem,env(safe-area-inset-bottom))]"
       >
@@ -764,7 +764,7 @@ export default function App() {
           <Menu size={18} />
           <span className="text-[10px] leading-tight truncate">Menu</span>
         </button>
-      </nav>
+      </nav>}
 
       {/* Opportunity Details Inspection Modal for Radar view */}
       <OpportunityDetailsModal
