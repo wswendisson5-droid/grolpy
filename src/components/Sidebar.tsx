@@ -76,12 +76,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Sidebar Container */}
       <aside
         id="nexus-sidebar"
-        className={`fixed lg:static top-0 left-0 bottom-0 z-50 w-72 lg:w-60 shrink-0 bg-white border-r border-[#eaefec] flex flex-col justify-between py-5 lg:py-6 px-4 select-none h-screen transition-transform duration-300 ease-in-out ${
+        className={`fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-60 shrink-0 bg-white border-r border-[#eaefec] flex flex-col px-4 select-none h-[100dvh] max-h-[100dvh] overflow-hidden transition-transform duration-300 ease-in-out ${
           isOpenMobile ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         {/* Top: Logo & Main Navigation */}
-        <div className="flex flex-col gap-6 lg:gap-7 overflow-y-auto">
+        <div className="min-h-0 flex-1 flex flex-col gap-6 lg:gap-7 overflow-y-auto overscroll-contain py-5 lg:py-6 pb-4">
           {/* Brand Header with Mobile Close Button */}
           <div className="flex items-center justify-between px-2 pt-1 pb-1">
             <NexusLogo size={32} />
@@ -145,7 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Bottom: Evolution API Status Card & User Profile */}
-        <div className="flex flex-col gap-3.5 lg:gap-4 mt-4 pt-3 border-t border-[#f0f4f1]">
+        <div className="shrink-0 flex flex-col gap-3.5 lg:gap-4 py-3 border-t border-[#f0f4f1] bg-white">
           {/* Evolution API Card */}
           <div
             id="evolution-api-card"
