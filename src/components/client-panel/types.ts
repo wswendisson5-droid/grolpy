@@ -10,7 +10,8 @@ export type ClientTab =
   | 'configuracoes'
   | 'planos'
   | 'checkout'
-  | 'ajuda';
+  | 'ajuda'
+  | 'wazzo';
 
 export type AppPanelMode = 'landing' | 'admin' | 'client' | 'login' | 'register';
 
