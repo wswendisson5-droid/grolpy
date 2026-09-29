@@ -13,7 +13,8 @@ import {
   HelpCircle,
   MoreVertical,
   X,
-  LogOut
+  LogOut,
+  BadgeCheck
 } from 'lucide-react';
 import { ClientTab, AppPanelMode } from './types';
 import { planService } from '../../services/planService';
@@ -72,6 +73,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
     { id: 'historico', label: 'Histórico', icon: History },
     { id: 'relatorios', label: 'Relatórios', icon: BarChart3 },
     { id: 'conexao', label: 'Conexão WhatsApp', icon: MessageSquare },
+    { id: 'wazzo', label: 'Grupos WAZZO', icon: BadgeCheck },
     { id: 'ajuda', label: 'Central de Ajuda', icon: HelpCircle },
     { id: 'configuracoes', label: 'Configurações', icon: Settings },
   ];
