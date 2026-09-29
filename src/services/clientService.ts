@@ -112,6 +112,17 @@ class ClientService {
     return this.cachedGroups;
   }
 
+  async uploadMedia(dataUrl: string, type: 'image' | 'video' = 'image'): Promise<string> {
+    const res = await fetch('/api/client/media/upload', {
+      method: 'POST',
+      headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ dataUrl, type }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success || !data.url) throw new Error(data.error || 'Não foi possível enviar a mídia.');
+    return data.url;
+  }
+
   async getCampaigns(): Promise<DivulgacaoCard[]> {
     const res = await fetch('/api/client/campaigns',{headers:this.authHeaders()});
     const data = await res.json().catch(() => ({}));
