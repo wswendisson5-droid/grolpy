@@ -799,6 +799,18 @@ app.get("/api/admin/subscriptions", async (req, res) => {
   }
 });
 
+app.get("/api/admin/billing", async (req, res) => {
+  const admin = await requireAdmin(req);
+  if (!admin) return res.status(403).json({ error: "ADMIN_REQUIRED" });
+  try {
+    const db: any = await getDatabase();
+    res.json({ success: true, ...(await db.getAdminBillingOverview()) });
+  } catch (e: any) {
+    console.error("[ADMIN-BILLING]", e?.code || e?.message);
+    res.status(500).json({ success: false, error: "Não foi possível carregar o financeiro." });
+  }
+});
+
 app.post("/api/admin/subscriptions/:userId/action", async (req, res) => {
   const admin = await requireAdmin(req);
   if (!admin) return res.status(403).json({ error: "ADMIN_REQUIRED" });
