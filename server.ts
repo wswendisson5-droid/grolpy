@@ -33,6 +33,25 @@ if (!fs.existsSync(UPLOADS_DIR)) {
 }
 app.use("/uploads", express.static(UPLOADS_DIR));
 
+app.post("/api/client/media/upload", async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
+    const { dataUrl, type = "image" } = req.body || {};
+    if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
+      return res.status(400).json({ success: false, error: "Arquivo inválido." });
+    }
+    const url = saveBase64MediaToFile(dataUrl, type === "video" ? "video" : "image");
+    if (!url || url.startsWith("data:")) {
+      return res.status(500).json({ success: false, error: "Não foi possível armazenar a mídia." });
+    }
+    return res.json({ success: true, url });
+  } catch (err: any) {
+    console.error("[UPLOAD] Falha no upload imediato:", err);
+    return res.status(500).json({ success: false, error: "Falha ao enviar a mídia." });
+  }
+});
+
 function saveBase64MediaToFile(base64Data: string, prefix = "media"): string {
   if (!base64Data || typeof base64Data !== "string" || !base64Data.startsWith("data:")) return base64Data;
   try {
@@ -3249,8 +3268,10 @@ app.get("/api/account/status", async (req, res) => {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
     const db: any = await getDatabase();
-    const subscription = await db.getSubscriptionForUser(user.id);
-    const instance = await db.getUserInstance(user.id);
+    const [subscription, instance] = await Promise.all([
+      db.getSubscriptionForUser(user.id),
+      db.getUserInstance(user.id),
+    ]);
     const isAdmin = user.role === "admin";
     const hasActiveSubscription = String(subscription?.status || "").toLowerCase() === "active";
     res.json({
