@@ -464,11 +464,11 @@ export default function App() {
   const isManagerPanel = panelMode === 'manager';
 
   return (
-    <div className="min-h-screen bg-[#f8faf9] flex font-sans text-[#1a201c] antialiased">
+    <div className="h-[100dvh] min-h-0 overflow-hidden bg-[#f8faf9] flex font-sans text-[#1a201c] antialiased">
       {isManagerPanel ? <ManagerSidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} /> : <Sidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} activeCount={unassignedCount} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} />}
 
       {/* Main Workspace Area */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 h-[100dvh] overflow-hidden">
         {isManagerPanel && currentTab === 'gerente' && <ManagerDashboard onNavigate={(tab)=>setCurrentTab(tab as any)} />}
         {!isManagerPanel && currentTab === 'equipe' && <StaffAdminView />}
         {currentTab === 'financeiro' && <ManagerBillingView mode="financeiro" />}
