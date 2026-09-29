@@ -50,7 +50,7 @@ import { ClientCheckoutView } from './components/client-panel/views/ClientChecko
 import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 import { ManagerDashboard } from './components/admin/ManagerDashboard';
-import { ManagerSidebar } from './components/admin/ManagerSidebar';
+import { ManagerSidebar, ManagerBottomNav } from './components/admin/ManagerSidebar';
 import { ManagerBillingView } from './components/admin/ManagerBillingView';
 import { StaffAdminView } from './components/admin/StaffAdminView';
 import { RepresentativesAdminView } from './components/admin/RepresentativesAdminView';
