@@ -1116,6 +1116,16 @@ export async function listAdminSubscriptions(){
  }
  return r;
 }
+export async function getAdminBillingOverview(){
+ const [invoices]:any=await pool.query(`SELECT i.id,i.payment_id AS paymentId,i.plan_id AS planId,i.billing_type AS billingType,
+ i.value,i.net_value AS netValue,i.status,i.due_date AS dueDate,i.paid_at AS paidAt,i.gateway,i.created_at AS createdAt,
+ u.id AS userId,u.name AS customerName,u.email AS customerEmail
+ FROM invoices i JOIN users u ON u.id=i.user_id ORDER BY i.created_at DESC LIMIT 500`);
+ const [mrrRows]:any=await pool.query(`SELECT COALESCE(SUM(p.monthly_price),0) mrr FROM subscriptions s JOIN plans p ON p.id=s.plan_id WHERE LOWER(s.status)='active'`);
+ const [planRows]:any=await pool.query(`SELECT p.id,p.name,p.monthly_price AS monthlyPrice,COUNT(s.id) subscribers FROM plans p LEFT JOIN subscriptions s ON s.plan_id=p.id AND LOWER(s.status)='active' WHERE p.is_active=1 GROUP BY p.id,p.name,p.monthly_price ORDER BY p.monthly_price`);
+ return {invoices,mrr:Number(mrrRows[0]?.mrr||0),plans:planRows.map((x:any)=>({...x,monthlyPrice:Number(x.monthlyPrice||0),subscribers:Number(x.subscribers||0)}))};
+}
+
 export async function adminSetSubscription(userId:number,action:string){
  if(action==="approve"){await pool.execute("UPDATE users SET status='active' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='active' WHERE user_id=?",[userId]);}
  else if(action==="suspend"){await pool.execute("UPDATE users SET status='suspended' WHERE id=?",[userId]);await pool.execute("UPDATE subscriptions SET status='suspended' WHERE user_id=?",[userId]);}
