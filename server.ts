@@ -582,14 +582,14 @@ async function authenticatedUser(req: any) {
 
 async function requireAdmin(req: any) {
   const user: any = await authenticatedUser(req);
-  return user?.role === "admin" ? user : null;
+  return user?.role === "admin" || user?.role === "manager" ? user : null;
 }
 
 async function requireAdminRoute(req: Request, res: Response, next: NextFunction) {
   try {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
-    if (user.role !== "admin") return res.status(403).json({ error: "ADMIN_REQUIRED" });
+    if (!["admin","manager"].includes(user.role)) return res.status(403).json({ error: "ADMIN_REQUIRED" });
     (req as any).adminUser = user;
     next();
   } catch {
@@ -786,6 +786,10 @@ app.post("/api/admin/test-subscriber", async (req, res) => {
     res.status(e?.code === "ER_DUP_ENTRY" ? 409 : 500).json({ success: false, error: "Não foi possível criar assinante de teste." });
   }
 });
+
+app.get("/api/admin/staff", async (req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});const db:any=await getDatabase();res.json({success:true,staff:await db.listStaffUsers()});});
+app.post("/api/admin/staff", async (req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const {name,email,password,role='manager'}=req.body||{};const db:any=await getDatabase();const staff=await db.createStaffUser(String(name||''),String(email||''),String(password||''),String(role));res.status(201).json({success:true,staff});}catch(e:any){res.status(e?.code==='ER_DUP_ENTRY'?409:400).json({error:e?.code==='ER_DUP_ENTRY'?'Este e-mail já está em uso.':'Não foi possível criar o acesso.'});}});
+app.patch("/api/admin/staff/:id/status",async(req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const db:any=await getDatabase();await db.setStaffStatus(Number(req.params.id),String(req.body?.status||''));res.json({success:true});}catch{res.status(400).json({error:'Não foi possível alterar o acesso.'});}});
 
 app.get("/api/admin/subscriptions", async (req, res) => {
   const admin = await requireAdmin(req);
