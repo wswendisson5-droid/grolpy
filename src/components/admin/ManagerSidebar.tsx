@@ -1,0 +1,15 @@
+import React,{useState} from 'react';
+import {LayoutDashboard,Users,UserCheck,LogOut,MoreHorizontal,X,BriefcaseBusiness} from 'lucide-react';
+import {NexusLogo} from '../NexusLogo';
+
+export function ManagerSidebar({currentTab,onSelectTab,onCloseMobile,isOpenMobile,onSwitchPanel}:{currentTab:string;onSelectTab:(tab:string)=>void;onCloseMobile:()=>void;isOpenMobile:boolean;onSwitchPanel:(mode:any)=>void}){
+ const[menu,setMenu]=useState(false);
+ const items=[{id:'gerente',label:'Dashboard',icon:LayoutDashboard},{id:'assinantes',label:'Assinantes',icon:Users},{id:'representantes',label:'Representantes',icon:UserCheck}];
+ const go=(id:string)=>{onSelectTab(id);onCloseMobile()};
+ return <>{isOpenMobile&&<div onClick={onCloseMobile} className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px] lg:hidden"/>}<aside className={`fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col border-r border-[#e8eeea] bg-white px-4 py-5 transition-transform lg:static lg:w-60 ${isOpenMobile?'translate-x-0':'-translate-x-full lg:translate-x-0'}`}>
+  <div className="flex items-center justify-between px-2"><NexusLogo size={32}/><button onClick={onCloseMobile} className="rounded-lg p-2 text-[#66776e] lg:hidden"><X size={19}/></button></div>
+  <div className="mt-7 px-2"><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[.16em] text-[#8a9991]"><BriefcaseBusiness size={13}/>Painel do Gerente</div></div>
+  <nav className="mt-3 space-y-1.5">{items.map(({id,label,icon:Icon})=><button key={id} onClick={()=>go(id)} className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition ${currentTab===id?'bg-[#dceee6] text-[#12382c]':'text-[#56675e] hover:bg-[#f3f7f5] hover:text-[#173c2d]'}`}><Icon size={18}/>{label}</button>)}</nav>
+  <div className="mt-auto border-t border-[#edf2ef] pt-4"><div className="relative"><button onClick={()=>setMenu(!menu)} className="flex w-full items-center justify-between rounded-xl px-2 py-2 hover:bg-[#f4f7f5]"><div className="text-left"><p className="text-xs font-black text-[#1c3429]">Gerência Groply</p><p className="mt-0.5 text-[10px] font-semibold text-emerald-700">Administrador</p></div><MoreHorizontal size={17} className="text-[#839188]"/></button>{menu&&<div className="absolute bottom-full left-0 mb-2 w-full rounded-2xl border border-[#e5ebe7] bg-white p-1.5 shadow-xl"><button onClick={()=>onSwitchPanel('client')} className="w-full rounded-xl px-3 py-2 text-left text-xs font-bold text-[#315044] hover:bg-[#f1f6f3]">Ir para Painel do Cliente</button><button onClick={()=>onSwitchPanel('landing')} className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-bold text-red-600 hover:bg-red-50"><LogOut size={14}/>Sair</button></div>}</div></div>
+ </aside></>
+}
