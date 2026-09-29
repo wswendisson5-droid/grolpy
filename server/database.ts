@@ -420,6 +420,25 @@ export async function ensureAdminAccount(name:string,email:string,password:strin
  else await pool.execute("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'admin','active')",[name,normalized,"",passwordHash]);
  return true;
 }
+export async function createStaffUser(name:string,email:string,password:string,role:string){
+ const allowed=new Set(['manager']); if(!allowed.has(role)) throw new Error('INVALID_STAFF_ROLE');
+ const normalized=String(email).trim().toLowerCase(); if(!name?.trim()||!normalized||String(password).length<6) throw new Error('INVALID_STAFF_DATA');
+ const passwordHash=hashPassword(String(password));
+ const [rows]:any=await pool.execute("SELECT id FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalized]);
+ if(rows[0]) throw Object.assign(new Error('STAFF_EMAIL_EXISTS'),{code:'ER_DUP_ENTRY'});
+ const [r]:any=await pool.execute("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'manager','active')",[String(name).trim(),normalized,"",passwordHash]);
+ return {id:r.insertId,name:String(name).trim(),email:normalized,role:'manager',status:'active'};
+}
+export async function listStaffUsers(){
+ const [rows]:any=await pool.query("SELECT id,name,email,role,status,created_at AS createdAt FROM users WHERE role IN ('admin','manager') ORDER BY created_at DESC");
+ return rows;
+}
+export async function setStaffStatus(id:number,status:string){
+ if(!['active','suspended'].includes(status)) throw new Error('INVALID_STATUS');
+ const [rows]:any=await pool.execute("SELECT role FROM users WHERE id=? LIMIT 1",[id]); if(rows[0]?.role!=='manager') throw new Error('MANAGER_ONLY');
+ await pool.execute("UPDATE users SET status=? WHERE id=?",[status,id]); return true;
+}
+
 export async function loginUser(email:string,password:string){
   const normalizedEmail=String(email||"").trim().toLowerCase();
   const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status,role FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
