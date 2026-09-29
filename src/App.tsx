@@ -50,6 +50,7 @@ import { ClientCheckoutView } from './components/client-panel/views/ClientChecko
 import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 import { ManagerDashboard } from './components/admin/ManagerDashboard';
+import { Sidebar } from './components/Sidebar';
 import { ManagerSidebar } from './components/admin/ManagerSidebar';
 import { ManagerBillingView } from './components/admin/ManagerBillingView';
 import { StaffAdminView } from './components/admin/StaffAdminView';
@@ -73,7 +74,8 @@ export default function App() {
       return;
     }
     if (mode === 'admin' || mode === 'client') sessionService.setPreferredPanel(mode);
-    if (mode === 'admin') setCurrentTab('gerente');
+    if (mode === 'admin') setCurrentTab('radar');
+    if (mode === 'manager') setCurrentTab('gerente');
     setPanelMode(mode);
   };
 
@@ -90,9 +92,12 @@ export default function App() {
         if (!alive) return;
         if (d?.user?.role === 'representative') {
           setPanelMode('representative');
-        } else if (d?.user?.role === 'admin' || d?.user?.role === 'manager') {
-          setCurrentTab('gerente');
+        } else if (d?.user?.role === 'admin') {
+          setCurrentTab('radar');
           setPanelMode('admin');
+        } else if (d?.user?.role === 'manager') {
+          setCurrentTab('gerente');
+          setPanelMode('manager');
         } else if (d?.access) setPanelMode('client');
         else if (d?.subscription) setPanelMode('public-checkout');
         else setPanelMode('public-plans');
@@ -410,9 +415,14 @@ export default function App() {
               setPanelMode('representative');
               return;
             }
-            if (d?.user?.role === 'admin' || d?.user?.role === 'manager') {
-              setCurrentTab('gerente');
+            if (d?.user?.role === 'admin') {
+              setCurrentTab('radar');
               setPanelMode('admin');
+              return;
+            }
+            if (d?.user?.role === 'manager') {
+              setCurrentTab('gerente');
+              setPanelMode('manager');
               return;
             }
             setPanelMode(d?.access ? 'client' : (d?.subscription ? 'public-checkout' : 'public-plans'));
@@ -451,16 +461,17 @@ export default function App() {
     return <ClientPanel onSwitchPanel={handleSwitchPanel} />;
   }
 
-  if(panelMode !== 'admin') { setPanelMode('landing'); return null; }
+  if(panelMode !== 'admin' && panelMode !== 'manager') { setPanelMode('landing'); return null; }
+  const isManagerPanel = panelMode === 'manager';
 
   return (
     <div className="min-h-screen bg-[#f8faf9] flex font-sans text-[#1a201c] antialiased">
-      <ManagerSidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} />
+      {isManagerPanel ? <ManagerSidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} /> : <Sidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} activeCount={unassignedCount} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} />}
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
-        {currentTab === 'gerente' && <ManagerDashboard onNavigate={(tab)=>setCurrentTab(tab as any)} />}
-        {currentTab === 'equipe' && <StaffAdminView />}
+        {isManagerPanel && currentTab === 'gerente' && <ManagerDashboard onNavigate={(tab)=>setCurrentTab(tab as any)} />}
+        {!isManagerPanel && currentTab === 'equipe' && <StaffAdminView />}
         {currentTab === 'financeiro' && <ManagerBillingView mode="financeiro" />}
         {currentTab === 'faturamento' && <ManagerBillingView mode="faturamento" />}
         {currentTab === 'pagamentos' && <ManagerBillingView mode="pagamentos" />}
