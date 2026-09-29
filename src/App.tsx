@@ -51,6 +51,7 @@ import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
 import { ManagerDashboard } from './components/admin/ManagerDashboard';
 import { ManagerSidebar } from './components/admin/ManagerSidebar';
+import { ManagerBillingView } from './components/admin/ManagerBillingView';
 import { RepresentativesAdminView } from './components/admin/RepresentativesAdminView';
 import { RepresentativeDashboard } from './components/representative/RepresentativeDashboard';
 import { representativeService } from './services/representativeService';
@@ -103,7 +104,7 @@ export default function App() {
     return () => { alive = false; };
   }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'gerente' | 'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
+  const [currentTab, setCurrentTab] = useState<'gerente' | 'financeiro' | 'faturamento' | 'pagamentos' | 'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
@@ -457,6 +458,9 @@ export default function App() {
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         {currentTab === 'gerente' && <ManagerDashboard onNavigate={(tab)=>setCurrentTab(tab as any)} />}
+        {currentTab === 'financeiro' && <ManagerBillingView mode="financeiro" />}
+        {currentTab === 'faturamento' && <ManagerBillingView mode="faturamento" />}
+        {currentTab === 'pagamentos' && <ManagerBillingView mode="pagamentos" />}
         {currentTab === 'assinantes' && <div className="flex-1 overflow-y-auto"><SubscriptionsAdminView /></div>}
 
                 {currentTab === 'representantes' && <RepresentativesAdminView />}
