@@ -49,6 +49,8 @@ import { ClientPlanosView } from './components/client-panel/views/ClientPlanosVi
 import { ClientCheckoutView } from './components/client-panel/views/ClientCheckoutView';
 import { PlanId } from './services/planService';
 import { SubscriptionsAdminView } from './components/admin/SubscriptionsAdminView';
+import { ManagerDashboard } from './components/admin/ManagerDashboard';
+import { ManagerSidebar } from './components/admin/ManagerSidebar';
 import { RepresentativesAdminView } from './components/admin/RepresentativesAdminView';
 import { RepresentativeDashboard } from './components/representative/RepresentativeDashboard';
 import { representativeService } from './services/representativeService';
@@ -69,7 +71,7 @@ export default function App() {
       return;
     }
     if (mode === 'admin' || mode === 'client') sessionService.setPreferredPanel(mode);
-    if (mode === 'admin') setCurrentTab('radar');
+    if (mode === 'admin') setCurrentTab('gerente');
     setPanelMode(mode);
   };
 
@@ -87,7 +89,7 @@ export default function App() {
         if (d?.user?.role === 'representative') {
           setPanelMode('representative');
         } else if (d?.user?.role === 'admin') {
-          setCurrentTab('radar');
+          setCurrentTab('gerente');
           setPanelMode('admin');
         } else if (d?.access) setPanelMode('client');
         else if (d?.subscription) setPanelMode('public-checkout');
@@ -101,7 +103,7 @@ export default function App() {
     return () => { alive = false; };
   }, []);
   const [publicPlanId,setPublicPlanId]=useState<PlanId>('pro');
-  const [currentTab, setCurrentTab] = useState<'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
+  const [currentTab, setCurrentTab] = useState<'gerente' | 'radar' | 'assinantes' | 'representantes' | 'oportunidades' | 'crm' | 'crm_atendimento' | 'ia_config' | 'conexao' | 'contatos' | 'grupos' | 'relatorios' | 'configuracoes'>('radar');
   const [radarStatus, setRadarStatus] = useState<RadarStatus>('active');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('Todos');
@@ -159,11 +161,11 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (panelMode !== 'admin') return;
+    if (panelMode !== 'admin' || currentTab !== 'radar') return;
     fetchRealRadarData();
     const interval = setInterval(fetchRealRadarData, 3000);
     return () => clearInterval(interval);
-  }, [panelMode]);
+  }, [panelMode, currentTab]);
 
   // Toggle Radar Play / Pause
   const handleToggleRadar = async () => {
@@ -450,18 +452,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f8faf9] flex font-sans text-[#1a201c] antialiased">
-      {/* Sidebar: Fixed on Desktop (lg+), Slide-in Drawer with Backdrop on Mobile */}
-      <Sidebar
-        currentTab={currentTab}
-        onSelectTab={(tab) => setCurrentTab(tab as any)}
-        activeCount={unassignedCount}
-        isOpenMobile={isMobileSidebarOpen}
-        onCloseMobile={() => setIsMobileSidebarOpen(false)}
-        onSwitchPanel={handleSwitchPanel}
-      />
+      <ManagerSidebar currentTab={currentTab} onSelectTab={(tab)=>setCurrentTab(tab as any)} isOpenMobile={isMobileSidebarOpen} onCloseMobile={()=>setIsMobileSidebarOpen(false)} onSwitchPanel={handleSwitchPanel} />
 
       {/* Main Workspace Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        {currentTab === 'gerente' && <ManagerDashboard onNavigate={(tab)=>setCurrentTab(tab as any)} />}
         {currentTab === 'assinantes' && <div className="flex-1 overflow-y-auto"><SubscriptionsAdminView /></div>}
 
                 {currentTab === 'representantes' && <RepresentativesAdminView />}
