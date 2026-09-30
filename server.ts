@@ -3311,13 +3311,15 @@ app.get("/api/account/status", async (req, res) => {
     // It is loaded by the client panel only when needed, so login stays fast.
     const instance = null;
     const isAdmin = user.role === "admin";
+    const isManager = user.role === "manager";
+    const hasInternalAccess = isAdmin || isManager;
     const hasActiveSubscription = String(subscription?.status || "").toLowerCase() === "active";
     res.json({
       success: true,
       user,
       subscription: subscription ? { planId: subscription.plan_id, status: subscription.status, nextDueDate: subscription.next_due_date } : null,
       whatsapp: instance ? { status: instance.status, connected: instance.status === "connected" } : null,
-      access: Boolean(isAdmin || hasActiveSubscription),
+      access: Boolean(hasInternalAccess || hasActiveSubscription),
     });
   } catch (e: any) {
     res.status(500).json({ success: false, error: "Não foi possível consultar a conta." });
@@ -3640,8 +3642,11 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     const userCampaigns: any[] = (await own.db.listCampaignsForUser(own.user.id).catch(() => [])) || [];
     const userHistory: any[] = (await own.db.listHistoryForUser(own.user.id, currentLimits.historyDays || 31).catch(() => [])) || [];
 
+    // Limites comerciais se aplicam somente a clientes. Admin e gerente são acessos internos sem cota.
+    const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
+
     // 1. Validate Active Campaigns Limit
-    if (active !== false) {
+    if (!bypassPlanLimits && active !== false) {
       const activeCount = userCampaigns.filter((c: any) => c && c.active && c.status !== 'concluida').length;
       if (activeCount >= currentLimits.maxActiveCampaigns) {
         console.log(`[VALIDATION] Falha: Limite de campanhas ativas excedido.`);
@@ -3657,7 +3662,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     // 2. Validate Unique Groups Limit
     const reservedGroups = getUniqueGroupsInAutomations(userCampaigns);
     const candidateUnique = new Set([...reservedGroups, ...incomingJids]);
-    if (candidateUnique.size > currentLimits.maxGroups) {
+    if (!bypassPlanLimits && candidateUnique.size > currentLimits.maxGroups) {
       console.log(`[VALIDATION] Falha: Limite de grupos mensais excedido.`);
       return res.status(403).json({
         error: `Limite de grupos únicos atingido (${currentLimits.maxGroups} grupos permitidos no plano ${userPlanId.toUpperCase()}).`,
@@ -3670,7 +3675,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     // 3. Validate Monthly Limit
     const currentMonth = new Date().getMonth();
     const sentThisMonth = userHistory.filter((h: any) => h && h.status === 'delivered' && new Date(h.timestamp).getMonth() === currentMonth).length;
-    if (sentThisMonth + incomingJids.length > currentLimits.maxMonthlySends) {
+    if (!bypassPlanLimits && sentThisMonth + incomingJids.length > currentLimits.maxMonthlySends) {
       console.log(`[VALIDATION] Falha: Limite mensal de envios excedido.`);
       return res.status(403).json({
         error: `Esta divulgação excederia seu limite mensal de ${currentLimits.maxMonthlySends} envios.`,
@@ -3870,6 +3875,7 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
     }
 
     const currentLimits = CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start;
+    const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
 
     if (!camp.active) {
       // Activating: validate limits
@@ -3885,7 +3891,7 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
       const reservedGroups = getUniqueGroupsInAutomations(clientCampaignsStore, id);
       const campJids = Array.isArray(camp.selectedGroupJids) ? camp.selectedGroupJids : [];
       const combined = new Set([...reservedGroups, ...campJids]);
-      if (combined.size > currentLimits.maxGroups) {
+      if (!bypassPlanLimits && combined.size > currentLimits.maxGroups) {
         return res.status(403).json({
           error: `Limite de grupos únicos atingido (${currentLimits.maxGroups}).`,
           code: 'LIMIT_GROUPS',
@@ -4344,9 +4350,10 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     });
   }
 
-  const currentLimits = CLIENT_PLAN_LIMITS[userPlanId];
+  const currentLimits = CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start;
+  const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
-  if (totalSentFromCampaigns + targets.length > currentLimits.maxMonthlySends) {
+  if (!bypassPlanLimits && totalSentFromCampaigns + targets.length > currentLimits.maxMonthlySends) {
     return res.status(403).json({
       success: false,
       error: `Você atingiu o limite de envios do seu plano (${currentLimits.maxMonthlySends} envios mensais). Faça um upgrade para continuar disparando.`,
