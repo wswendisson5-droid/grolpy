@@ -438,13 +438,15 @@ export async function setStaffStatus(id:number,status:string){
  const [rows]:any=await pool.execute("SELECT role FROM users WHERE id=? LIMIT 1",[id]); if(rows[0]?.role!=='manager') throw new Error('MANAGER_ONLY');
  await pool.execute("UPDATE users SET status=? WHERE id=?",[status,id]); return true;
 }
+export async function updateStaffUser(id:number,data:any){const [rows]:any=await pool.execute("SELECT role,name,email FROM users WHERE id=? LIMIT 1",[id]);const u=rows[0];if(u?.role!=='manager')throw new Error('MANAGER_ONLY');const name=String(data.name??u.name).trim(),email=String(data.email??u.email).trim().toLowerCase();if(!name||!email)throw new Error('INVALID_STAFF_DATA');if(data.password&&String(data.password).length<6)throw new Error('INVALID_PASSWORD');if(data.password)await pool.execute("UPDATE users SET name=?,email=?,password_hash=? WHERE id=?",[name,email,hashPassword(String(data.password)),id]);else await pool.execute("UPDATE users SET name=?,email=? WHERE id=?",[name,email,id]);return true;}
+export async function deleteStaffUser(id:number){const [rows]:any=await pool.execute("SELECT role FROM users WHERE id=? LIMIT 1",[id]);if(rows[0]?.role!=='manager')throw new Error('MANAGER_ONLY');await pool.execute("DELETE FROM users WHERE id=?",[id]);return true;}
 
 export async function loginUser(email:string,password:string){
   const normalizedEmail=String(email||"").trim().toLowerCase();
   const [rows]:any=await pool.execute("SELECT id,name,email,phone,password_hash,plan,status,role FROM users WHERE LOWER(TRIM(email))=? LIMIT 1",[normalizedEmail]);
   const u=rows[0]; if(!u||!verifyPassword(String(password),u.password_hash)) return null;
   const token=crypto.randomBytes(32).toString("hex"), tokenHash=crypto.createHash("sha256").update(token).digest("hex");
-  await pool.execute("INSERT INTO sessions(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(), INTERVAL 30 DAY))",[u.id,tokenHash]);
+  await pool.execute("INSERT INTO sessions(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(NOW(), INTERVAL 365 DAY))",[u.id,tokenHash]);
   delete u.password_hash; return {user:u,token};
 }
 export async function databaseHealth(){ const [r]:any=await pool.query("SELECT DATABASE() db, NOW() now"); return r[0]; }
@@ -1318,7 +1320,15 @@ export async function createRepresentative(name:string,email:string,password:str
   const normalized=email.trim().toLowerCase(),cleanSlug=slug.trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,""); if(!cleanSlug)throw new Error("SLUG_INVALID"); const passwordHash=hashPassword(password); const conn=await pool.getConnection();
   try{ await conn.beginTransaction(); const [existing]:any=await conn.execute("SELECT id FROM users WHERE email=? LIMIT 1",[normalized]); let userId=existing[0]?.id; if(userId) await conn.execute("UPDATE users SET name=?,password_hash=?,role='representative',status='active' WHERE id=?",[name.trim(),passwordHash,userId]); else { const [r]:any=await conn.execute("INSERT INTO users(name,email,phone,password_hash,role,status) VALUES(?,?,?,?,'representative','active')",[name.trim(),normalized,"",passwordHash]); userId=r.insertId; } await conn.execute(`INSERT INTO representatives(user_id,slug,commission_percent,is_active) VALUES(?,?,?,1) ON DUPLICATE KEY UPDATE slug=VALUES(slug),commission_percent=VALUES(commission_percent),is_active=1`,[userId,cleanSlug,commissionPercent]); await conn.commit(); return {userId,slug:cleanSlug}; }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }
-export async function updateRepresentative(id:number,commissionPercent:number,isActive:boolean){ await pool.execute("UPDATE representatives SET commission_percent=?,is_active=? WHERE id=?",[commissionPercent,isActive?1:0,id]); }
+export async function updateRepresentative(id:number,data:any){
+ const conn=await pool.getConnection(); try{await conn.beginTransaction();
+ const [rows]:any=await conn.execute("SELECT r.user_id AS userId,r.commission_percent AS commissionPercent,r.is_active AS isActive,r.slug,u.name,u.email FROM representatives r JOIN users u ON u.id=r.user_id WHERE r.id=? LIMIT 1",[id]); const rep=rows[0]; if(!rep)throw new Error("REPRESENTATIVE_NOT_FOUND");
+ const pct=data.commissionPercent===undefined?Number(rep.commissionPercent):Number(data.commissionPercent); const active=data.isActive===undefined?Boolean(rep.isActive):Boolean(data.isActive); const name=String(data.name??rep.name).trim(); const email=String(data.email??rep.email).trim().toLowerCase(); const slug=String(data.slug??rep.slug).trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-").replace(/^-+|-+$/g,""); if(!name||!email||!slug||!Number.isFinite(pct)||pct<0||pct>100)throw new Error("INVALID_REPRESENTATIVE_DATA");
+ if(data.password) await conn.execute("UPDATE users SET name=?,email=?,password_hash=? WHERE id=?",[name,email,hashPassword(String(data.password)),rep.userId]); else await conn.execute("UPDATE users SET name=?,email=? WHERE id=?",[name,email,rep.userId]);
+ await conn.execute("UPDATE representatives SET slug=?,commission_percent=?,is_active=? WHERE id=?",[slug,pct,active?1:0,id]); await conn.commit(); return true;
+ }catch(e){await conn.rollback();throw e;}finally{conn.release();}
+}
+export async function deleteRepresentative(id:number){const conn=await pool.getConnection();try{await conn.beginTransaction();const [rows]:any=await conn.execute("SELECT user_id AS userId FROM representatives WHERE id=? LIMIT 1",[id]);if(!rows[0])throw new Error("REPRESENTATIVE_NOT_FOUND");await conn.execute("DELETE FROM representatives WHERE id=?",[id]);await conn.execute("DELETE FROM users WHERE id=? AND role='representative'",[rows[0].userId]);await conn.commit();return true;}catch(e){await conn.rollback();throw e;}finally{conn.release();}}
 
 // CRM & RADAR PERSISTENCE
 // ----------------------------------------------------

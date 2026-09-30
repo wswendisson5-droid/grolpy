@@ -3,5 +3,6 @@ export const representativeService = {
   async dashboard(){ const r=await fetch('/api/representative/dashboard'); if(!r.ok) throw new Error('Falha ao carregar painel'); return (await r.json()).data; },
   async list(){ const r=await fetch('/api/admin/representatives'); if(!r.ok) throw new Error('Falha ao carregar representantes'); return (await r.json()).representatives||[]; },
   async create(data:any){ const r=await fetch('/api/admin/representatives',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||'Falha ao criar representante'); return j; },
-  async update(id:number,data:any){ const r=await fetch('/api/admin/representatives/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); if(!r.ok) throw new Error('Falha ao atualizar representante'); }
+  async update(id:number,data:any){ const r=await fetch('/api/admin/representatives/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||'Falha ao atualizar representante'); return j; },
+  async remove(id:number){ const r=await fetch('/api/admin/representatives/'+id,{method:'DELETE'}); const j=await r.json().catch(()=>({})); if(!r.ok) throw new Error(j.error||'Falha ao excluir representante'); return j; }
 };

@@ -60,7 +60,7 @@ import { sessionService } from './services/sessionService';
 
 export default function App() {
   const referralPath = window.location.pathname.match(/^\/representante(?:\/([a-zA-Z0-9_-]+))?\/?$/);
-  const [panelMode, setPanelMode] = useState<any>(referralPath ? 'referral-loading' : 'landing');
+  const [panelMode, setPanelMode] = useState<any>('referral-loading');
 
   const logout = async () => {
     await sessionService.logout();
@@ -103,8 +103,9 @@ export default function App() {
       } catch (err: any) {
         if (!alive) return;
         if (err?.status === 401) sessionService.clear();
-        // Never block the application shell because account/status is slow or unavailable.
-        setPanelMode('landing');
+        // Only an invalid/absent session goes to the public landing page.
+        // Transient status failures never erase a valid local session.
+        setPanelMode(sessionService.getUser() ? 'client' : 'landing');
       }
     })();
     return () => { alive = false; };
@@ -407,7 +408,8 @@ export default function App() {
   if (panelMode === 'login') {
     return (
       <LoginPage
-        onLoginSuccess={async () => {
+        onLoginSuccess={async (loginUser) => {
+          sessionService.setUser(loginUser || null);
           try {
             const d = await sessionService.status();
             if (d?.user?.role === 'representative') {
@@ -426,8 +428,12 @@ export default function App() {
             }
             setPanelMode(d?.access ? 'client' : (d?.subscription ? 'public-checkout' : 'public-plans'));
           } catch {
-            sessionService.clear();
-            setPanelMode('login');
+            // The login endpoint already authenticated and persisted the cookie.
+            // Do not throw the user back to login just because the optional status request is slow.
+            if (loginUser?.role === 'admin') { setCurrentTab('radar'); setPanelMode('admin'); }
+            else if (loginUser?.role === 'manager') { setCurrentTab('gerente'); setPanelMode('manager'); }
+            else if (loginUser?.role === 'representative') setPanelMode('representative');
+            else setPanelMode('client');
           }
         }}
         onNavigateRegister={() => setPanelMode('public-plans')}

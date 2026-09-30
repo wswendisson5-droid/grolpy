@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, ArrowRight, CheckCircle2, ShieldCheck, Zap, Sparkles } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 
 interface LoginPageProps {
-  onLoginSuccess: () => void;
+  onLoginSuccess: (user?: any) => void;
   onNavigateRegister: () => void;
   onNavigateHome?: () => void;
 }
@@ -29,7 +29,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     setIsLoading(true);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     try {
       const response = await fetch('/api/auth/login', {
@@ -53,7 +53,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         throw new Error(data.error || 'E-mail ou senha incorretos.');
       }
 
-      await Promise.resolve(onLoginSuccess());
+      await Promise.resolve(onLoginSuccess(data.user));
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
@@ -114,38 +114,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               Automatize o envio de mensagens em grupos do WhatsApp de forma simples, segura e eficiente.
             </p>
 
-            {/* Value Props Badges */}
-            <div className="space-y-3.5 max-w-md">
-              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/70 border border-[#e1eae4] shadow-2xs backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-xl bg-[#e8f7ee] text-[#00c968] flex items-center justify-center shrink-0">
-                  <Zap size={17} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-[#0e261f]">Disparos Rápidos e Automatizados</p>
-                  <p className="text-[11px] text-[#697e72]">Divulgue em dezenas de grupos simultaneamente</p>
-                </div>
-              </div>
 
-              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/70 border border-[#e1eae4] shadow-2xs backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-xl bg-[#e8f7ee] text-[#00c968] flex items-center justify-center shrink-0">
-                  <ShieldCheck size={17} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-[#0e261f]">Intervalos Inteligentes Anti-Bloqueio</p>
-                  <p className="text-[11px] text-[#697e72]">Envios humanizados que protegem seu WhatsApp</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/70 border border-[#e1eae4] shadow-2xs backdrop-blur-xs">
-                <div className="w-8 h-8 rounded-xl bg-[#e8f7ee] text-[#00c968] flex items-center justify-center shrink-0">
-                  <Sparkles size={17} />
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-[#0e261f]">Sincronização Direta de Grupos</p>
-                  <p className="text-[11px] text-[#697e72]">Seus grupos reais sempre atualizados no painel</p>
-                </div>
-              </div>
-            </div>
           </div>
 
           {/* Right Column: Authentication Card */}

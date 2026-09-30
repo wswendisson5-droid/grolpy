@@ -565,7 +565,7 @@ function setReferralCookie(res:any,slug:string){
 
 function setSessionCookie(res: any, token: string) {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  res.setHeader("Set-Cookie", `grolpy_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);
+  res.setHeader("Set-Cookie", `grolpy_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secure}`);
 }
 
 function clearSessionCookie(res: any) {
@@ -631,7 +631,8 @@ app.post("/api/admin/representatives",requireAdminRoute,async(req,res)=>{
     const db:any=await getDatabase(); const created=await db.createRepresentative(String(name),String(email),String(password),String(slug),pct); res.status(201).json({success:true,...created});
   }catch(e:any){res.status(e?.code==="ER_DUP_ENTRY"?409:500).json({error:e?.code==="ER_DUP_ENTRY"?"E-mail ou link já utilizado":e?.message||"CREATE_REP_FAILED"});}
 });
-app.patch("/api/admin/representatives/:id",requireAdminRoute,async(req,res)=>{const pct=Number(req.body?.commissionPercent);if(!Number.isFinite(pct)||pct<0||pct>100)return res.status(400).json({error:"Porcentagem inválida"});const db:any=await getDatabase();await db.updateRepresentative(Number(req.params.id),pct,req.body?.isActive!==false);res.json({success:true});});
+app.patch("/api/admin/representatives/:id",requireAdminRoute,async(req,res)=>{try{const db:any=await getDatabase();await db.updateRepresentative(Number(req.params.id),req.body||{});res.json({success:true});}catch(e:any){res.status(400).json({error:e?.message||"UPDATE_REP_FAILED"});}});
+app.delete("/api/admin/representatives/:id",requireAdminRoute,async(req,res)=>{try{const db:any=await getDatabase();await db.deleteRepresentative(Number(req.params.id));res.json({success:true});}catch(e:any){res.status(400).json({error:e?.message||"DELETE_REP_FAILED"});}});
 
 
 async function syncUserToWazzo(payload: {name:string;email:string;phone?:string;password?:string;subscriptionActive?:boolean}) {
@@ -805,6 +806,8 @@ app.post("/api/admin/test-subscriber", async (req, res) => {
 app.get("/api/admin/staff", async (req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});const db:any=await getDatabase();res.json({success:true,staff:await db.listStaffUsers()});});
 app.post("/api/admin/staff", async (req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const {name,email,password,role='manager'}=req.body||{};const db:any=await getDatabase();const staff=await db.createStaffUser(String(name||''),String(email||''),String(password||''),String(role));res.status(201).json({success:true,staff});}catch(e:any){res.status(e?.code==='ER_DUP_ENTRY'?409:400).json({error:e?.code==='ER_DUP_ENTRY'?'Este e-mail já está em uso.':'Não foi possível criar o acesso.'});}});
 app.patch("/api/admin/staff/:id/status",async(req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const db:any=await getDatabase();await db.setStaffStatus(Number(req.params.id),String(req.body?.status||''));res.json({success:true});}catch{res.status(400).json({error:'Não foi possível alterar o acesso.'});}});
+app.patch("/api/admin/staff/:id",async(req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const db:any=await getDatabase();await db.updateStaffUser(Number(req.params.id),req.body||{});res.json({success:true});}catch(e:any){res.status(e?.code==='ER_DUP_ENTRY'?409:400).json({error:e?.code==='ER_DUP_ENTRY'?'Este e-mail já está em uso.':'Não foi possível editar o gerente.'});}});
+app.delete("/api/admin/staff/:id",async(req,res)=>{const user:any=await authenticatedUser(req);if(!user||user.role!=='admin')return res.status(403).json({error:'ADMIN_REQUIRED'});try{const db:any=await getDatabase();await db.deleteStaffUser(Number(req.params.id));res.json({success:true});}catch{res.status(400).json({error:'Não foi possível excluir o gerente.'});}});
 
 app.get("/api/admin/subscriptions", async (req, res) => {
   const admin = await requireAdmin(req);
@@ -3303,10 +3306,10 @@ app.get("/api/account/status", async (req, res) => {
     const user: any = await authenticatedUser(req);
     if (!user) return res.status(401).json({ success: false, error: "Sessão inválida." });
     const db: any = await getDatabase();
-    const [subscription, instance] = await Promise.all([
-      db.getSubscriptionForUser(user.id),
-      db.getUserInstance(user.id),
-    ]);
+    const subscription = await db.getSubscriptionForUser(user.id);
+    // WhatsApp/Evolution state is intentionally not part of session validation.
+    // It is loaded by the client panel only when needed, so login stays fast.
+    const instance = null;
     const isAdmin = user.role === "admin";
     const hasActiveSubscription = String(subscription?.status || "").toLowerCase() === "active";
     res.json({
