@@ -13,7 +13,6 @@ import {
   Phone,
   Copy,
   Check,
-  Sparkles,
 } from 'lucide-react';
 import { clientService } from '../../../services/clientService';
 import { SafeAvatar } from '../../common/SafeAvatar';
@@ -498,17 +497,16 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 <button
                   onClick={generatePairingCode}
                   disabled={isGenerating || !phoneNumber}
-                  className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-[#109353] hover:bg-[#0c7a44] active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-60"
+                  className="w-full sm:w-auto sm:min-w-48 sm:self-center inline-flex min-h-11 items-center justify-center px-5 py-2.5 bg-[#109353] hover:bg-[#0c7a44] active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-60"
                 >
                   {isGenerating ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Gerando Código de Pareamento...</span>
+                      <span>Gerando...</span>
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-5 h-5" />
-                      <span>Gerar Código de Conexão</span>
+                      <span>Gerar Código</span>
                     </>
                   )}
                 </button>
