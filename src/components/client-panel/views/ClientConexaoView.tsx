@@ -64,11 +64,15 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     if (phoneError) setPhoneError('');
   };
 
-  const handleSetQrCode = useCallback(async (codeData: any) => {
+  const handleSetQrCode = useCallback(async (codeData: any, method: 'qr' | 'number' = activeMethod) => {
     if (!codeData) return;
-    if (codeData.pairingCode) {
-      setPairingCode(codeData.pairingCode);
+    if (method === 'number') {
+      const code = codeData.pairingCode || ((typeof codeData.code === 'string' && codeData.code.length <= 15) ? codeData.code : null);
+      if (code) setPairingCode(code);
+      setQrCode(null);
+      return;
     }
+    setPairingCode(null);
     if (codeData.base64 && codeData.base64.startsWith('data:image')) {
       setQrCode(codeData.base64);
     } else if (codeData.base64) {
@@ -89,7 +93,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         setPairingCode(codeData.code);
       }
     }
-  }, []);
+  }, [activeMethod]);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -112,7 +116,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
       } else if (isWaitingQrRef.current && data.qrCode) {
         setStatus('waiting_qr');
-        await handleSetQrCode(data.qrCode);
+        await handleSetQrCode(data.qrCode, activeMethod);
       } else if (!isWaitingQrRef.current) {
         setStatus('disconnected');
         setProfile(null);
@@ -204,6 +208,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         return;
       }
 
+      setActiveMethod('number');
+      setQrCode(null);
       setStatus('waiting_qr');
       if (data.pairingCode || data.code) {
         setPairingCode(data.pairingCode || data.code);
@@ -280,7 +286,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             return;
           }
           if (isWaitingQrRef.current && data.qrCode) {
-            await handleSetQrCode(data.qrCode);
+            await handleSetQrCode(data.qrCode, activeMethod);
             setStatus('waiting_qr');
             if (data.qrCode.pairingCode && !data.qrCode.base64) {
               setActiveMethod('number');
@@ -462,7 +468,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   </label>
                   <div className="relative flex items-center">
                     <div className="absolute left-3.5 flex items-center gap-1 text-xs font-bold text-[#109353] bg-[#e8f6ee] px-2 py-1 rounded-md border border-[#c4e8d3]">
-                      �x!��x!� +55
+                      BR +55
                     </div>
                     <input
                       type="text"
@@ -582,7 +588,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       <div>
                         <p className="font-semibold text-sm text-[#11241c]">Acesse os Aparelhos Conectados</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque no menu <span className="font-bold text-[#11241c]">�9�</span> (Android) ou em <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) e selecione <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
+                          Toque no menu <span className="font-bold text-[#11241c]">três pontos (⋮)</span> (Android) ou em <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) e selecione <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
                         </p>
                       </div>
                     </div>
@@ -710,7 +716,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       <div>
                         <p className="font-semibold text-sm text-[#11241c]">Acesse Aparelhos Conectados</p>
                         <p className="text-xs text-[#5b6e63] mt-0.5">
-                          Toque no menu <span className="font-bold text-[#11241c]">�9�</span> (Android) ou <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) &gt; <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
+                          Toque no menu <span className="font-bold text-[#11241c]">três pontos (⋮)</span> (Android) ou <span className="font-bold text-[#11241c]">Configurações</span> (iPhone) &gt; <span className="font-bold text-[#11241c]">Aparelhos conectados</span>.
                         </p>
                       </div>
                     </div>

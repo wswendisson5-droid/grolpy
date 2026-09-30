@@ -55,6 +55,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
   whatsappIsConnected,
 }) => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const isInternal = ['manager', 'admin'].includes(sessionService.getUser()?.role || '');
   const [currentPlan, setCurrentPlan] = useState(planService.getCurrentPlan());
   const [subscription, setSubscription] = useState(planService.getSubscription());
 
@@ -171,7 +172,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
           {/* Card 1: Dynamic Subscription Box */}
           <div
             id="client-plan-box"
-            className={`p-3.5 rounded-2xl border shadow-2xs flex flex-col gap-2 ${
+            className={`${isInternal ? 'hidden' : ''} p-3.5 rounded-2xl border shadow-2xs flex flex-col gap-2 ${
               subscription.status === 'active' && subscription.planId
                 ? 'bg-[#fffdf5] border-[#fef3c7]'
                 : 'bg-[#fef8f8] border-[#fee2e2]'
@@ -262,9 +263,11 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
             if (sessionUser) loggedUser = { ...loggedUser, ...sessionUser };
 
             const displayName = whatsappProfileName || loggedUser.name || 'Cliente';
-            const displaySubtitle = whatsappIsConnected
-              ? (whatsappPhoneNumber || 'WhatsApp Conectado')
-              : (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano');
+            const displaySubtitle = isInternal
+              ? (loggedUser.role === 'manager' ? 'Gerente' : 'Administrador')
+              : whatsappIsConnected
+                ? (whatsappPhoneNumber || 'WhatsApp Conectado')
+                : (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano');
 
             return (
               <div className="relative">

@@ -45,6 +45,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const [hasUnreadNotification, setHasUnreadNotification] = useState(true);
 
   const loggedUser = sessionService.getUser() || { name: 'Minha Empresa', email: '' };
+  const isInternal = loggedUser.role === 'manager' || loggedUser.role === 'admin';
 
   const displayName = whatsappProfileName || loggedUser.name || 'Minha Conta';
 
@@ -108,7 +109,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 ml-auto shrink-0">
         {/* Compact Plan Usage Metric Widget in Navbar */}
-        <div className="relative shrink-0">
+        <div className={`relative shrink-0 ${isInternal ? 'hidden' : ''}`}>
           <button
             id="navbar-plan-usage-badge"
             onClick={() => setIsPlanUsageDropdownOpen(!isPlanUsageDropdownOpen)}
