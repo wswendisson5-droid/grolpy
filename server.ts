@@ -1518,21 +1518,43 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
     // GET /instance/connect/{instance}?number={cleanPhone}
     let connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
 
+    // Evolution variants differ: newer builds expose a dedicated pairing endpoint.
+    // Try it before recreating the instance so an existing session can pair by phone.
+    if (connectRes.ok && !connectRes.data?.pairingCode && !connectRes.data?.code) {
+      const pairRes = await callEvolution(`/instance/pair/${instance}`, {
+        method: "POST",
+        body: JSON.stringify({ phone: cleanPhone, number: cleanPhone }),
+      }, 8000, 0);
+      if (pairRes.ok && pairRes.data) {
+        const pairData = pairRes.data?.data || pairRes.data;
+        const dedicatedCode = pairData?.pairingCode || pairData?.PairingCode || pairData?.code;
+        if (dedicatedCode) connectRes = { ok: true, status: pairRes.status, data: { pairingCode: dedicatedCode } };
+      }
+    }
+
     // If 404, instance does not exist on Evolution server -> proactively create it
     if (!connectRes.ok && connectRes.status === 404) {
       const createRes = await callEvolution(
         "/instance/create",
         {
           method: "POST",
-          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
+          body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true, number: cleanPhone }),
         },
         8000,
         0
       );
 
       if (createRes.ok) {
-        await sleep(800);
-        connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
+        // Evolution 2.x can generate a valid pairing code only when the phone is present
+        // during instance creation. Accept it immediately when returned.
+        const createdData = createRes.data?.instance || createRes.data;
+        const createdCode = createRes.data?.pairingCode || createRes.data?.qrcode?.pairingCode || createdData?.pairingCode;
+        if (createdCode) {
+          connectRes = { ok: true, status: 200, data: { pairingCode: createdCode } };
+        } else {
+          await sleep(800);
+          connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
+        }
       }
     }
 
