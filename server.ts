@@ -601,15 +601,17 @@ async function ownedInstance(req: any, requireActive = true, createIfMissing = t
   const user: any = await authenticatedUser(req);
   if (!user) return { error: "UNAUTHORIZED" };
   const isAdmin = user.role === "admin";
+  const isManager = user.role === "manager";
+  const hasInternalAccess = isAdmin || isManager;
   const db: any = await getDatabase();
   const sub = await db.getSubscriptionForUser(user.id).catch(() => null);
   // Account activation is not proof of payment. Some legacy accounts are
   // marked active even though they never received a subscription row.
   const isPaidActive = String(sub?.status || "").toLowerCase() === "active";
-  if (requireActive && !isAdmin && !isPaidActive) return { error: "PAYMENT_REQUIRED", user, db };
+  if (requireActive && !hasInternalAccess && !isPaidActive) return { error: "PAYMENT_REQUIRED", user, db };
   const inst = createIfMissing ? await db.ensureUserInstance(user.id) : await db.getUserInstance(user.id);
   if (!inst) return { error: "INSTANCE_NOT_FOUND", user, db };
-  return { user, db, instance: inst.instance_name, record: inst, isAdmin };
+  return { user, db, instance: inst.instance_name, record: inst, isAdmin, isManager, hasInternalAccess };
 }
 
 // Representative referral tracking and dashboards.
@@ -3880,7 +3882,7 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
     if (!camp.active) {
       // Activating: validate limits
       const activeCount = clientCampaignsStore.filter((c) => c.active && c.id !== id && c.status !== 'concluida').length;
-      if (activeCount >= currentLimits.maxActiveCampaigns) {
+      if (!bypassPlanLimits && activeCount >= currentLimits.maxActiveCampaigns) {
         return res.status(403).json({
           error: `Você atingiu o limite de ${currentLimits.maxActiveCampaigns} divulgações ativas do seu plano.`,
           code: 'LIMIT_ACTIVE_CAMPAIGNS',
@@ -4520,8 +4522,8 @@ setInterval(async () => {
         db.getUserById(userId).catch(() => null),
         db.getSubscriptionForUser(userId).catch(() => null),
       ]);
-      const schedulerIsAdmin = schedulerUser?.role === "admin";
-      const schedulerHasAccess = schedulerIsAdmin || String(schedulerSubscription?.status || "").toLowerCase() === "active";
+      const schedulerIsInternal = schedulerUser?.role === "admin" || schedulerUser?.role === "manager";
+      const schedulerHasAccess = schedulerIsInternal || String(schedulerSubscription?.status || "").toLowerCase() === "active";
       if (!schedulerHasAccess) {
         camp.status = 'pausada';
         camp.active = false;
