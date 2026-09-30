@@ -210,9 +210,14 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
       setActiveMethod('number');
       setQrCode(null);
-      setStatus('waiting_qr');
       if (data.pairingCode || data.code) {
         setPairingCode(data.pairingCode || data.code);
+        setStatus('waiting_qr');
+      } else {
+        isWaitingQrRef.current = false;
+        setPairingCode(null);
+        setErrorMessage(data.error || 'O WhatsApp não retornou o código de 8 dígitos. Gere um novo código.');
+        setStatus('error');
       }
     } catch (e: any) {
       console.error('[ClientConexao] Pairing code request:', e);

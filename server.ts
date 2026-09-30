@@ -1538,6 +1538,14 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
 
     let pairingCode: string | undefined = undefined;
 
+    if (!connectRes.ok && connectRes.status !== 404) {
+      const evolutionMessage = connectRes.data?.message || connectRes.data?.error;
+      console.error('[Evolution pairing-code] connect failed', instance, connectRes.status, evolutionMessage || connectRes.data);
+      return res.status(connectRes.status >= 400 && connectRes.status < 500 ? 502 : connectRes.status).json({
+        error: evolutionMessage || 'A Evolution não conseguiu gerar o código de pareamento. Tente novamente.',
+      });
+    }
+
     if (connectRes.ok && connectRes.data) {
       const norm = await normalizeQrCode(connectRes.data);
       pairingCode = norm?.pairingCode || connectRes.data?.pairingCode || connectRes.data?.code;
@@ -1589,15 +1597,15 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
       });
     }
 
-    currentInst.state = "waiting_qr";
-    return res.json({
-      success: true,
-      pending: true,
+    currentInst.state = "disconnected";
+    currentInst.qrCode = undefined;
+    currentInst.lastError = "A Evolution não retornou o código de pareamento.";
+    return res.status(504).json({
+      success: false,
       instanceName: instance,
       phone: cleanPhone,
-      pairingCode: currentInst.qrCode?.pairingCode || null,
-      state: "waiting_qr",
-      message: "Solicitando código de pareamento à Evolution API. Aguarde...",
+      state: "disconnected",
+      error: "O WhatsApp não retornou o código de 8 dígitos. Toque em Gerar Novo Código e tente novamente.",
     });
   } catch (err: any) {
     console.error("[Evolution pairing-code]", instance, err?.message || err);
