@@ -324,23 +324,23 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     const part2 = clean.slice(4, 8);
 
     return (
-      <div className="flex items-center justify-center gap-2 sm:gap-3 select-all">
+      <div className="flex items-center justify-center gap-1.5 sm:gap-2 select-all w-full max-w-full">
         <div className="flex items-center gap-1 sm:gap-1.5">
           {part1.split('').map((char, i) => (
             <span
               key={`p1-${i}`}
-              className="w-10 h-13 sm:w-12 sm:h-15 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-xl font-mono text-2xl sm:text-3xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-8 h-10 min-[380px]:w-9 min-[380px]:h-11 sm:w-11 sm:h-13 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-lg min-[380px]:text-xl sm:text-2xl font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>
           ))}
         </div>
-        <span className="text-xl sm:text-2xl font-bold text-[#8c9e94] px-0.5 sm:px-1">-</span>
+        <span className="text-base sm:text-xl font-bold text-[#8c9e94]">-</span>
         <div className="flex items-center gap-1 sm:gap-1.5">
           {part2.split('').map((char, i) => (
             <span
               key={`p2-${i}`}
-              className="w-10 h-13 sm:w-12 sm:h-15 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-xl font-mono text-2xl sm:text-3xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-8 h-10 min-[380px]:w-9 min-[380px]:h-11 sm:w-11 sm:h-13 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-lg min-[380px]:text-xl sm:text-2xl font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>
@@ -625,7 +625,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
                 {/* Left: Pairing Code Display & Copy Action */}
                 <div className="lg:col-span-6 flex flex-col items-center justify-center text-center">
-                  <div className="w-full max-w-sm p-6 bg-[#fbfdfc] rounded-3xl border-2 border-[#109353]/25 shadow-[0_4px_24px_rgba(16,147,83,0.06)] flex flex-col items-center">
+                  <div className="w-full max-w-sm px-3 py-5 sm:p-6 bg-[#fbfdfc] rounded-3xl border-2 border-[#109353]/25 shadow-[0_4px_24px_rgba(16,147,83,0.06)] flex flex-col items-center overflow-hidden">
                     <span className="text-xs font-extrabold text-[#109353] uppercase tracking-wider mb-2">
                       Código de Pareamento
                     </span>
@@ -670,14 +670,13 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                   </div>
 
                   {/* Action Buttons below Code */}
-                  <div className="mt-5 flex items-center gap-3 w-full max-w-sm">
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:gap-3 w-full max-w-sm">
                     <button
                       onClick={generatePairingCode}
                       disabled={isGenerating}
-                      className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#f0f4f1] hover:bg-[#e4ede8] active:scale-[0.98] text-[#11241c] text-xs font-bold rounded-xl border border-[#d8e3dd] transition-all cursor-pointer disabled:opacity-60"
+                      className="inline-flex min-h-11 items-center justify-center px-3 py-2.5 bg-[#f0f4f1] hover:bg-[#e4ede8] active:scale-[0.98] text-[#11241c] text-xs sm:text-sm font-bold rounded-xl border border-[#d8e3dd] transition-all cursor-pointer disabled:opacity-60 whitespace-nowrap"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 text-[#109353] ${isGenerating ? 'animate-spin' : ''}`} />
-                      <span>Gerar Novo Código</span>
+                      <span>{isGenerating ? 'Gerando...' : 'Gerar Código'}</span>
                     </button>
 
                     <button
