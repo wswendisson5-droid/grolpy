@@ -206,15 +206,15 @@ export async function initDatabase() {
 
       await c.query(`INSERT INTO plans (id, name, tagline, price_formatted, monthly_price, max_groups, max_rounds_per_day, max_monthly_sends, max_active_campaigns, history_days, support_type, is_active)
       VALUES
-        ('start', 'Start', 'Comece a divulgar', '39,90', 39.90, 20, 1, 600, 2, 7, 'E-mail', 1),
-        ('pro', 'Pro', 'Mais resultados', '69,90', 69.90, 45, 2, 2700, 5, 30, 'Prioritário', 1),
-        ('max', 'Max', 'Sem limites para crescer', '119,90', 119.90, 90, 3, 8100, 10, 90, 'VIP', 1)
+        ('start', 'Groply', 'Assinatura mensal', '14,90', 14.90, 999999, 999999, 999999, 999999, 3650, 'E-mail', 1),
+        ('pro', 'Pro legado', 'Plano descontinuado', '14,90', 14.90, 999999, 999999, 999999, 999999, 3650, 'E-mail', 0),
+        ('max', 'Max legado', 'Plano descontinuado', '14,90', 14.90, 999999, 999999, 999999, 999999, 3650, 'E-mail', 0)
       ON DUPLICATE KEY UPDATE
         name=VALUES(name), tagline=VALUES(tagline), price_formatted=VALUES(price_formatted),
         monthly_price=VALUES(monthly_price), max_groups=VALUES(max_groups),
         max_rounds_per_day=VALUES(max_rounds_per_day), max_monthly_sends=VALUES(max_monthly_sends),
         max_active_campaigns=VALUES(max_active_campaigns), history_days=VALUES(history_days),
-        support_type=VALUES(support_type)`);
+        support_type=VALUES(support_type), is_active=VALUES(is_active)`);
 
       await c.query(`CREATE TABLE IF NOT EXISTS invoices (
         id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

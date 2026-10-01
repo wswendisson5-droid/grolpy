@@ -35,7 +35,7 @@ interface ClientPanelProps {
 export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [currentTab, setCurrentTab] = useState<ClientTab>('inicio');
   useEffect(()=>{ setCurrentTab('inicio'); },[]);
-  const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId>('pro');
+  const [checkoutPlanId, setCheckoutPlanId] = useState<PlanId>('start');
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [editingCampaign, setEditingCampaign] = useState<DivulgacaoCard | null>(null);
@@ -641,7 +641,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         onClose={() => setIsPlanoModalOpen(false)}
         onUpgrade={() => {
           setIsPlanoModalOpen(false);
-          setCheckoutPlanId('max');
+          setCheckoutPlanId('start');
           setCurrentTab('checkout');
         }}
       />

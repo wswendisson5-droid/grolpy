@@ -3270,9 +3270,7 @@ app.get("/api/client/plans", async (_req, res) => {
     res.json({
       success: true,
       plans: [
-        { id: "start", name: "Start", priceFormatted: "39,90", monthlyPrice: 39.90, maxGroups: 20, maxRoundsPerDay: 1, maxMonthlySends: 600, maxActiveCampaigns: 2, historyDays: 7, supportType: "E-mail" },
-        { id: "pro", name: "Pro", priceFormatted: "69,90", monthlyPrice: 69.90, maxGroups: 45, maxRoundsPerDay: 2, maxMonthlySends: 2700, maxActiveCampaigns: 5, historyDays: 30, supportType: "Prioritário" },
-        { id: "max", name: "Max", priceFormatted: "119,90", monthlyPrice: 119.90, maxGroups: 90, maxRoundsPerDay: 3, maxMonthlySends: 8100, maxActiveCampaigns: 10, historyDays: 90, supportType: "VIP" },
+        { id: "start", name: "Groply", priceFormatted: "14,90", monthlyPrice: 14.90, maxGroups: 999999, maxRoundsPerDay: 999999, maxMonthlySends: 999999, maxActiveCampaigns: 999999, historyDays: 3650, supportType: "E-mail" },
       ],
     });
   }
@@ -3408,22 +3406,51 @@ app.post("/api/client/checkout/create", async (req, res) => {
     const user: any = await authenticatedUser(req);
     const db: any = await getDatabase();
     const { planId, billingType, customer, creditCard } = req.body;
-    const planPrices: Record<string, number> = {
-      start: 39.9,
-      pro: 69.9,
-      max: 119.9,
-    };
-    const planNames: Record<string, string> = {
-      start: "Start",
-      pro: "Pro",
-      max: "Max",
-    };
+    const planPrices: Record<string, number> = { start: 14.9 };
+    const planNames: Record<string, string> = { start: "Groply" };
 
-    const targetPlan = (planId === "start" || planId === "max" ? planId : "pro") as "start" | "pro" | "max";
+    const targetPlan = "start" as const;
+
+    if ((billingType || "PIX") === "PIX") {
+      if (!user?.id) return res.status(401).json({ success: false, error: "Faça login para continuar." });
+      const qr = await asaasEngine.createStaticPixQr({
+        value: 14.9,
+        externalReference: `groply:user:${user.id}:checkout:${Date.now()}`,
+      });
+      const checkoutId = `qr:${qr.id}`;
+      await db.createInvoice(user.id, {
+        paymentId: checkoutId,
+        planId: targetPlan,
+        billingType: "PIX",
+        value: 14.9,
+        status: "PENDING",
+        pixPayload: qr.payload,
+        pixImageUrl: qr.encodedImage,
+        gateway: "ASAAS",
+        payloadJson: { staticQrId: qr.id, expirationDate: qr.expirationDate },
+      });
+      await db.upsertSubscription(user.id, targetPlan, {
+        status: "pending",
+        paymentId: checkoutId,
+        nextDueDate: new Date().toISOString().slice(0, 10),
+      });
+      return res.json({
+        success: true,
+        payment: {
+          id: checkoutId, status: "PENDING", billingType: "PIX", value: 14.9,
+          planId: targetPlan, planName: "Groply",
+          customer: { name: user.name || "", email: user.email || "", phone: user.phone || "" },
+          dueDate: new Date().toISOString().slice(0, 10),
+          pix: { payload: qr.payload, encodedImage: qr.encodedImage, expirationDate: qr.expirationDate },
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+
     const payment = await asaasEngine.createPayment({
       planId: targetPlan,
-      planName: planNames[targetPlan] || "Pro",
-      value: planPrices[targetPlan] || 69.9,
+      planName: "Groply",
+      value: 14.9,
       billingType: billingType || "PIX",
       customer: customer || {
         name: user?.name || "Cliente",
@@ -3488,7 +3515,7 @@ app.get("/api/client/checkout/status/:id", async (req, res) => {
         value: Number(inv.value),
         netValue: inv.net_value ? Number(inv.net_value) : undefined,
         planId: inv.plan_id,
-        planName: inv.plan_id === "max" ? "Max" : (inv.plan_id === "start" ? "Start" : "Pro"),
+        planName: "Groply",
         customer: {
           name: inv.userName || "Cliente",
           email: inv.userEmail || "",
@@ -3521,6 +3548,15 @@ app.post("/api/webhook/asaas", async (req, res) => {
 
       if (event === "PAYMENT_RECEIVED" || event === "PAYMENT_CONFIRMED") {
         asaasEngine.confirmPayment(paymentId);
+        const staticQrId = payment?.pixQrCodeId;
+        if (staticQrId) {
+          const staticCheckoutId = `qr:${staticQrId}`;
+          const matched = await db.getInvoiceByPaymentId(staticCheckoutId);
+          if (matched) {
+            await db.confirmInvoicePayment(staticCheckoutId, event, payment);
+            console.log("[Asaas Webhook] Static Pix activated user", matched.user_id, staticQrId);
+          }
+        }
         await db.confirmInvoicePayment(paymentId, event, payment);
       }
     }

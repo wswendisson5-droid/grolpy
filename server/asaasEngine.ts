@@ -185,7 +185,8 @@ class AsaasEngine {
         }
 
         if (!customerId) {
-          const cleanCpfCnpj = (params.customer.cpfCnpj || FIXED_PIX_DATA.rawCpf).replace(/\D/g, "");
+          const cleanCpfCnpj = (params.customer.cpfCnpj || "").replace(/\D/g, "");
+          if (!cleanCpfCnpj) throw new Error("CPF/CNPJ do pagador é exigido pelo Asaas para cartão e boleto.");
           const cleanPhone = (params.customer.phone || "27996599231").replace(/\D/g, "");
 
           const custPayload: any = {
@@ -232,7 +233,7 @@ class AsaasEngine {
             payload.creditCardHolderInfo = {
               name: params.customer.name || FIXED_PIX_DATA.name,
               email: params.customer.email || "daianewendisson@gmail.com",
-              cpfCnpj: (params.customer.cpfCnpj || FIXED_PIX_DATA.rawCpf).replace(/\D/g, ""),
+              cpfCnpj: cleanCpfCnpj,
               postalCode: "29160-000",
               addressNumber: "100",
               phone: (params.customer.phone || "27996599231").replace(/\D/g, ""),
@@ -368,6 +369,35 @@ class AsaasEngine {
     const payment=pj?.data?.[0]; if(!payment?.id) throw new Error("Cobrança inicial da assinatura não encontrada.");
     const qr=await fetch(`${this.getBaseUrl()}/payments/${payment.id}/pixQrCode`,{headers:this.getHeaders()}); const q:any=await qr.json();
     return {customerId,subscriptionId:sub.id,paymentId:payment.id,nextDueDate:sub.nextDueDate||nextDueDate,status:payment.status,pix:{payload:q.payload,encodedImage:q.encodedImage,expirationDate:q.expirationDate}};
+  }
+
+  async createStaticPixQr(params: { value: number; externalReference: string }) {
+    const apiKey = this.getApiKey();
+    if (!apiKey) throw new Error("ASAAS_API_KEY não configurada.");
+    const addressKey = String(process.env.ASAAS_PIX_KEY || FIXED_PIX_DATA.rawCpf || "").trim();
+    if (!addressKey) throw new Error("Configure ASAAS_PIX_KEY para gerar o Pix estático.");
+    const response = await fetch(`${this.getBaseUrl()}/pix/qrCodes/static`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({
+        addressKey,
+        description: "Assinatura Groply",
+        value: params.value,
+        format: "ALL",
+        allowsMultiplePayments: false,
+        expirationSeconds: 1800,
+        externalReference: params.externalReference,
+      }),
+    });
+    const data: any = await response.json();
+    if (!response.ok || !data?.id || !data?.payload) {
+      throw new Error(data?.errors?.map((x:any)=>x.description).join(", ") || "Falha ao gerar QR Code Pix no Asaas.");
+    }
+    const rawImage = data.encodedImage || data.image || "";
+    const encodedImage = rawImage
+      ? (rawImage.startsWith("data:image") ? rawImage : `data:image/png;base64,${rawImage}`)
+      : await QRCode.toDataURL(data.payload, { width: 320, margin: 1 });
+    return { id: data.id, payload: data.payload, encodedImage, expirationDate: data.expirationDate || null };
   }
 
   getPayment(paymentId: string): AsaasPaymentResult | undefined {
