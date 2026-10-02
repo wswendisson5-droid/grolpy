@@ -1861,11 +1861,37 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
           console.warn(`[Webhook] Error auto-syncing on connect:`, err?.message || err);
         }
       })();
-    } else if (rawState === "close") {
+    } else if (rawState === "close" || rawState === "closed" || rawState === "disconnected") {
       targetCache.state = "disconnected";
+      targetCache.qrCode = undefined;
+      targetCache.connectedProfile = undefined;
+      cachedGroupsByInstance.delete(instanceName);
+      clientImportedGroupsStore.delete(instanceName);
+      groupSyncBlockedUntil.delete(instanceName);
       if (instanceName === DEFAULT_INSTANCE_NAME) {
         memoryState.state = "disconnected";
+        memoryState.qrCode = undefined;
+        memoryState.connectedProfile = undefined;
       }
+
+      // A logout made on the phone is authoritative too. Clear the tenant
+      // snapshot immediately so the Groply UI never keeps a ghost connection.
+      (async () => {
+        try {
+          const db: any = await getDatabase().catch(() => null);
+          if (!db) return;
+          const user = await db.getUserByInstance(instanceName).catch(() => null);
+          const match = instanceName.match(/^grolpy-u(\d+)-/);
+          const userId = user?.id || (match ? parseInt(match[1], 10) : null);
+          if (userId) {
+            await db.setUserInstanceStatus(userId, "disconnected").catch(() => {});
+            await db.clearGroupsForUser(userId).catch(() => {});
+            console.log(`[Webhook] WhatsApp disconnected; tenant state cleared for user ${userId} (${instanceName})`);
+          }
+        } catch (err: any) {
+          console.warn("[Webhook] Error clearing disconnected tenant:", err?.message || err);
+        }
+      })();
     }
   }
 
@@ -2992,7 +3018,11 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       if (collectedGroupsMap.size === 0) {
         const chatAttempts = [
           () => callEvolution(`/chat/findChats/${instName}`, {}, 15000, 0),
+          () => callEvolution(`/chat/findChats/${instName}`, { method: "POST", body: JSON.stringify({ where: {}, limit: 1000 }) }, 15000, 0),
           () => callEvolution(`/chat/findChats/${instName}`, { method: "POST", body: JSON.stringify({ limit: 1000 }) }, 15000, 0),
+          // Compatibility with Evolution builds that expose group metadata via
+          // the participants endpoint when fetchAllGroups returns an empty 200.
+          () => callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 20000, 0),
         ];
         for (const attempt of chatAttempts) {
           const chatsResponse = await attempt().catch(() => null);
@@ -3015,13 +3045,32 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     console.warn(`[GroupsSync] Warning while querying ${instName}:`, err?.message || err);
   }
 
-  // A resposta bem-sucedida da Evolution é a fonte de verdade, inclusive quando vier vazia.
-  // Nunca reutilizar o snapshot antigo do MySQL para mascarar uma lista vazia.
   if (evolutionQuerySucceeded) {
     const freshGroups = Array.from(collectedGroupsMap.values());
+
+    // An empty HTTP 200 immediately after reconnect is not enough evidence to
+    // erase a previously confirmed group list. Evolution/Baileys can still be
+    // hydrating chats at this point. Preserve the last snapshot and let the next
+    // manual/automatic refresh replace it once real @g.us data arrives.
+    if (freshGroups.length === 0) {
+      if (cachedForInstance?.groups?.length) {
+        console.warn(`[GroupsSync] Empty live payload for ${instName}; preserving ${cachedForInstance.groups.length} cached groups.`);
+        return cachedForInstance.groups;
+      }
+      if (dbUser?.db && dbUser?.id) {
+        const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
+        if (Array.isArray(persisted) && persisted.length > 0) {
+          cachedGroupsByInstance.set(instName, { timestamp: now, groups: persisted });
+          console.warn(`[GroupsSync] Empty live payload for ${instName}; preserving ${persisted.length} persisted groups.`);
+          return persisted;
+        }
+      }
+      console.warn(`[GroupsSync] Connected instance ${instName} returned no groups after all recovery attempts.`);
+      return [];
+    }
+
     cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
     clientImportedGroupsStore.set(instName, freshGroups);
-
     if (dbUser?.db && dbUser?.id) {
       try {
         await dbUser.db.saveGroupsForUser(dbUser.id, freshGroups);
@@ -3029,8 +3078,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
         console.warn(`[GroupsSync] Falha ao persistir snapshot de grupos user=${dbUser.id}:`, err);
       }
     }
-
-    console.log(`[GroupsSync] ✅ Snapshot sincronizado: ${freshGroups.length} grupos para ${instName}.`);
+    console.log(`[GroupsSync] Snapshot sincronizado: ${freshGroups.length} grupos para ${instName}.`);
     return freshGroups;
   }
 

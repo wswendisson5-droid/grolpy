@@ -384,7 +384,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         whatsappProfilePic={whatsappProfile.pictureUrl}
         whatsappProfileName={whatsappProfile.name}
         whatsappPhoneNumber={whatsappProfile.number}
-        whatsappIsConnected={whatsappProfile.isLoading ? undefined : (whatsappProfile.isConnected || groups.length > 0)}
+        whatsappIsConnected={whatsappProfile.isLoading ? undefined : whatsappProfile.isConnected}
       />
 
       {/* Main Client Content Container */}
@@ -545,7 +545,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
 
           {currentTab === 'conexao' && (
             <ClientConexaoView
-              isConnected={Boolean(whatsappProfile.isConnected || groups.length > 0)}
+              isConnected={whatsappProfile.isConnected}
               initialProfile={whatsappProfile}
             />
           )}

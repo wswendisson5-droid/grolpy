@@ -223,6 +223,8 @@ class AsaasEngine {
           };
 
           if (params.billingType === "CREDIT_CARD" && params.creditCard) {
+            const cleanCpfCnpj = (params.customer.cpfCnpj || "").replace(/\D/g, "");
+            if (!cleanCpfCnpj) throw new Error("CPF/CNPJ do titular é exigido pelo Asaas para pagamento com cartão.");
             payload.creditCard = {
               holderName: params.creditCard.holderName,
               number: params.creditCard.number.replace(/\s+/g, ""),
