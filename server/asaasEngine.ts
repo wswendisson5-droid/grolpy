@@ -301,11 +301,13 @@ class AsaasEngine {
           }
         }
       } catch (err: any) {
-        console.warn("[Asaas API Call Warning] Falling back to high-fidelity instant Pix generator:", err.message);
+        throw err;
       }
     }
 
-    // Standard high-fidelity Pix generation with fixed CPF: 087.355.455-85 and Wendisson santos Santana
+    throw new Error("Asaas indisponível para gerar a cobrança.");
+
+    // Legacy local Pix generator (unreachable): never send checkout money outside Asaas.
     const pixPayload = generateStandardPixPayload({
       pixKey: FIXED_PIX_DATA.rawCpf,
       merchantName: FIXED_PIX_DATA.name,
