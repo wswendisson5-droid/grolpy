@@ -20,7 +20,6 @@ import { CrmAtendimentoView } from './components/crm/CrmAtendimentoView';
 import { ContactsView } from './components/crm/ContactsView';
 import { AiAgentConfigView } from './components/ai/AiAgentConfigView';
 import { ConnectionView } from './components/connection/ConnectionView';
-import { AdminSettingsView } from './components/admin/AdminSettingsView';
 import { ClientPanel } from './components/client-panel/ClientPanel';
 import { LandingPage } from './components/landing/LandingPage';
 import { LoginPage } from './components/auth/LoginPage';
@@ -482,7 +481,6 @@ export default function App() {
         {currentTab === 'faturamento' && <ManagerBillingView mode="faturamento" />}
         {currentTab === 'pagamentos' && <ManagerBillingView mode="pagamentos" />}
         {currentTab === 'assinantes' && <div className="flex-1 overflow-y-auto"><SubscriptionsAdminView /></div>}
-        {!isManagerPanel && currentTab === 'configuracoes' && <AdminSettingsView />}
 
                 {currentTab === 'representantes' && <RepresentativesAdminView />}
 

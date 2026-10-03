@@ -498,33 +498,6 @@ async function getDatabase(): Promise<any> {
 
 // MySQL health check isolated from application startup.
 // mysql2 is loaded lazily so a database/driver failure never takes the Groply process down.
-// Admin-managed Asaas credential. The secret is persisted in MySQL and never returned to the browser.
-app.get("/api/admin/asaas-config", requireAdminRoute, async (_req, res) => {
-  try {
-    const db: any = await getDatabase();
-    const saved = await db.getAdminState("asaas_config").catch(() => null);
-    const configured = Boolean(saved?.apiKey || process.env.ASAAS_API_KEY);
-    if (saved?.apiKey) asaasEngine.setApiKey(saved.apiKey);
-    res.json({ success: true, configured, environment: saved?.environment || process.env.ASAAS_ENVIRONMENT || "production" });
-  } catch (e: any) {
-    res.status(500).json({ success: false, error: e?.message || "Falha ao carregar configuração do Asaas." });
-  }
-});
-
-app.post("/api/admin/asaas-config", requireAdminRoute, async (req, res) => {
-  try {
-    const apiKey = String(req.body?.apiKey || "").trim();
-    const environment = req.body?.environment === "sandbox" ? "sandbox" : "production";
-    if (!apiKey || apiKey.length < 20) return res.status(400).json({ success: false, error: "Informe uma API Key válida do Asaas." });
-    const db: any = await getDatabase();
-    await db.setAdminState("asaas_config", { apiKey, environment });
-    asaasEngine.setApiKey(apiKey);
-    res.json({ success: true, configured: true, environment });
-  } catch (e: any) {
-    res.status(500).json({ success: false, error: e?.message || "Falha ao salvar a API do Asaas." });
-  }
-});
-
 app.get("/api/database/health", async (_req, res) => {
   try {
     const mysqlModule: any = await getDatabase();
