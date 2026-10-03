@@ -36,15 +36,7 @@ jobs:
           if [ -f package-lock.json ]; then cp package-lock.json deploy/package-lock.json; fi
 
           # Configuracao suportada pelo CloudLinux Node.js Selector + LiteSpeed.
-          # O .env persistente do servidor continua fora do Git/deploy.
-          # O startup executa a partir da raiz da aplicacao para que dotenv encontre .env.
-          cat > deploy/server.js <<'EOF'
-          import { chdir } from 'node:process';
-          import { dirname } from 'node:path';
-          import { fileURLToPath } from 'node:url';
-          chdir(dirname(fileURLToPath(import.meta.url)));
-          await import('./dist/server.cjs');
-          EOF
+          # Nao inclui segredos e nao toca no .env persistente do servidor.
           printf '%s\n' \
             'PassengerAppRoot /home3/minhabagg/grolpy.minhabagg.com.br' \
             'PassengerBaseURI /' \
