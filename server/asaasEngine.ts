@@ -186,15 +186,19 @@ class AsaasEngine {
 
         if (!customerId) {
           const cleanCpfCnpj = (params.customer.cpfCnpj || "").replace(/\D/g, "");
-          if (!cleanCpfCnpj) throw new Error("CPF/CNPJ do pagador é exigido pelo Asaas para cartão e boleto.");
-          const cleanPhone = (params.customer.phone || "27996599231").replace(/\D/g, "");
+          const cleanPhone = (params.customer.phone || "").replace(/\D/g, "");
 
+          // Pix checkout does not collect CPF/CNPJ. Create the Asaas customer with
+          // the account data we already have; card/boleto can enforce extra data later.
+          if (params.billingType !== "PIX" && !cleanCpfCnpj) {
+            throw new Error("CPF/CNPJ é necessário para cartão e boleto.");
+          }
           const custPayload: any = {
-            name: params.customer.name || FIXED_PIX_DATA.name,
-            email: params.customer.email || "daianewendisson@gmail.com",
-            cpfCnpj: cleanCpfCnpj,
-            phone: cleanPhone,
+            name: params.customer.name || "Cliente Groply",
+            email: params.customer.email || undefined,
+            phone: cleanPhone || undefined,
           };
+          if (cleanCpfCnpj) custPayload.cpfCnpj = cleanCpfCnpj;
 
           const custRes = await fetch(`${this.getBaseUrl()}/customers`, {
             method: "POST",
