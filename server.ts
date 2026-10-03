@@ -1339,38 +1339,13 @@ app.get("/api/evolution/qrcode", async (req, res) => {
       }
     }
 
-    // 3. Resilient polling loop: poll connect endpoint while also observing webhook memory cache
-    for (let attempt = 0; attempt < 10; attempt++) {
-      await sleep(650);
-
-      // Check if incoming webhook event delivered the QR Code while we were waiting
-      if (currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
-        currentInst.state = "waiting_qr";
-        try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-        return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
-      }
-
-      const poll = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 4000, 0);
-      if (poll.ok) {
-        const norm = await normalizeQrCode(poll.data);
-        if (norm) {
-          currentInst.qrCode = norm;
-          currentInst.state = "waiting_qr";
-          currentInst.lastUpdated = new Date().toISOString();
-          try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-          return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
-        }
-      } else if (poll.status === 404 && attempt === 0) {
-        await callEvolution(
-          "/instance/create",
-          {
-            method: "POST",
-            body: JSON.stringify({ instanceName: instance, integration: "WHATSAPP-BAILEYS", qrcode: true }),
-          },
-          6000,
-          0
-        );
-      }
+    // Do not hold the HTTP request open polling Evolution repeatedly.
+    // If Baileys is still preparing, the UI retries after 2s and the webhook can
+    // populate qrcode.updated in the meantime. This keeps "Gerar QR" responsive.
+    if (currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
+      currentInst.state = "waiting_qr";
+      try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
+      return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
     }
 
     // Never return 502 when Baileys socket is still preparing; return 200 with pending state
@@ -1730,11 +1705,18 @@ app.post("/api/evolution/logout", async (req, res) => {
   try {
     const logoutRes = await callEvolution(`/instance/logout/${instance}`, {
       method: "DELETE",
-    });
-    // Logout is idempotent: an already-disconnected/missing remote instance must
-    // still clear our tenant state instead of leaving a fake connected snapshot.
-    if (!logoutRes.ok && logoutRes.status !== 404) {
-      throw new Error(`Evolution logout failed (${logoutRes.status})`);
+    }, 6000, 0);
+
+    // "Desconectar" in Groply means end the session completely. Logout invalidates
+    // WhatsApp credentials; delete removes the remote Evolution instance so the
+    // next connection always starts from a clean instance/QR instead of stale state.
+    const deleteRes = await callEvolution(`/instance/delete/${instance}`, {
+      method: "DELETE",
+    }, 6000, 0);
+    const logoutAcceptable = logoutRes.ok || logoutRes.status === 400 || logoutRes.status === 404;
+    const deleteAcceptable = deleteRes.ok || deleteRes.status === 404;
+    if (!logoutAcceptable || !deleteAcceptable) {
+      throw new Error(`Evolution session cleanup failed (logout=${logoutRes.status}, delete=${deleteRes.status})`);
     }
 
     currentInst.state = "disconnected";
@@ -3000,7 +2982,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     // Evolution API v2 exposes groups through this endpoint. Do not cascade to
     // chat endpoints: that multiplies requests and can turn a rate-limit failure
     // into a misleading successful empty snapshot.
-    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 15000, 0);
+    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 8000, 0);
     const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
@@ -3017,12 +2999,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       // @g.us chats from the same instance instead of publishing a false empty list.
       if (collectedGroupsMap.size === 0) {
         const chatAttempts = [
-          () => callEvolution(`/chat/findChats/${instName}`, {}, 15000, 0),
-          () => callEvolution(`/chat/findChats/${instName}`, { method: "POST", body: JSON.stringify({ where: {}, limit: 1000 }) }, 15000, 0),
-          () => callEvolution(`/chat/findChats/${instName}`, { method: "POST", body: JSON.stringify({ limit: 1000 }) }, 15000, 0),
-          // Compatibility with Evolution builds that expose group metadata via
-          // the participants endpoint when fetchAllGroups returns an empty 200.
-          () => callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 20000, 0),
+          // One bounded compatibility fallback is enough. Cascading through several
+          // 15-20s chat queries made the groups screen look frozen and amplified rate limits.
+          () => callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 10000, 0),
         ];
         for (const attempt of chatAttempts) {
           const chatsResponse = await attempt().catch(() => null);
@@ -4692,23 +4671,14 @@ setInterval(async () => {
       camp.totalTarget = allTargets.length;
       camp.groupsCount = allTargets.length;
 
-      // Filter out already successful targets from this campaign based on history
-      const userHistory = await db.listHistoryForUser(userId, 30).catch(() => []);
-      const successfulJids = (userHistory || [])
-        .filter((h: any) => h.campaignId === campId && h.status === 'delivered')
-        .map((h: any) => h.groupJid);
-
-      const remainingTargets = allTargets.filter((jid: string) => !successfulJids.includes(jid));
-      const totalAlreadySent = successfulJids.length;
-
-      if (remainingTargets.length === 0) {
-        console.log(`[Scheduler] ✅ Todos os grupos já foram enviados para '${camp.title}'`);
-        camp.status = 'concluida';
-        camp.active = false;
-        await db.saveCampaignForUser(userId, camp).catch(() => {});
-        activeCampaignsRunning.delete(campId);
-        continue;
-      }
+      // Deduplication is scoped to the CURRENT execution slot by campaign_delivery_claims.
+      // Never use the campaign's lifetime history here: on recurring campaigns that would
+      // make every group look "already sent" after the first day and permanently stop it.
+      const dispatchRunKey = camp.scheduleMode === 'recorrente'
+        ? (camp.lastExecutedSlot || slotKey)
+        : 'once';
+      const remainingTargets = allTargets;
+      const totalAlreadySent = 0;
 
       const intervalMs = (camp.delaySeconds !== undefined && camp.delaySeconds !== null && Number(camp.delaySeconds) >= 0)
         ? Number(camp.delaySeconds) * 1000
@@ -4735,7 +4705,7 @@ setInterval(async () => {
             },
             userId,
             db,
-            camp.scheduleMode === 'recorrente' ? (camp.lastExecutedSlot || slotKey) : 'once'
+            dispatchRunKey
           );
 
           const successCount = results.filter((r) => r.success).length;
