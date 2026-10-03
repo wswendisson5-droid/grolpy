@@ -119,8 +119,14 @@ export function generateStandardPixPayload(params: {
 const paymentsStore = new Map<string, AsaasPaymentResult>();
 
 class AsaasEngine {
+  private runtimeApiKey = "";
+
+  setApiKey(apiKey: string) {
+    this.runtimeApiKey = String(apiKey || "").trim();
+  }
+
   private getApiKey(): string {
-    return process.env.ASAAS_API_KEY || "";
+    return this.runtimeApiKey || process.env.ASAAS_API_KEY || "";
   }
 
   private getBaseUrl(): string {
