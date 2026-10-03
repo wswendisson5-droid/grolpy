@@ -3433,6 +3433,42 @@ app.post("/api/client/checkout/create", async (req, res) => {
 
     const targetPlan = "start" as const;
 
+    if ((billingType || "PIX") === "PIX") {
+      if (!user?.id) return res.status(401).json({ success: false, error: "Faça login para continuar." });
+      const qr = await asaasEngine.createStaticPixQr({
+        value: 14.9,
+        externalReference: `groply:user:${user.id}:checkout:${Date.now()}`,
+      });
+      const checkoutId = `qr:${qr.id}`;
+      await db.createInvoice(user.id, {
+        paymentId: checkoutId,
+        planId: targetPlan,
+        billingType: "PIX",
+        value: 14.9,
+        status: "PENDING",
+        pixPayload: qr.payload,
+        pixImageUrl: qr.encodedImage,
+        gateway: "ASAAS",
+        payloadJson: { staticQrId: qr.id, expirationDate: qr.expirationDate },
+      });
+      await db.upsertSubscription(user.id, targetPlan, {
+        status: "pending",
+        paymentId: checkoutId,
+        nextDueDate: new Date().toISOString().slice(0, 10),
+      });
+      return res.json({
+        success: true,
+        payment: {
+          id: checkoutId, status: "PENDING", billingType: "PIX", value: 14.9,
+          planId: targetPlan, planName: "Groply",
+          customer: { name: user.name || "", email: user.email || "", phone: user.phone || "" },
+          dueDate: new Date().toISOString().slice(0, 10),
+          pix: { payload: qr.payload, encodedImage: qr.encodedImage, expirationDate: qr.expirationDate },
+          createdAt: new Date().toISOString(),
+        },
+      });
+    }
+
     const payment = await asaasEngine.createPayment({
       planId: targetPlan,
       planName: "Groply",

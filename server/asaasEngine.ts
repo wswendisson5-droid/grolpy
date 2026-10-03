@@ -382,8 +382,18 @@ class AsaasEngine {
   async createStaticPixQr(params: { value: number; externalReference: string }) {
     const apiKey = this.getApiKey();
     if (!apiKey) throw new Error("ASAAS_API_KEY não configurada.");
-    const addressKey = String(process.env.ASAAS_PIX_KEY || FIXED_PIX_DATA.rawCpf || "").trim();
-    if (!addressKey) throw new Error("Configure ASAAS_PIX_KEY para gerar o Pix estático.");
+    let addressKey = String(process.env.ASAAS_PIX_KEY || "").trim();
+    if (!addressKey) {
+      const keysRes = await fetch(`${this.getBaseUrl()}/pix/addressKeys?status=ACTIVE&limit=10`, {
+        headers: this.getHeaders(),
+      });
+      const keysJson: any = await keysRes.json();
+      if (!keysRes.ok) {
+        throw new Error(keysJson?.errors?.map((x:any) => x.description).join(", ") || "Falha ao consultar a chave Pix da conta Asaas.");
+      }
+      addressKey = String(keysJson?.data?.[0]?.key || "").trim();
+    }
+    if (!addressKey) throw new Error("A conta Asaas não possui uma chave Pix ativa.");
     const response = await fetch(`${this.getBaseUrl()}/pix/qrCodes/static`, {
       method: "POST",
       headers: this.getHeaders(),
