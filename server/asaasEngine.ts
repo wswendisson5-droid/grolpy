@@ -186,15 +186,14 @@ class AsaasEngine {
 
         if (!customerId) {
           const cleanCpfCnpj = (params.customer.cpfCnpj || "").replace(/\D/g, "");
-          if (!cleanCpfCnpj) throw new Error("CPF/CNPJ do pagador é exigido pelo Asaas para cartão e boleto.");
-          const cleanPhone = (params.customer.phone || "27996599231").replace(/\D/g, "");
+          const cleanPhone = (params.customer.phone || "").replace(/\D/g, "");
 
           const custPayload: any = {
-            name: params.customer.name || FIXED_PIX_DATA.name,
-            email: params.customer.email || "daianewendisson@gmail.com",
-            cpfCnpj: cleanCpfCnpj,
-            phone: cleanPhone,
+            name: params.customer.name || "Cliente Groply",
+            email: params.customer.email || undefined,
+            phone: cleanPhone || undefined,
           };
+          if (cleanCpfCnpj) custPayload.cpfCnpj = cleanCpfCnpj;
 
           const custRes = await fetch(`${this.getBaseUrl()}/customers`, {
             method: "POST",
@@ -259,6 +258,9 @@ class AsaasEngine {
               });
               const qrJson = await qrRes.json();
 
+              if (!qrRes.ok || !qrJson.payload) {
+                throw new Error(qrJson?.errors?.map((e: any) => e.description).join(", ") || "O Asaas não retornou um QR Code Pix válido.");
+              }
               if (qrJson.payload) {
                 const rawImage = qrJson.encodedImage || "";
                 const encodedImage = rawImage
@@ -277,6 +279,23 @@ class AsaasEngine {
               }
             }
 
+            let boletoData: any = undefined;
+            if (params.billingType === "BOLETO") {
+              let identificationField = payData.identificationField || "";
+              let barCode = payData.barCode || "";
+              try {
+                const fieldRes = await fetch(`${this.getBaseUrl()}/payments/${payData.id}/identificationField`, { headers: this.getHeaders() });
+                const fieldJson: any = await fieldRes.json();
+                if (fieldRes.ok) {
+                  identificationField = fieldJson.identificationField || identificationField;
+                  barCode = fieldJson.barCode || barCode;
+                }
+              } catch {}
+              const bankSlipUrl = payData.bankSlipUrl || payData.invoiceUrl || "";
+              if (!bankSlipUrl) throw new Error("O Asaas criou a cobrança, mas não retornou o documento do boleto.");
+              boletoData = { identificationField, barCode, bankSlipUrl, dueDate: payData.dueDate || dueDate };
+            }
+
             const isPaid = payData.status === "CONFIRMED" || payData.status === "RECEIVED";
             const record: AsaasPaymentResult = {
               id: payData.id,
@@ -293,6 +312,7 @@ class AsaasEngine {
               },
               dueDate,
               pix: pixData,
+              boleto: boletoData,
               createdAt: new Date().toISOString(),
             };
 
@@ -301,10 +321,14 @@ class AsaasEngine {
           }
         }
       } catch (err: any) {
-        console.warn("[Asaas API Call Warning] Falling back to high-fidelity instant Pix generator:", err.message);
+        console.error("[Asaas API] Falha real ao criar cobrança:", err?.message || err);
+        throw err;
       }
     }
 
+    throw new Error("ASAAS_API_KEY não configurada. O checkout real não pode operar sem o gateway.");
+
+    // Legacy fallback intentionally unreachable: checkout must never simulate a successful payment.
     // Standard high-fidelity Pix generation with fixed CPF: 087.355.455-85 and Wendisson santos Santana
     const pixPayload = generateStandardPixPayload({
       pixKey: FIXED_PIX_DATA.rawCpf,

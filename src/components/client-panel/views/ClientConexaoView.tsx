@@ -323,23 +323,23 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     const part2 = clean.slice(4, 8);
 
     return (
-      <div className="flex items-center justify-center gap-1.5 sm:gap-2 select-all w-full max-w-full">
-        <div className="flex items-center gap-1 sm:gap-1.5">
+      <div className="flex items-center justify-center gap-1 sm:gap-2 select-all w-full max-w-full min-w-0">
+        <div className="flex items-center gap-0.5 min-[380px]:gap-1 sm:gap-1.5 min-w-0">
           {part1.split('').map((char, i) => (
             <span
               key={`p1-${i}`}
-              className="w-8 h-10 min-[380px]:w-9 min-[380px]:h-11 sm:w-11 sm:h-13 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-lg min-[380px]:text-xl sm:text-2xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-6 h-9 min-[360px]:w-7 min-[380px]:w-8 sm:w-10 sm:h-12 flex-none flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-base min-[380px]:text-lg sm:text-xl font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>
           ))}
         </div>
         <span className="text-base sm:text-xl font-bold text-[#8c9e94]">-</span>
-        <div className="flex items-center gap-1 sm:gap-1.5">
+        <div className="flex items-center gap-0.5 min-[380px]:gap-1 sm:gap-1.5 min-w-0">
           {part2.split('').map((char, i) => (
             <span
               key={`p2-${i}`}
-              className="w-8 h-10 min-[380px]:w-9 min-[380px]:h-11 sm:w-11 sm:h-13 flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-lg min-[380px]:text-xl sm:text-2xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-6 h-9 min-[360px]:w-7 min-[380px]:w-8 sm:w-10 sm:h-12 flex-none flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-base min-[380px]:text-lg sm:text-xl font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>

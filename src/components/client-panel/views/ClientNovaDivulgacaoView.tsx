@@ -600,7 +600,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         addCaptionToMedia,
       };
 
-      const created = editingCampaign
+      const isDuplicateDraft = Boolean((editingCampaign as any)?.__duplicateDraft);
+      const created = editingCampaign && !isDuplicateDraft
         ? await clientService.updateCampaign(editingCampaign.id, payload)
         : await clientService.createCampaign(payload);
 

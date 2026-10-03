@@ -1703,20 +1703,15 @@ app.post("/api/evolution/logout", async (req, res) => {
   const currentInst = getInstanceCache(instance);
 
   try {
-    const logoutRes = await callEvolution(`/instance/logout/${instance}`, {
-      method: "DELETE",
-    }, 6000, 0);
-
-    // "Desconectar" in Groply means end the session completely. Logout invalidates
-    // WhatsApp credentials; delete removes the remote Evolution instance so the
-    // next connection always starts from a clean instance/QR instead of stale state.
+    // Delete is the terminal operation in Groply: it removes the Evolution instance
+    // and its WhatsApp session in one request. Calling logout first made the user wait
+    // for two sequential network operations and could leave the UI stuck reconnecting.
     const deleteRes = await callEvolution(`/instance/delete/${instance}`, {
       method: "DELETE",
-    }, 6000, 0);
-    const logoutAcceptable = logoutRes.ok || logoutRes.status === 400 || logoutRes.status === 404;
-    const deleteAcceptable = deleteRes.ok || deleteRes.status === 404;
-    if (!logoutAcceptable || !deleteAcceptable) {
-      throw new Error(`Evolution session cleanup failed (logout=${logoutRes.status}, delete=${deleteRes.status})`);
+    }, 5000, 0);
+    const deleteAcceptable = deleteRes.ok || deleteRes.status === 400 || deleteRes.status === 404;
+    if (!deleteAcceptable) {
+      throw new Error(`Evolution session cleanup failed (delete=${deleteRes.status})`);
     }
 
     currentInst.state = "disconnected";
@@ -3437,42 +3432,6 @@ app.post("/api/client/checkout/create", async (req, res) => {
     const planNames: Record<string, string> = { start: "Groply" };
 
     const targetPlan = "start" as const;
-
-    if ((billingType || "PIX") === "PIX") {
-      if (!user?.id) return res.status(401).json({ success: false, error: "Faça login para continuar." });
-      const qr = await asaasEngine.createStaticPixQr({
-        value: 14.9,
-        externalReference: `groply:user:${user.id}:checkout:${Date.now()}`,
-      });
-      const checkoutId = `qr:${qr.id}`;
-      await db.createInvoice(user.id, {
-        paymentId: checkoutId,
-        planId: targetPlan,
-        billingType: "PIX",
-        value: 14.9,
-        status: "PENDING",
-        pixPayload: qr.payload,
-        pixImageUrl: qr.encodedImage,
-        gateway: "ASAAS",
-        payloadJson: { staticQrId: qr.id, expirationDate: qr.expirationDate },
-      });
-      await db.upsertSubscription(user.id, targetPlan, {
-        status: "pending",
-        paymentId: checkoutId,
-        nextDueDate: new Date().toISOString().slice(0, 10),
-      });
-      return res.json({
-        success: true,
-        payment: {
-          id: checkoutId, status: "PENDING", billingType: "PIX", value: 14.9,
-          planId: targetPlan, planName: "Groply",
-          customer: { name: user.name || "", email: user.email || "", phone: user.phone || "" },
-          dueDate: new Date().toISOString().slice(0, 10),
-          pix: { payload: qr.payload, encodedImage: qr.encodedImage, expirationDate: qr.expirationDate },
-          createdAt: new Date().toISOString(),
-        },
-      });
-    }
 
     const payment = await asaasEngine.createPayment({
       planId: targetPlan,

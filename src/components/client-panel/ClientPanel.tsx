@@ -340,24 +340,21 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   };
 
   const handleDuplicateCampaign = (card: DivulgacaoCard) => {
-    const duplicated: DivulgacaoCard = {
+    // Duplication opens a NEW draft pre-filled with the source data. Nothing is
+    // persisted until the user reviews the form and presses save/finalize.
+    const duplicatedDraft = {
       ...card,
-      id: `div-${Date.now()}`,
+      id: '',
       title: `${card.title} (Cópia)`,
       totalSent: 0,
+      totalFailed: 0,
+      active: false,
+      status: 'rascunho',
       createdAt: new Date().toISOString(),
-    };
-    setCampaigns((prev) => [duplicated, ...prev]);
-    clientService.createCampaign({
-      title: duplicated.title,
-      category: duplicated.category,
-      scheduleDays: duplicated.scheduleDays,
-      scheduleTime: duplicated.scheduleTime,
-      previewText: duplicated.previewText,
-      imageUrl: duplicated.imageUrl,
-      selectedGroupJids: duplicated.selectedGroupJids,
-      groupsCount: duplicated.groupsCount,
-    });
+      __duplicateDraft: true,
+    } as any;
+    setEditingCampaign(duplicatedDraft);
+    setCurrentTab('nova-divulgacao');
   };
 
   const handleImportGroups = async (newGroups: ClientGroup[]) => {
