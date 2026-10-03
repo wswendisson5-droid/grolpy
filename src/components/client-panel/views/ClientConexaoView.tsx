@@ -328,7 +328,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           {part1.split('').map((char, i) => (
             <span
               key={`p1-${i}`}
-              className="w-6 h-9 min-[360px]:w-7 min-[380px]:w-8 sm:w-10 sm:h-12 flex-none flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-base min-[380px]:text-lg sm:text-xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-5.5 h-8 min-[360px]:w-6 min-[380px]:w-7 sm:w-9 sm:h-11 flex-none flex items-center justify-center bg-[#f2f8f4] border border-[#109353]/30 rounded-md sm:rounded-lg font-mono text-sm min-[380px]:text-base sm:text-lg font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>
@@ -339,7 +339,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           {part2.split('').map((char, i) => (
             <span
               key={`p2-${i}`}
-              className="w-6 h-9 min-[360px]:w-7 min-[380px]:w-8 sm:w-10 sm:h-12 flex-none flex items-center justify-center bg-[#f2f8f4] border-2 border-[#109353]/30 rounded-lg sm:rounded-xl font-mono text-base min-[380px]:text-lg sm:text-xl font-extrabold text-[#11241c] shadow-xs"
+              className="w-5.5 h-8 min-[360px]:w-6 min-[380px]:w-7 sm:w-9 sm:h-11 flex-none flex items-center justify-center bg-[#f2f8f4] border border-[#109353]/30 rounded-md sm:rounded-lg font-mono text-sm min-[380px]:text-base sm:text-lg font-extrabold text-[#11241c] shadow-xs"
             >
               {char}
             </span>

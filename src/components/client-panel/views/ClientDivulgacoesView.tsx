@@ -435,11 +435,11 @@ export const ClientDivulgacoesView: React.FC<ClientDivulgacoesViewProps> = ({
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1.5 text-xs font-semibold text-[#192c22]">
                             <Calendar size={12} className="text-[#109353]" />
-                            <span>{card.scheduleDateText || card.scheduleDays}</span>
+                            <span>{card.scheduleMode === 'recorrente' ? `Recorrente • ${card.scheduleDays || 'Todos os dias'}` : (card.scheduleDateText || card.scheduleDays)}</span>
                           </div>
                           <div className="flex items-center gap-1.5 text-[11px] text-[#6d8076]">
                             <Clock size={11} className="text-[#109353]" />
-                            <span>{card.scheduleTime} • {displayInterval}</span>
+                            <span>{card.scheduleMode === 'recorrente' && card.scheduleTimes?.length ? card.scheduleTimes.join(', ') : card.scheduleTime} • {displayInterval}</span>
                           </div>
                         </div>
                       </td>

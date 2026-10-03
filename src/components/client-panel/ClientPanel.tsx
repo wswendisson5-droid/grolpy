@@ -207,12 +207,21 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     refreshWhatsAppStatus();
 
     const handleStatusChanged = (e: any) => {
-      if (e?.detail?.profile) {
+      if (e?.detail?.isConnected === false) {
+        // Disconnect is authoritative immediately. Do not let a stale Evolution
+        // response resurrect the old session in the header while deletion settles.
+        setWhatsappProfile({ isConnected: false, isLoading: false });
+        setGroups([]);
+        refreshStats();
+        return;
+      }
+      if (e?.detail?.isConnected === true) {
+        const p = e.detail.profile || {};
         setWhatsappProfile({
-          name: e.detail.profile.name || 'WhatsApp Conectado',
-          number: e.detail.profile.number,
-          pictureUrl: e.detail.profile.pictureUrl,
-          connectedAt: e.detail.profile.connectedAt,
+          name: p.name || 'WhatsApp Conectado',
+          number: p.number,
+          pictureUrl: p.pictureUrl,
+          connectedAt: p.connectedAt,
           isConnected: true,
           isLoading: false,
         });

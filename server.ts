@@ -4559,9 +4559,23 @@ setInterval(async () => {
             ? camp.scheduleTimes
             : [camp.scheduleTime || "00:00"]).map((t: any) => String(t).slice(0, 5));
 
-          if (times.includes(brTimeStr) && camp.lastExecutedSlot !== slotKey) {
-            shouldTrigger = true;
-            camp.lastExecutedSlot = slotKey;
+          // Catch-up window: if a campaign is saved at 05:15:40 or the Passenger
+          // worker wakes at 05:16, execute the latest due slot instead of losing the day.
+          const nowMinutes = Number(brTimeStr.slice(0, 2)) * 60 + Number(brTimeStr.slice(3, 5));
+          const dueSlots = times
+            .map((time: string) => {
+              const [hh, mm] = time.split(':').map(Number);
+              return { time, minutes: hh * 60 + mm };
+            })
+            .filter((slot: any) => slot.minutes <= nowMinutes)
+            .sort((a: any, b: any) => b.minutes - a.minutes);
+          const latestDue = dueSlots[0];
+          if (latestDue) {
+            const dueSlotKey = `${brDateStr}_${latestDue.time}`;
+            if (camp.lastExecutedSlot !== dueSlotKey) {
+              shouldTrigger = true;
+              camp.lastExecutedSlot = dueSlotKey;
+            }
           }
         }
       }
@@ -4600,9 +4614,17 @@ setInterval(async () => {
       // Verify connection before attempting dispatch
       const { isConnected, activeInstance } = await resolveActiveInstance(targetInstName, userId, db);
       if (!isConnected) {
-        console.warn(`[Scheduler] ⚠️ WhatsApp desconectado para usuário ${userId} (instância ${targetInstName}). Disparo cancelado.`);
-        camp.status = 'falha';
-        camp.active = false;
+        console.warn(`[Scheduler] ⚠️ WhatsApp desconectado para usuário ${userId} (instância ${targetInstName}). Disparo não concluído.`);
+        // A recurring schedule must survive a temporary connection outage. Keep it
+        // active and clear the slot claim so the catch-up loop retries after reconnect.
+        if (camp.scheduleMode === 'recorrente') {
+          camp.status = 'ativa';
+          camp.active = true;
+          camp.lastExecutedSlot = undefined;
+        } else {
+          camp.status = 'falha';
+          camp.active = false;
+        }
         await db.saveCampaignForUser(userId, camp).catch(() => {});
         await db.addHistoryForUser(userId, {
           campaignId: campId,
