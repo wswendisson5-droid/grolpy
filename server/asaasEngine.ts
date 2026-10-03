@@ -120,7 +120,8 @@ const paymentsStore = new Map<string, AsaasPaymentResult>();
 
 class AsaasEngine {
   private getApiKey(): string {
-    return process.env.ASAAS_API_KEY || "";
+    // Passenger/cPanel may expose env vars only after startup; read at request time.
+    return String(process.env.ASAAS_API_KEY || "").trim();
   }
 
   private getBaseUrl(): string {
