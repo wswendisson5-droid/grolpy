@@ -51,11 +51,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name:fullName,email,phone,password}) });
-      const data = await response.json();
+      const response = await fetch('/api/auth/register', { method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'}, body:JSON.stringify({name:fullName,email,phone,password}) });
+      const registerText = await response.text();
+      let data: any = {};
+      try { data = registerText ? JSON.parse(registerText) : {}; } catch {
+        throw new Error(response.ok ? 'Resposta inválida do servidor ao criar a conta.' : 'O servidor recusou a criação da conta. Tente novamente em instantes.');
+      }
       if (!response.ok) throw new Error(data.error || 'Não foi possível criar a conta.');
-      const loginResponse = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
-      const loginData = await loginResponse.json();
+      const loginResponse = await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({email,password})});
+      const loginText = await loginResponse.text();
+      let loginData: any = {};
+      try { loginData = loginText ? JSON.parse(loginText) : {}; } catch {
+        throw new Error('Conta criada, mas o servidor não concluiu o login. Entre com seu e-mail e senha.');
+      }
       if(!loginResponse.ok || !loginData.success) throw new Error(loginData.error || 'Conta criada. Entre para continuar.');
 
       onRegisterSuccess();
