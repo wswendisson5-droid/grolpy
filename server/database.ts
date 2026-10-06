@@ -724,8 +724,22 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       claimed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       delivered_at DATETIME NULL,
       UNIQUE KEY uq_campaign_delivery (user_id, campaign_key, group_jid, run_key),
-      INDEX idx_campaign_delivery_status (status, claimed_at)
+      INDEX idx_campaign_delivery_status (status, claimed_at),
+      UNIQUE KEY uq_group_delivery_run (user_id, group_jid, run_key),
+      INDEX idx_campaign_delivery_group_run (user_id, group_jid, run_key, status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+
+    // Migrate older installations too: CREATE TABLE IF NOT EXISTS does not add
+    // the new global group/run unique key to an existing table.
+    await pool.query(`DELETE c1 FROM campaign_delivery_claims c1
+      INNER JOIN campaign_delivery_claims c2
+        ON c1.user_id=c2.user_id AND c1.group_jid=c2.group_jid AND c1.run_key=c2.run_key AND c1.id>c2.id`).catch(() => {});
+    const [claimIndexes]: any = await pool.query("SHOW INDEX FROM campaign_delivery_claims WHERE Key_name='uq_group_delivery_run'").catch(() => [[]]);
+    if (!Array.isArray(claimIndexes) || claimIndexes.length === 0) {
+      await pool.query("ALTER TABLE campaign_delivery_claims ADD UNIQUE KEY uq_group_delivery_run (user_id, group_jid, run_key)").catch((err: any) => {
+        console.warn("[DB] Falha ao instalar trava global anti-duplicidade:", err?.message || err);
+      });
+    }
 
     campaignsTableEnsured = true;
   } catch (err) {
@@ -741,6 +755,17 @@ export async function claimCampaignDelivery(userId: number, campaignKey: string,
        AND status='claimed' AND claimed_at < DATE_SUB(NOW(), INTERVAL 10 MINUTE)`,
     [userId, campaignKey, groupJid, runKey]
   ).catch(() => {});
+  // Global per-slot guard: even different automations/campaigns cannot send to
+  // the same group in the same execution slot. This is checked inside the DB
+  // before Evolution is touched, so multiple Passenger workers remain safe.
+  const [existing]: any = await pool.execute(
+    `SELECT id FROM campaign_delivery_claims
+     WHERE user_id=? AND group_jid=? AND run_key=? AND status IN ('claimed','delivered')
+     LIMIT 1`,
+    [userId, groupJid, runKey]
+  );
+  if (Array.isArray(existing) && existing.length > 0) return false;
+
   const [res]: any = await pool.execute(
     `INSERT IGNORE INTO campaign_delivery_claims(user_id,campaign_key,group_jid,run_key,status)
      VALUES(?,?,?,?,'claimed')`,
@@ -760,8 +785,11 @@ export async function completeCampaignDelivery(userId: number, campaignKey: stri
 
 export async function releaseCampaignDelivery(userId: number, campaignKey: string, groupJid: string, runKey: string): Promise<void> {
   await ensureCampaignsTable().catch(() => {});
+  // Never delete a claim after an ambiguous API failure. Evolution may have
+  // accepted the message even when our HTTP request timed out. Keeping the
+  // row as failed prevents another automation/worker from sending a duplicate.
   await pool.execute(
-    `DELETE FROM campaign_delivery_claims
+    `UPDATE campaign_delivery_claims SET status='failed'
      WHERE user_id=? AND campaign_key=? AND group_jid=? AND run_key=? AND status='claimed'`,
     [userId, campaignKey, groupJid, runKey]
   );

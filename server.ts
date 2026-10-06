@@ -4494,7 +4494,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
         },
         own.user.id,
         own.db,
-        `manual:${campaignId || "adhoc"}:${getBrazilTimeData().brDateStr}_${getBrazilTimeData().brTimeStr}`
+        `manual:${getBrazilTimeData().brDateStr}_${getBrazilTimeData().brTimeStr}`
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
@@ -4695,7 +4695,7 @@ setInterval(async () => {
       // make every group look "already sent" after the first day and permanently stop it.
       const dispatchRunKey = camp.scheduleMode === 'recorrente'
         ? (camp.lastExecutedSlot || slotKey)
-        : 'once';
+        : `${camp.scheduleDate || brDateStr}_${String(camp.scheduleTime || brTimeStr).slice(0, 5)}`;
       const remainingTargets = allTargets;
       const totalAlreadySent = 0;
 
