@@ -4522,15 +4522,26 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
 
       if (camp) {
         camp.totalSent = successfulCount;
-        camp.status = successfulCount === targets.length ? "concluida" : (successfulCount > 0 ? "parcial" : "falha");
-        camp.active = false;
+        if (camp.scheduleMode === "recorrente") {
+          camp.status = "ativa";
+          camp.active = true;
+        } else {
+          camp.status = successfulCount === targets.length ? "concluida" : (successfulCount > 0 ? "parcial" : "falha");
+          camp.active = false;
+        }
         camp.lastSentAt = `Hoje às ${new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`;
         await own.db.saveCampaignForUser(own.user.id,camp);
       }
     } catch (err) {
       console.error("[Dispatch] Error during execution:", err);
       if (camp) {
-        camp.status = "falha";
+        if (camp.scheduleMode === "recorrente") {
+          camp.status = "ativa";
+          camp.active = true;
+        } else {
+          camp.status = "falha";
+          camp.active = false;
+        }
         await own.db.saveCampaignForUser(own.user.id,camp);
       }
     } finally {
@@ -4739,7 +4750,7 @@ setInterval(async () => {
             intervalMs,
             (processedCount, successfulCount, failedCount) => {
               camp.totalSent = totalAlreadySent + successfulCount;
-              camp.totalFailed = (camp.totalFailed || 0) + failedCount;
+              camp.totalFailed = failedCount;
               camp.status = 'enviando';
               db.saveCampaignForUser(userId, camp).catch(() => {});
             },
@@ -4752,7 +4763,7 @@ setInterval(async () => {
           const failedCount = results.filter((r) => !r.success).length;
           const totalSuccess = totalAlreadySent + successCount;
           camp.totalSent = totalSuccess;
-          camp.totalFailed = (camp.totalFailed || 0) + failedCount;
+          camp.totalFailed = failedCount;
           camp.lastSentAt = `Hoje às ${getBrazilTimeData().brTimeStr}`;
 
           if (camp.scheduleMode === 'recorrente') {
