@@ -912,11 +912,12 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
   let rawOwner = stateData?.ownerJid || stateData?.owner || stateData?.instance?.ownerJid || stateData?.instance?.owner || stateData?.number || "";
   let pictureUrl = stateData?.profilePicUrl || stateData?.profilePictureUrl || stateData?.instance?.profilePicUrl || stateData?.instance?.profilePictureUrl || "";
 
-  if (!pictureUrl && profilePicCache.has(instance)) {
-    pictureUrl = profilePicCache.get(instance) || "";
-  }
+  // Do not let an old in-memory WhatsApp avatar win over the live instance.
+  // Always refresh instance/profile metadata first; cache is fallback only.
+  const cachedPictureUrl = profilePicCache.get(instance) || "";
+  pictureUrl = "";
 
-  if (!pictureUrl || !name || !rawOwner) {
+  {
     try {
       const fetchRes = await callEvolution("/instance/fetchInstances", {}, 4000, 0);
       const list: any[] = Array.isArray(fetchRes.data)
@@ -944,8 +945,9 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
 
   const cleanDigits = cleanPhoneDigits(rawOwner);
 
-  // If pictureUrl is still missing, query Evolution /chat/fetchProfilePictureUrl/{instance}
-  if (!pictureUrl && cleanDigits) {
+  // Always ask WhatsApp for the current profile picture. Instance metadata can
+  // itself contain an old CDN URL after reconnect/profile changes.
+  if (cleanDigits) {
     try {
       let picRes = await callEvolution(`/chat/fetchProfilePictureUrl/${instance}`, {
         method: "POST",
@@ -963,6 +965,7 @@ async function fetchInstanceProfile(instance: string, stateData?: any): Promise<
     } catch {}
   }
 
+  if (!pictureUrl) pictureUrl = cachedPictureUrl;
   if (pictureUrl) {
     profilePicCache.set(instance, pictureUrl);
   }
@@ -2960,7 +2963,11 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       const participants = Array.isArray(g.participants) ? g.participants : [];
       const ownParticipant = participants.find((p: any) => Boolean(p?.isMe || p?.me || p?.isSelf));
       const ownRemoved = Boolean(ownParticipant && (ownParticipant?.left || ownParticipant?.removed || ownParticipant?.membership === "left"));
-      if (isCommunity || isLeft || ownRemoved) continue;
+      // announce=true means only admins can send. A non-admin connected account
+      // must not count this destination as usable for campaigns.
+      const ownIsAdmin = Boolean(ownParticipant?.admin || ownParticipant?.isAdmin || ownParticipant?.isSuperAdmin || ownParticipant?.admin === "admin" || ownParticipant?.admin === "superadmin");
+      const cannotSend = Boolean(g.restrictSend || g.sendMessages === false || g.canSend === false || (g.announce === true && !ownIsAdmin));
+      if (isCommunity || isLeft || ownRemoved || cannotSend) continue;
 
       const name = g.subject || g.name || g.pushName || g.title || "Grupo WhatsApp";
       const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 15;
