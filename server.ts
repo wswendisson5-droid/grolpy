@@ -2952,6 +2952,16 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       const isGroup = jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid");
       if (!isGroup) continue;
 
+      // Do not expose community containers/announcement groups or stale groups
+      // that the connected account has already left. Evolution/Baileys payloads
+      // vary by version, so cover the known metadata flags and participant state.
+      const isCommunity = Boolean(g.isCommunity || g.community || g.isCommunityAnnounce || g.isCommunityAnnouncement || g.announce === true && (g.parent || g.parentGroupJid || g.linkedParent));
+      const isLeft = Boolean(g.left || g.isLeft || g.leftAt || g.leaveTimestamp || g.membership === "left" || g.participation === "left");
+      const participants = Array.isArray(g.participants) ? g.participants : [];
+      const ownParticipant = participants.find((p: any) => Boolean(p?.isMe || p?.me || p?.isSelf));
+      const ownRemoved = Boolean(ownParticipant && (ownParticipant?.left || ownParticipant?.removed || ownParticipant?.membership === "left"));
+      if (isCommunity || isLeft || ownRemoved) continue;
+
       const name = g.subject || g.name || g.pushName || g.title || "Grupo WhatsApp";
       const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 15;
       const avatar = g.pictureUrl || g.profilePicUrl || g.avatarUrl || g.avatar || "";
@@ -2977,7 +2987,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     // Evolution API v2 exposes groups through this endpoint. Do not cascade to
     // chat endpoints: that multiplies requests and can turn a rate-limit failure
     // into a misleading successful empty snapshot.
-    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=false`, {}, 8000, 0);
+    // Participants are required to distinguish real joined groups from stale/left
+    // groups and community containers before they enter campaign selection.
+    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 10000, 0);
     const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
