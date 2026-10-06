@@ -4239,7 +4239,8 @@ async function executeGroupDispatch(
 
       // 2. If text-only or (sendMedia failed AND we have text to fall back to), send via sendText
       if (!isOk && textToSend) {
-        for (let attempt = 1; attempt <= 1 && !isOk; attempt++) {
+        for (let attempt = 1; attempt <= 2 && !isOk; attempt++) {
+          if (attempt > 1) await new Promise((r) => setTimeout(r, 2500));
           attemptCount++;
           console.log(`attempt: ${attemptCount} (sendText)`);
           endpointUsed = `/message/sendText/${instance}`;
@@ -4404,20 +4405,21 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     return res.status(400).json({ error: "Texto da mensagem não fornecido." });
   }
 
-  // Revalidate the targets against the current Evolution snapshot before sending.
-  // This prevents a deleted/foreign/stale group from entering the dispatch queue.
-  const liveGroups = await syncAllWhatsAppGroups(true, instance, { id: own.user.id, db: own.db });
-  const liveGroupJids = new Set(liveGroups.map((g: any) => String(g.jid || g.id || "").trim()).filter((jid: string) => jid.endsWith("@g.us")));
+  // Dispatch must not depend on a fresh group-sync request. Evolution/Baileys can
+  // transiently time out while the WhatsApp session is still able to send.
+  const persistedGroups = await own.db.listGroupsForUser(own.user.id).catch(() => []);
+  const allowedGroupJids = new Set((persistedGroups || [])
+    .map((g: any) => String(g.jid || g.id || "").trim())
+    .filter((jid: string) => jid.endsWith("@g.us")));
 
   let rawTargets: string[] = customGroupJids || camp?.selectedGroupJids || [];
   if (rawTargets.length === 0) {
-    rawTargets = liveGroups.map((g: any) => g.jid || g.id).filter(Boolean);
+    rawTargets = (persistedGroups || []).map((g: any) => g.jid || g.id).filter(Boolean);
   }
 
-  // Strictly filter for real WhatsApp groups AND groups that currently exist in Evolution.
   let targets = rawTargets.filter((jid: string) => {
     const normalized = String(jid || "").trim();
-    return normalized.endsWith("@g.us") && !normalized.includes("@broadcast") && !normalized.includes("@newsletter") && !normalized.includes("@s.whatsapp.net") && !normalized.includes("@lid") && liveGroupJids.has(normalized);
+    return normalized.endsWith("@g.us") && !normalized.includes("@broadcast") && !normalized.includes("@newsletter") && !normalized.includes("@s.whatsapp.net") && !normalized.includes("@lid") && allowedGroupJids.has(normalized);
   });
 
   // Filter out already successful targets if we are retrying a campaign
