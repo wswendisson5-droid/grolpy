@@ -4744,8 +4744,13 @@ setInterval(async () => {
           await db.saveCampaignForUser(userId, camp).catch(() => {});
         } catch (err: any) {
           console.error(`[Scheduler] Erro durante execução da campanha '${camp.title}':`, err);
-          camp.status = 'falha';
-          camp.active = false;
+          if (camp.scheduleMode === 'recorrente') {
+            camp.status = 'ativa';
+            camp.active = true;
+          } else {
+            camp.status = 'falha';
+            camp.active = false;
+          }
           await db.saveCampaignForUser(userId, camp).catch(() => {});
         } finally {
           activeCampaignsRunning.delete(campId);

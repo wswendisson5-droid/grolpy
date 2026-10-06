@@ -935,6 +935,8 @@ export async function listActiveScheduledCampaigns(): Promise<Array<{
 export async function deleteCampaignForUser(userId:number,key:string){
   await ensureCampaignsTable().catch(() => {});
   try {
+    await pool.execute("DELETE FROM campaign_delivery_claims WHERE user_id=? AND campaign_key=?",[userId,key]).catch(() => {});
+    await pool.execute("DELETE FROM user_history WHERE user_id=? AND campaign_key=?",[userId,key]).catch(() => {});
     const [r]:any=await pool.execute("DELETE FROM user_campaigns WHERE user_id=? AND campaign_key=?",[userId,key]);
     return r.affectedRows>0;
   } catch(err) {
