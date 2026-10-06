@@ -4236,8 +4236,7 @@ async function executeGroupDispatch(
           };
           // Evolution 2.3.x currently binds image filename differently from
           // video/document DTOs. Using the wrong casing can result in HTTP 500.
-          if (isVideo) mediaPayload.fileName = fileName;
-          else mediaPayload.filename = fileName;
+          mediaPayload.fileName = fileName;
 
           const mediaRes = await callEvolution(endpointUsed, {
             method: "POST",
