@@ -4219,7 +4219,7 @@ async function executeGroupDispatch(
           const mediaRes = await callEvolution(endpointUsed, {
             method: "POST",
             body: JSON.stringify(mediaPayload),
-          }, 60000, 0);
+          }, 15000, 0);
 
           console.log(`[EVOLUTION RESPONSE]`);
           console.log(`status: ${mediaRes.status}`);
@@ -4237,8 +4237,8 @@ async function executeGroupDispatch(
         }
       }
 
-      // 2. If text-only or (sendMedia failed AND we have text to fall back to), send via sendText
-      if (!isOk && textToSend) {
+      // 2. Text is sent only for text-only campaigns; media campaigns never fall back to a second message.
+      if (!isOk && textToSend && !imgToSend) {
         for (let attempt = 1; attempt <= 2 && !isOk; attempt++) {
           if (attempt > 1) await new Promise((r) => setTimeout(r, 2500));
           attemptCount++;
