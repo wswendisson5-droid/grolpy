@@ -4224,6 +4224,9 @@ async function executeGroupDispatch(
           }
 
           const isVideo = mime.startsWith("video/") || fileName.endsWith(".mp4");
+          // Keep this payload identical to the media sender already proven in this
+          // backend. Extra fields such as delay/linkPreview are not part of the
+          // sendMedia contract on every Evolution v2 build and can trigger HTTP 500.
           const mediaPayload = {
             number: jid,
             mediatype: isVideo ? "video" : "image",
@@ -4231,8 +4234,6 @@ async function executeGroupDispatch(
             media: cleanMedia,
             caption: textToSend || "",
             fileName,
-            delay: 1000,
-            linkPreview: false,
           };
 
           const mediaRes = await callEvolution(endpointUsed, {
