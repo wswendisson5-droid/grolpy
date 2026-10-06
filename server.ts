@@ -4227,14 +4227,17 @@ async function executeGroupDispatch(
           // Keep this payload identical to the media sender already proven in this
           // backend. Extra fields such as delay/linkPreview are not part of the
           // sendMedia contract on every Evolution v2 build and can trigger HTTP 500.
-          const mediaPayload = {
+          const mediaPayload: any = {
             number: jid,
             mediatype: isVideo ? "video" : "image",
             mimetype: mime,
             media: cleanMedia,
             caption: textToSend || "",
-            fileName,
           };
+          // Evolution 2.3.x currently binds image filename differently from
+          // video/document DTOs. Using the wrong casing can result in HTTP 500.
+          if (isVideo) mediaPayload.fileName = fileName;
+          else mediaPayload.filename = fileName;
 
           const mediaRes = await callEvolution(endpointUsed, {
             method: "POST",
@@ -4259,8 +4262,7 @@ async function executeGroupDispatch(
 
       // 2. Text is sent only for text-only campaigns; media campaigns never fall back to a second message.
       if (!isOk && textToSend && !imgToSend) {
-        for (let attempt = 1; attempt <= 2 && !isOk; attempt++) {
-          if (attempt > 1) await new Promise((r) => setTimeout(r, 2500));
+        for (let attempt = 1; attempt <= 1 && !isOk; attempt++) {
           attemptCount++;
           console.log(`attempt: ${attemptCount} (sendText)`);
           endpointUsed = `/message/sendText/${instance}`;
