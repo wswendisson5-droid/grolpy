@@ -4184,10 +4184,20 @@ async function executeGroupDispatch(
             }
           } else if (cleanMedia.startsWith("http://") || cleanMedia.startsWith("https://")) {
             cleanMedia = cleanMedia.trim();
-            if (cleanMedia.includes(".png")) mime = "image/png";
+            // Do not make Evolution fetch our campaign asset. Fetch it here and send
+            // the actual base64 bytes; this avoids private/CDN URL, redirect and TLS
+            // failures that otherwise make the very first group fail.
+            const mediaFetch = await fetch(cleanMedia, { signal: AbortSignal.timeout(12000) });
+            if (!mediaFetch.ok) throw new Error(`Falha ao carregar mídia da campanha (HTTP ${mediaFetch.status}).`);
+            const contentType = String(mediaFetch.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+            if (contentType.startsWith("image/") || contentType.startsWith("video/")) mime = contentType;
+            else if (cleanMedia.includes(".png")) mime = "image/png";
             else if (cleanMedia.includes(".webp")) mime = "image/webp";
             else if (cleanMedia.includes(".gif")) mime = "image/gif";
             else if (cleanMedia.includes(".mp4")) mime = "video/mp4";
+            const mediaBytes = Buffer.from(await mediaFetch.arrayBuffer());
+            if (!mediaBytes.length) throw new Error("Mídia da campanha está vazia.");
+            cleanMedia = mediaBytes.toString("base64");
             fileName = `imagem.${mime.split("/")[1] || "jpg"}`;
           } else if (cleanMedia.startsWith("/uploads/") || cleanMedia.startsWith("uploads/")) {
             const relPath = cleanMedia.replace(/^\/+/, "");
@@ -4198,7 +4208,16 @@ async function executeGroupDispatch(
               fileName = path.basename(fullLocal);
               cleanMedia = fs.readFileSync(fullLocal).toString("base64");
             } else {
-              cleanMedia = `https://grolpy.minhabagg.com.br/${relPath}`;
+              // Relative uploads must also be materialized here. Evolution should
+              // receive bytes, never depend on reaching our web server.
+              const publicUrl = `https://grolpy.minhabagg.com.br/${relPath}`;
+              const mediaFetch = await fetch(publicUrl, { signal: AbortSignal.timeout(12000) });
+              if (!mediaFetch.ok) throw new Error(`Arquivo da campanha não encontrado (HTTP ${mediaFetch.status}).`);
+              const contentType = String(mediaFetch.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+              if (contentType.startsWith("image/") || contentType.startsWith("video/")) mime = contentType;
+              const mediaBytes = Buffer.from(await mediaFetch.arrayBuffer());
+              if (!mediaBytes.length) throw new Error("Arquivo da campanha está vazio.");
+              cleanMedia = mediaBytes.toString("base64");
             }
           } else {
             cleanMedia = cleanMedia.replace(/[\r\n\s]/g, "");
