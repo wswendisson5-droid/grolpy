@@ -205,7 +205,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                     }`}
                   >
                     {subscription.status === 'active' && subscription.planId
-                      ? `Plano ${currentPlan.name}`
+                      ? 'Groply sem limites'
                       : 'Sem Plano Ativo'}
                   </span>
                   <span
@@ -223,26 +223,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
               </div>
             </div>
 
-            {/* Progress bar */}
-            {subscription.status === 'active' && subscription.planId && (
-              <>
-                <div className="w-full bg-[#fde68a] h-1.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-[#109353] h-full rounded-full transition-all duration-300"
-                    style={{
-                      width: `${Math.min(100, Math.round((uniqueGroupsCount / (currentPlan.maxGroups || 1)) * 100))}%`,
-                    }}
-                  />
-                </div>
 
-                <div className="flex items-center justify-between text-[10px] text-[#92400e]">
-                  <span>{uniqueGroupsCount} de {currentPlan.maxGroups} grupos</span>
-                  <span className="font-bold">
-                    {Math.min(100, Math.round((uniqueGroupsCount / (currentPlan.maxGroups || 1)) * 100))}%
-                  </span>
-                </div>
-              </>
-            )}
 
             <button
               onClick={() => onSelectTab('planos')}
@@ -267,7 +248,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
               ? (loggedUser.role === 'manager' ? 'Gerente' : 'Administrador')
               : whatsappIsConnected
                 ? (whatsappPhoneNumber || 'WhatsApp Conectado')
-                : (subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano');
+                : (subscription.status === 'active' && subscription.planId ? 'Groply sem limites' : 'Sem plano');
 
             return (
               <div className="relative">
@@ -332,7 +313,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                             </span>
                           )}
                           <span className="inline-block px-2 py-0.5 bg-[#f0f4f1] text-[#4a5e52] rounded text-[10px] font-bold">
-                            {subscription.status === 'active' && subscription.planId ? `Plano ${currentPlan.name}` : 'Sem plano'}
+                            {subscription.status === 'active' && subscription.planId ? 'Groply sem limites' : 'Sem plano'}
                           </span>
                         </div>
                       </div>

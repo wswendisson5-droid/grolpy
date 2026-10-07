@@ -1,3 +1,4 @@
+import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot } from "./server/campaignRules";
 import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
 import path from "path";
@@ -337,10 +338,18 @@ function formatChatTime(dateInput?: string | number): string {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
+    release: "groply-20261007-reset-v1",
     evolutionConfigured: Boolean(memoryState.apiUrl && memoryState.apiKey),
     instanceName: memoryState.instanceName,
     apiUrl: memoryState.apiUrl,
   });
+});
+
+app.get('/api/maintenance/status', async (_req, res) => {
+  try {
+    const db = await getDatabase();
+    res.json({release:'groply-20261007-reset-v1', ...(await db.campaignMaintenanceStatus())});
+  } catch { res.status(503).json({error:'DATABASE_UNAVAILABLE'}); }
 });
 
 // Dynamic database loader that works seamlessly in local dev (TSX) and production (CJS bundle)
@@ -1730,7 +1739,7 @@ app.post("/api/evolution/logout", async (req, res) => {
     res.json({
       success: true,
       instanceName: instance,
-      result: logoutRes.data,
+      result: deleteRes.data,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2816,6 +2825,8 @@ interface ClientCampaign {
   createdAt: string;
   lastSentAt?: string;
   lastExecutedSlot?: string;
+  completedSlots?: string[];
+  pendingRunKey?: string;
   lastExecutedMinute?: string;
   executed?: boolean;
   instanceName?: string;
@@ -2917,6 +2928,17 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     return [];
   }
 
+  let owner = getInstanceCache(targetInstance).connectedProfile?.number || '';
+  if (dbUser) {
+    const record = await dbUser.db.getUserInstance(dbUser.id).catch(() => null);
+    owner = record?.owner_phone || owner;
+  }
+  if (!owner) {
+    const instances = await callEvolution('/instance/fetchInstances', {}, 4000, 0);
+    const list = Array.isArray(instances.data) ? instances.data : instances.data?.instances || instances.data?.data || [];
+    const own = list.find((i: any) => (i.name || i.instanceName || i.instance?.instanceName) === targetInstance);
+    owner = own?.ownerJid || own?.instance?.ownerJid || own?.number || '';
+  }
   const collectedGroupsMap = new Map<string, any>();
   let evolutionQuerySucceeded = false;
   const instName = targetInstance;
@@ -2955,19 +2977,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       const isGroup = jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid");
       if (!isGroup) continue;
 
-      // Do not expose community containers/announcement groups or stale groups
-      // that the connected account has already left. Evolution/Baileys payloads
-      // vary by version, so cover the known metadata flags and participant state.
-      const isCommunity = Boolean(g.isCommunity || g.community || g.isCommunityAnnounce || g.isCommunityAnnouncement || g.announce === true && (g.parent || g.parentGroupJid || g.linkedParent));
-      const isLeft = Boolean(g.left || g.isLeft || g.leftAt || g.leaveTimestamp || g.membership === "left" || g.participation === "left");
-      const participants = Array.isArray(g.participants) ? g.participants : [];
-      const ownParticipant = participants.find((p: any) => Boolean(p?.isMe || p?.me || p?.isSelf));
-      const ownRemoved = Boolean(ownParticipant && (ownParticipant?.left || ownParticipant?.removed || ownParticipant?.membership === "left"));
-      // announce=true means only admins can send. A non-admin connected account
-      // must not count this destination as usable for campaigns.
-      const ownIsAdmin = Boolean(ownParticipant?.admin || ownParticipant?.isAdmin || ownParticipant?.isSuperAdmin || ownParticipant?.admin === "admin" || ownParticipant?.admin === "superadmin");
-      const cannotSend = Boolean(g.restrictSend || g.sendMessages === false || g.canSend === false || (g.announce === true && !ownIsAdmin));
-      if (isCommunity || isLeft || ownRemoved || cannotSend) continue;
+      if (!isOpenJoinedGroup(g, owner)) continue;
 
       const name = g.subject || g.name || g.pushName || g.title || "Grupo WhatsApp";
       const membersCount = g.size || g.participants?.length || (Array.isArray(g.participants) ? g.participants.length : 0) || 15;
@@ -3008,29 +3018,6 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       groupSyncBlockedUntil.delete(instName);
       extractGroupsFromPayload(groupsResponse.data, instName);
 
-      // Some Evolution v2 builds return HTTP 200 with an empty group payload even
-      // while the connected account has groups. In that case, recover the real
-      // @g.us chats from the same instance instead of publishing a false empty list.
-      if (collectedGroupsMap.size === 0) {
-        const chatAttempts = [
-          // One bounded compatibility fallback is enough. Cascading through several
-          // 15-20s chat queries made the groups screen look frozen and amplified rate limits.
-          () => callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 10000, 0),
-        ];
-        for (const attempt of chatAttempts) {
-          const chatsResponse = await attempt().catch(() => null);
-          if (!chatsResponse) continue;
-          const chatsText = JSON.stringify(chatsResponse.data || "").toLowerCase();
-          if (chatsResponse.status === 429 || chatsText.includes("rate-overlimit") || chatsText.includes("rate limit")) {
-            groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
-            break;
-          }
-          if (chatsResponse.ok) {
-            extractGroupsFromPayload(chatsResponse.data, instName);
-            if (collectedGroupsMap.size > 0) break;
-          }
-        }
-      }
     } else {
       console.warn(`[GroupsSync] Evolution respondeu HTTP ${groupsResponse.status} para ${instName}; preservando snapshot.`);
     }
@@ -3040,27 +3027,6 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
 
   if (evolutionQuerySucceeded) {
     const freshGroups = Array.from(collectedGroupsMap.values());
-
-    // An empty HTTP 200 immediately after reconnect is not enough evidence to
-    // erase a previously confirmed group list. Evolution/Baileys can still be
-    // hydrating chats at this point. Preserve the last snapshot and let the next
-    // manual/automatic refresh replace it once real @g.us data arrives.
-    if (freshGroups.length === 0) {
-      if (cachedForInstance?.groups?.length) {
-        console.warn(`[GroupsSync] Empty live payload for ${instName}; preserving ${cachedForInstance.groups.length} cached groups.`);
-        return cachedForInstance.groups;
-      }
-      if (dbUser?.db && dbUser?.id) {
-        const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
-        if (Array.isArray(persisted) && persisted.length > 0) {
-          cachedGroupsByInstance.set(instName, { timestamp: now, groups: persisted });
-          console.warn(`[GroupsSync] Empty live payload for ${instName}; preserving ${persisted.length} persisted groups.`);
-          return persisted;
-        }
-      }
-      console.warn(`[GroupsSync] Connected instance ${instName} returned no groups after all recovery attempts.`);
-      return [];
-    }
 
     cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
     clientImportedGroupsStore.set(instName, freshGroups);
@@ -3075,17 +3041,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     return freshGroups;
   }
 
-  console.warn(`[GroupsSync] Evolution indisponivel para ${instName}; preservando ultimo snapshot confirmado.`);
-  if (dbUser?.db && dbUser?.id) {
-    const persisted = await dbUser.db.listGroupsForUser(dbUser.id).catch(() => []);
-    if (Array.isArray(persisted)) {
-      cachedGroupsByInstance.set(instName, { timestamp: now, groups: persisted });
-      return persisted;
-    }
-  }
-  // An upstream outage must never become an unhandled Express rejection and
-  // terminate the whole Node process. No snapshot is safer than fake targets.
+  console.warn(`[GroupsSync] Não foi possível confirmar grupos abertos para ${instName}.`);
   return [];
+
 }
 
 // Background scheduler for group syncing (run only once on start or every hour to keep Evolution DB pool clean)
@@ -3262,29 +3220,8 @@ interface PlanEntitlementLimits {
   historyDays: number;
 }
 
-const CLIENT_PLAN_LIMITS: Record<'start' | 'pro' | 'max', PlanEntitlementLimits> = {
-  start: {
-    maxGroups: 20,
-    maxRoundsPerDay: 1,
-    maxMonthlySends: 600,
-    maxActiveCampaigns: 2,
-    historyDays: 7,
-  },
-  pro: {
-    maxGroups: 45,
-    maxRoundsPerDay: 2,
-    maxMonthlySends: 2700,
-    maxActiveCampaigns: 5,
-    historyDays: 30,
-  },
-  max: {
-    maxGroups: 90,
-    maxRoundsPerDay: 3,
-    maxMonthlySends: 8100,
-    maxActiveCampaigns: 10,
-    historyDays: 90,
-  },
-};
+const unlimitedLimits: PlanEntitlementLimits = { maxGroups: UNLIMITED, maxRoundsPerDay: UNLIMITED, maxMonthlySends: UNLIMITED, maxActiveCampaigns: UNLIMITED, historyDays: 3650 };
+const CLIENT_PLAN_LIMITS: Record<'start' | 'pro' | 'max', PlanEntitlementLimits> = { start: unlimitedLimits, pro: unlimitedLimits, max: unlimitedLimits };
 
 function getUniqueGroupsInAutomations(campaigns: ClientCampaign[], excludeId?: string): Set<string> {
   const set = new Set<string>();
@@ -3324,10 +3261,10 @@ app.get("/api/client/plan", async (req, res) => {
   const planId = (sub?.plan_id || own.user.plan || "start") as 'start' | 'pro' | 'max';
   const planDetails = await own.db.getPlanById(planId);
   const limits: PlanEntitlementLimits = planDetails ? {
-    maxGroups: planDetails.maxGroups,
-    maxRoundsPerDay: planDetails.maxRoundsPerDay,
-    maxMonthlySends: planDetails.maxMonthlySends,
-    maxActiveCampaigns: planDetails.maxActiveCampaigns,
+    maxGroups: UNLIMITED,
+    maxRoundsPerDay: UNLIMITED,
+    maxMonthlySends: UNLIMITED,
+    maxActiveCampaigns: UNLIMITED,
     historyDays: planDetails.historyDays,
   } : (CLIENT_PLAN_LIMITS[planId] || CLIENT_PLAN_LIMITS.start);
 
@@ -3741,10 +3678,10 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     const userPlanId = (sub?.plan_id || own.user?.plan || "start") as 'start' | 'pro' | 'max';
     const planDetails = await own.db.getPlanById(userPlanId).catch(() => null);
     const currentLimits: PlanEntitlementLimits = planDetails ? {
-      maxGroups: planDetails.maxGroups,
-      maxRoundsPerDay: planDetails.maxRoundsPerDay,
-      maxMonthlySends: planDetails.maxMonthlySends,
-      maxActiveCampaigns: planDetails.maxActiveCampaigns,
+      maxGroups: UNLIMITED,
+      maxRoundsPerDay: UNLIMITED,
+      maxMonthlySends: UNLIMITED,
+      maxActiveCampaigns: UNLIMITED,
       historyDays: planDetails.historyDays,
     } : (CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start);
 
@@ -3752,7 +3689,7 @@ app.post("/api/client/campaigns/create", async (req, res) => {
     const userHistory: any[] = (await own.db.listHistoryForUser(own.user.id, currentLimits.historyDays || 31).catch(() => [])) || [];
 
     // Limites comerciais se aplicam somente a clientes. Admin e gerente são acessos internos sem cota.
-    const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
+    const bypassPlanLimits = true;
 
     // 1. Validate Active Campaigns Limit
     if (!bypassPlanLimits && active !== false) {
@@ -3984,7 +3921,7 @@ app.post("/api/client/campaigns/toggle", async (req, res) => {
     }
 
     const currentLimits = CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start;
-    const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
+    const bypassPlanLimits = true;
 
     if (!camp.active) {
       // Activating: validate limits
@@ -4059,7 +3996,15 @@ function lookupGroupName(jid: string, instance: string): string {
 // Real Dispatch Function with robust base64 / URL media support and fail-safe text fallback
 const activeCampaignsRunning = new Set<string>();
 
-async function executeGroupDispatch(
+async function executeGroupDispatch(...args: Parameters<typeof executeGroupDispatchInternal>) {
+  const db = args[9];
+  if (!db?.acquireDispatchQueue) throw new Error('Fila de envio indisponível.');
+  const release = await db.acquireDispatchQueue(args[3] || '');
+  try { return await executeGroupDispatchInternal(...args); }
+  finally { await release(); }
+}
+
+async function executeGroupDispatchInternal(
   targets: string[],
   textToSend: string,
   imgToSend: string | undefined,
@@ -4080,69 +4025,20 @@ async function executeGroupDispatch(
     const { isConnected } = await resolveActiveInstance(instance, userId, db);
     if (!isConnected) {
       console.warn(`[Dispatch] ⚠️ Instância ${instance} desconectada do WhatsApp. Cancelando disparo.`);
-      return targets.map((rawJid) => ({
-        jid: rawJid,
-        success: false,
-        error: "WhatsApp desconectado. Conecte seu WhatsApp para enviar divulgações.",
-      }));
+      throw new Error('WhatsApp desconectado. A divulgação aguarda reconexão.');
     }
-  } catch {}
+  } catch (error) { throw error; }
 
+  const liveGroups = await syncAllWhatsAppGroups(true, instance, userId && db ? {id:userId, db} : undefined);
+  const liveJids = new Set(liveGroups.map((g: any) => g.jid || g.id));
+  targets = [...new Set(targets)].filter(jid => liveJids.has(jid));
+  if (!targets.length) throw new Error('Nenhum grupo aberto com participação confirmada. Atualize os grupos.');
   const dispatchResults: Array<{ jid: string; success: boolean; error?: string }> = [];
   let successfulCount = 0;
   let failedCount = 0;
+  let preparedMedia: {media:string; mime:string; fileName:string} | undefined;
 
-  // Cross-process idempotency: reserve each campaign/group/run in MySQL BEFORE
-  // creating history or touching Evolution. This prevents two Passenger workers
-  // from sending the same campaign to the same group at the same time.
-  if (userId && campaignId && db?.claimCampaignDelivery) {
-    const claimedTargets: string[] = [];
-    for (const rawTarget of targets) {
-      const targetJid = String(rawTarget || "").trim();
-      if (!targetJid.endsWith("@g.us") || targetJid.includes("@broadcast") || targetJid.includes("@newsletter") || targetJid.includes("@s.whatsapp.net") || targetJid.includes("@lid")) {
-        continue;
-      }
-      try {
-        const claimed = await db.claimCampaignDelivery(userId, campaignId, targetJid, dispatchRunKey);
-        if (claimed) {
-          claimedTargets.push(targetJid);
-        } else {
-          console.warn(`[Dispatch] DUPLICATE BLOCKED campaign=${campaignId} group=${targetJid} run=${dispatchRunKey}`);
-        }
-      } catch (claimErr) {
-        console.warn("[Dispatch] Falha ao adquirir trava de envio:", claimErr);
-      }
-    }
-    targets = claimedTargets;
-    if (targets.length === 0) {
-      console.log(`[Dispatch] Nenhum destino novo para ${campaignId}; outra execução já reservou/entregou esta rodada.`);
-      return [];
-    }
-  }
-
-  // Create pending history only AFTER the DB delivery claim was acquired.
   const targetHistoryIds = new Map<string, number>();
-  if (userId && db?.addHistoryForUser) {
-    for (const rawTarget of targets) {
-      const normJid = String(rawTarget || "").trim();
-      if (!normJid.endsWith("@g.us")) continue;
-      const groupSnapshot = lookupGroupSnapshot(normJid, instance);
-      try {
-        const histId = await db.addHistoryForUser(userId, {
-          campaignId: campaignId || "manual",
-          campaignTitle: campaignTitle || "Divulgação",
-          groupJid: normJid,
-          groupName: groupSnapshot.name,
-          groupMembersCount: groupSnapshot.membersCount,
-          messageText: textToSend,
-          imageUrl: imgToSend || null,
-          mediaType: imgToSend ? "imagem" : "texto",
-          status: "pending",
-        });
-        if (histId) targetHistoryIds.set(normJid, histId);
-      } catch {}
-    }
-  }
 
   for (let i = 0; i < targets.length; i++) {
     const rawJid = String(targets[i] || "").trim();
@@ -4166,6 +4062,25 @@ async function executeGroupDispatch(
       await new Promise((r) => setTimeout(r, intervalMs));
     }
 
+    if (userId && campaignId && db?.claimCampaignDelivery) {
+      const claimed = await db.claimCampaignDelivery(userId, campaignId, jid, dispatchRunKey);
+      if (!claimed) {
+        const delivered = await db.getCampaignDeliveryStatus(userId, campaignId, jid, dispatchRunKey) === 'delivered';
+        if (delivered) successfulCount++; else failedCount++;
+        dispatchResults.push({jid, success:delivered, error:delivered ? undefined : 'Envio já registrado ou aguardando confirmação nesta rodada.'});
+        if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+        continue;
+      }
+    }
+    if (userId && db?.addHistoryForUser) {
+      const historyId = await db.addHistoryForUser(userId, {
+        campaignId: campaignId || 'manual', campaignTitle, groupJid: jid,
+        groupName, groupMembersCount: groupSnapshot.membersCount,
+        messageText: textToSend, imageUrl: imgToSend || null,
+        mediaType: imgToSend ? 'imagem' : 'texto', status:'pending',
+      });
+      if (historyId) targetHistoryIds.set(jid, historyId);
+    }
     console.log(`\n[SEND]`);
     console.log(`instance: ${instance}`);
     console.log(`groupJid: ${jid} (${groupName})`);
@@ -4189,7 +4104,9 @@ async function executeGroupDispatch(
           let mime = "image/jpeg";
           let fileName = "imagem.jpg";
 
-          if (cleanMedia.startsWith("data:")) {
+          if (preparedMedia) {
+            cleanMedia = preparedMedia.media; mime = preparedMedia.mime; fileName = preparedMedia.fileName;
+          } else if (cleanMedia.startsWith("data:")) {
             const commaIdx = cleanMedia.indexOf(",");
             if (commaIdx !== -1) {
               const header = cleanMedia.substring(0, commaIdx);
@@ -4242,6 +4159,7 @@ async function executeGroupDispatch(
             cleanMedia = cleanMedia.replace(/[\r\n\s]/g, "");
           }
 
+          preparedMedia = {media:cleanMedia, mime, fileName};
           const isVideo = mime.startsWith("video/") || fileName.endsWith(".mp4");
           // Keep this payload identical to the media sender already proven in this
           // backend. Extra fields such as delay/linkPreview are not part of the
@@ -4438,6 +4356,8 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
   const instance = activeInstance || own.instance;
 
   let camp = clientCampaignsStore.find((c) => c.id === campaignId);
+  if (camp && activeCampaignsRunning.has(camp.id)) return res.status(409).json({error:'Esta divulgação já está na fila de envio.'});
+  const manualRunKey = `manual:${Date.now()}:${crypto.randomUUID()}`;
   const textToSend = customMessage || camp?.previewText;
   const imgToSend = imageUrl || camp?.imageUrl;
 
@@ -4463,7 +4383,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
   });
 
   // Filter out already successful targets if we are retrying a campaign
-  if (camp && !customGroupJids && targets.length > 0) {
+  if (camp && camp.scheduleMode !== 'recorrente' && !customGroupJids && targets.length > 0) {
     const successfulJids = clientHistoryStore
       .filter(h => h.campaignId === camp.id && h.status === 'delivered')
       .map(h => h.groupJid);
@@ -4483,7 +4403,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
   }
 
   const currentLimits = CLIENT_PLAN_LIMITS[userPlanId] || CLIENT_PLAN_LIMITS.start;
-  const bypassPlanLimits = own.user?.role === 'admin' || own.user?.role === 'manager';
+  const bypassPlanLimits = true;
   const totalSentFromCampaigns = clientCampaignsStore.reduce((acc, c) => acc + (c.totalSent || 0), 0);
   if (!bypassPlanLimits && totalSentFromCampaigns + targets.length > currentLimits.maxMonthlySends) {
     return res.status(403).json({
@@ -4496,6 +4416,7 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
   }
 
   if (camp) {
+    camp.pendingRunKey = manualRunKey;
     camp.status = "enviando";
     camp.totalSent = 0;
     camp.totalTarget = targets.length;
@@ -4524,8 +4445,10 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
         camp?.title || "Disparo Imediato",
         camp?.id,
         intervalMs,
-        (processedCount, successfulCount, failedCount) => {
+        (processedCount, successfulCount, failedCount, targetTotal) => {
           if (camp) {
+            camp.totalTarget = targetTotal;
+            camp.groupsCount = targetTotal;
             camp.totalSent = successfulCount;
             camp.totalFailed = failedCount;
             camp.status = "enviando";
@@ -4534,18 +4457,19 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
         },
         own.user.id,
         own.db,
-        `manual:${getBrazilTimeData().brDateStr}_${getBrazilTimeData().brTimeStr}`
+        manualRunKey
       );
 
       const successfulCount = dispatchResults.filter((r) => r.success).length;
 
       if (camp) {
+        camp.pendingRunKey = undefined;
         camp.totalSent = successfulCount;
         if (camp.scheduleMode === "recorrente") {
           camp.status = "ativa";
           camp.active = true;
         } else {
-          camp.status = successfulCount === targets.length ? "concluida" : (successfulCount > 0 ? "parcial" : "falha");
+          camp.status = successfulCount === dispatchResults.length ? "concluida" : (successfulCount > 0 ? "parcial" : "falha");
           camp.active = false;
         }
         camp.lastSentAt = `Hoje às ${new Date().toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" })}`;
@@ -4554,13 +4478,8 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
     } catch (err) {
       console.error("[Dispatch] Error during execution:", err);
       if (camp) {
-        if (camp.scheduleMode === "recorrente") {
-          camp.status = "ativa";
-          camp.active = true;
-        } else {
-          camp.status = "falha";
-          camp.active = false;
-        }
+        camp.status = 'enviando';
+        camp.active = true;
         await own.db.saveCampaignForUser(own.user.id,camp);
       }
     } finally {
@@ -4604,7 +4523,7 @@ setInterval(async () => {
 
     // Watchdog: Auto-recover any campaigns stuck in 'enviando' for > 3 minutes with no active runner
     if (db.recoverStuckCampaigns && Math.random() < 0.25) {
-      db.recoverStuckCampaigns(3).catch(() => {});
+      // Sending jobs are resumed below using delivery claims; do not deactivate them.
     }
 
     // 1. Fetch all active/scheduled campaigns directly from MySQL (Shared Single Source of Truth)
@@ -4640,33 +4559,9 @@ setInterval(async () => {
       }
       // Mode 2: Recorrente (Dias da semana & horários do dia)
       else if (camp.scheduleMode === 'recorrente') {
-        const days = camp.scheduleDays || "Todos os dias";
-        const isDayMatch = days === "Todos os dias" || days.includes(brDayName);
+        const due = nextRecurringSlot(camp, brDateStr, brTimeStr, brDayName);
+        if (due) { shouldTrigger = true; camp.lastExecutedSlot = due; }
 
-        if (isDayMatch) {
-          const times = (Array.isArray(camp.scheduleTimes) && camp.scheduleTimes.length > 0
-            ? camp.scheduleTimes
-            : [camp.scheduleTime || "00:00"]).map((t: any) => String(t).slice(0, 5));
-
-          // Catch-up window: if a campaign is saved at 05:15:40 or the Passenger
-          // worker wakes at 05:16, execute the latest due slot instead of losing the day.
-          const nowMinutes = Number(brTimeStr.slice(0, 2)) * 60 + Number(brTimeStr.slice(3, 5));
-          const dueSlots = times
-            .map((time: string) => {
-              const [hh, mm] = time.split(':').map(Number);
-              return { time, minutes: hh * 60 + mm };
-            })
-            .filter((slot: any) => slot.minutes <= nowMinutes)
-            .sort((a: any, b: any) => b.minutes - a.minutes);
-          const latestDue = dueSlots[0];
-          if (latestDue) {
-            const dueSlotKey = `${brDateStr}_${latestDue.time}`;
-            if (camp.lastExecutedSlot !== dueSlotKey) {
-              shouldTrigger = true;
-              camp.lastExecutedSlot = dueSlotKey;
-            }
-          }
-        }
       }
 
       if (!shouldTrigger) continue;
@@ -4711,8 +4606,8 @@ setInterval(async () => {
           camp.active = true;
           camp.lastExecutedSlot = undefined;
         } else {
-          camp.status = 'falha';
-          camp.active = false;
+          camp.status = 'enviando';
+          camp.active = true;
         }
         await db.saveCampaignForUser(userId, camp).catch(() => {});
         await db.addHistoryForUser(userId, {
@@ -4744,9 +4639,9 @@ setInterval(async () => {
       // Deduplication is scoped to the CURRENT execution slot by campaign_delivery_claims.
       // Never use the campaign's lifetime history here: on recurring campaigns that would
       // make every group look "already sent" after the first day and permanently stop it.
-      const dispatchRunKey = camp.scheduleMode === 'recorrente'
+      const dispatchRunKey = camp.pendingRunKey || (camp.scheduleMode === 'recorrente'
         ? (camp.lastExecutedSlot || slotKey)
-        : `${camp.scheduleDate || brDateStr}_${String(camp.scheduleTime || brTimeStr).slice(0, 5)}`;
+        : `${camp.scheduleDate || brDateStr}_${String(camp.scheduleTime || brTimeStr).slice(0, 5)}`);
       const remainingTargets = allTargets;
       const totalAlreadySent = 0;
 
@@ -4767,7 +4662,9 @@ setInterval(async () => {
             camp.title,
             campId,
             intervalMs,
-            (processedCount, successfulCount, failedCount) => {
+            (processedCount, successfulCount, failedCount, targetTotal) => {
+              camp.totalTarget = targetTotal;
+              camp.groupsCount = targetTotal;
               camp.totalSent = totalAlreadySent + successfulCount;
               camp.totalFailed = failedCount;
               camp.status = 'enviando';
@@ -4781,15 +4678,17 @@ setInterval(async () => {
           const successCount = results.filter((r) => r.success).length;
           const failedCount = results.filter((r) => !r.success).length;
           const totalSuccess = totalAlreadySent + successCount;
+          camp.pendingRunKey = undefined;
           camp.totalSent = totalSuccess;
           camp.totalFailed = failedCount;
           camp.lastSentAt = `Hoje às ${getBrazilTimeData().brTimeStr}`;
 
           if (camp.scheduleMode === 'recorrente') {
+            camp.completedSlots = [...new Set([...(camp.completedSlots || []).filter((key: string) => key.startsWith(brDateStr)), dispatchRunKey])];
             camp.status = 'ativa';
             camp.active = true;
           } else {
-            camp.status = totalSuccess >= allTargets.length ? 'concluida' : (totalSuccess > 0 ? 'parcial' : 'falha');
+            camp.status = totalSuccess >= results.length ? 'concluida' : (totalSuccess > 0 ? 'parcial' : 'falha');
             camp.active = false;
           }
           await db.saveCampaignForUser(userId, camp).catch(() => {});

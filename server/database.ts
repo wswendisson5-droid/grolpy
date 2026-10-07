@@ -741,6 +741,27 @@ export async function ensureCampaignsTable(force = false): Promise<void> {
       });
     }
 
+    // One-time reset explicitly requested by the owner on 2026-10-07.
+    // Serialize workers and commit the marker together with deletions.
+    const reset = await pool.getConnection();
+    try {
+      const [locks]: any = await reset.query("SELECT GET_LOCK('groply-reset-20261007', 10) acquired");
+      if (Number(locks[0]?.acquired) !== 1) throw new Error('Reset lock unavailable');
+      await reset.beginTransaction();
+      const [done]: any = await reset.query("SELECT id FROM migrations WHERE name='020_owner_reset_campaigns_20261007' FOR UPDATE");
+      if (!done.length) {
+        const counts: Record<string, number> = {};
+        for (const table of ['campaign_delivery_claims', 'user_history', 'user_campaigns', 'user_groups']) {
+          const [result]: any = await reset.query(`DELETE FROM ${table}`);
+          counts[table] = Number(result.affectedRows || 0);
+        }
+        await reset.query("UPDATE plans SET max_groups=2147483647,max_rounds_per_day=2147483647,max_monthly_sends=2147483647,max_active_campaigns=2147483647");
+        await reset.query("INSERT INTO migrations(name) VALUES('020_owner_reset_campaigns_20261007')");
+        console.log('[OwnerReset] Completed:', JSON.stringify(counts));
+      }
+      await reset.commit();
+    } catch (error) { await reset.rollback(); throw error; }
+    finally { await reset.query("SELECT RELEASE_LOCK('groply-reset-20261007')").catch(() => {}); reset.release(); }
     campaignsTableEnsured = true;
   } catch (err) {
     console.error("[DB] Falha ao verificar/criar tabelas de campanhas:", err);
@@ -1518,4 +1539,25 @@ export async function setAdminState(stateKey: string, payload: any) {
      ON DUPLICATE KEY UPDATE payload_json = VALUES(payload_json), updated_at = CURRENT_TIMESTAMP`,
     [stateKey, JSON.stringify(payload ?? null)]
   );
+}
+
+// A dedicated MySQL connection owns this lock across the complete sending run.
+export async function acquireDispatchQueue(instance: string) {
+  const connection = await pool.getConnection();
+  const key = 'groply-send-' + crypto.createHash('sha256').update(instance).digest('hex').slice(0,40);
+  try {
+    const [rows]: any = await connection.query('SELECT GET_LOCK(?, 1) acquired', [key]);
+    if (Number(rows[0]?.acquired) !== 1) throw new Error('A conexão já possui um envio em andamento. A divulgação permanece na fila.');
+    return async () => { try { await connection.query('SELECT RELEASE_LOCK(?)', [key]); } finally { connection.release(); } };
+  } catch (error) { connection.release(); throw error; }
+}
+export async function getCampaignDeliveryStatus(userId: number, campaign: string, jid: string, run: string) {
+  const [rows]: any = await pool.execute('SELECT status FROM campaign_delivery_claims WHERE user_id=? AND campaign_key=? AND group_jid=? AND run_key=?', [userId,campaign,jid,run]);
+  return rows[0]?.status;
+}
+
+export async function campaignMaintenanceStatus() {
+  await ensureCampaignsTable();
+  const [rows]: any = await pool.query("SELECT id FROM migrations WHERE name='020_owner_reset_campaigns_20261007'");
+  return { resetCompleted: rows.length > 0 };
 }

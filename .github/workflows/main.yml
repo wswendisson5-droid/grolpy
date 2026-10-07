@@ -81,3 +81,21 @@ jobs:
           local-dir: ./deploy/
           server-dir: ./
           dangerous-clean-slate: false
+
+      - name: Verificar backend e limpeza solicitada
+        run: |
+          python3 - <<'PYVERIFY'
+          import json, time, urllib.request
+          for attempt in range(12):
+              try:
+                  with urllib.request.urlopen('https://grolpy.minhabagg.com.br/api/maintenance/status', timeout=20) as response:
+                      status = json.load(response)
+                  if status.get('release') == 'groply-20261007-reset-v1' and status.get('resetCompleted'):
+                      print('Backend atualizado; limpeza unica confirmada no MySQL.')
+                      break
+              except Exception as error:
+                  print('Aguardando reinicio:', type(error).__name__)
+              time.sleep(10)
+          else:
+              raise SystemExit('Nao foi possivel confirmar backend/limpeza em producao')
+          PYVERIFY

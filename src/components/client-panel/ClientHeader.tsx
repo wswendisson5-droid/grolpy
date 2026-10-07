@@ -109,7 +109,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
       {/* Right Controls */}
       <div className="flex items-center gap-1.5 sm:gap-2.5 ml-auto shrink-0">
         {/* Compact Plan Usage Metric Widget in Navbar */}
-        <div className={`relative shrink-0 ${isInternal ? 'hidden' : ''}`}>
+        <div className={`relative shrink-0 hidden`}>
           <button
             id="navbar-plan-usage-badge"
             onClick={() => setIsPlanUsageDropdownOpen(!isPlanUsageDropdownOpen)}

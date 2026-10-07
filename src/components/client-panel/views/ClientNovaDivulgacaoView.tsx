@@ -978,31 +978,7 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
             </div>
           </div>
 
-          {/* Plan Capacity Indicator Banner */}
-          <div className="p-3.5 sm:p-4 rounded-2xl bg-[#f7faf8] border border-[#dbe6df] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-extrabold text-[#11241c]">
-                  Capacidade de Grupos do Plano ({currentPlan.name})
-                </span>
-                <span className="text-[11px] font-bold text-[#109353] bg-[#e6f4ec] px-2 py-0.5 rounded-md">
-                  {existingUniqueGroups.size} de {currentPlan.maxGroups} em automações
-                </span>
-              </div>
-              <p className="text-[11px] text-[#5c7164]">
-                O limite conta apenas <strong>grupos únicos</strong>. Grupos já presentes em outras divulgações não consomem limite adicional.
-              </p>
-            </div>
-            {onNavigateToPlanos && (
-              <button
-                type="button"
-                onClick={onNavigateToPlanos}
-                className="text-xs font-bold text-[#109353] hover:underline cursor-pointer shrink-0"
-              >
-                Gerenciar Plano →
-              </button>
-            )}
-          </div>
+          <p className="text-xs text-[#5c7164]">Selecione todos os grupos abertos disponíveis. Não há limite de grupos ou envios.</p>
 
           {/* Search bar & count pill */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">

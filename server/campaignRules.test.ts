@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {isOpenJoinedGroup, nextRecurringSlot} from './campaignRules';
+const own='5527999999999@s.whatsapp.net';
+const group={id:'123@g.us',participants:[{id:own}]};
+assert.equal(isOpenJoinedGroup(group,own),true);
+for(const flags of [{isCommunity:true},{isCommunityAnnounce:true},{announce:true},{announce:'true'},{left:true},{participants:[{id:'other@s.whatsapp.net'}]},{participants:[]}]) assert.equal(isOpenJoinedGroup({...group,...flags},own),false);
+assert.equal(isOpenJoinedGroup({...group,participants:[{id:'123@lid',phoneNumber:own}]},own),true);
+const camp={scheduleDays:'Seg, Ter',scheduleTimes:['09:00','18:00'],createdAt:'2026-10-01T12:00:00Z'};
+assert.equal(nextRecurringSlot(camp,'2026-10-05','18:30','Seg'),'2026-10-05_09:00');
+assert.equal(nextRecurringSlot({...camp,completedSlots:['2026-10-05_09:00']},'2026-10-05','18:30','Seg'),'2026-10-05_18:00');
+assert.equal(nextRecurringSlot({...camp,completedSlots:['2026-10-05_09:00','2026-10-05_18:00']},'2026-10-05','18:30','Seg'),undefined);
+assert.equal(nextRecurringSlot(camp,'2026-10-06','09:00','Ter'),'2026-10-06_09:00');
+assert.equal(nextRecurringSlot(camp,'2026-10-07','18:30','Qua'),undefined);
+assert.equal(nextRecurringSlot(camp,'2026-10-12','09:00','Seg'),'2026-10-12_09:00');
+console.log('Campaign recurrence and membership checks passed.');

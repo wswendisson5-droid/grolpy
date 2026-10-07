@@ -21,10 +21,10 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     tagline: 'Assinatura mensal',
     price: '14,90',
     monthlyPriceNumber: 14.9,
-    maxGroups: 999999,
-    maxRoundsPerDay: 999999,
-    maxMonthlySends: 999999,
-    maxActiveCampaigns: 999999,
+    maxGroups: Number.POSITIVE_INFINITY,
+    maxRoundsPerDay: Number.POSITIVE_INFINITY,
+    maxMonthlySends: Number.POSITIVE_INFINITY,
+    maxActiveCampaigns: Number.POSITIVE_INFINITY,
     historyDays: 3650,
     supportType: 'E-mail',
   },
@@ -34,10 +34,10 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     tagline: 'Mais resultados',
     price: '14,90',
     monthlyPriceNumber: 14.9,
-    maxGroups: 999999,
-    maxRoundsPerDay: 999999,
-    maxMonthlySends: 999999,
-    maxActiveCampaigns: 999999,
+    maxGroups: Number.POSITIVE_INFINITY,
+    maxRoundsPerDay: Number.POSITIVE_INFINITY,
+    maxMonthlySends: Number.POSITIVE_INFINITY,
+    maxActiveCampaigns: Number.POSITIVE_INFINITY,
     historyDays: 3650,
     supportType: 'Prioritário',
   },
@@ -47,10 +47,10 @@ export const PLANS: Record<PlanId, PlanConfig> = {
     tagline: 'Sem limites para crescer',
     price: '14,90',
     monthlyPriceNumber: 14.9,
-    maxGroups: 999999,
-    maxRoundsPerDay: 999999,
-    maxMonthlySends: 999999,
-    maxActiveCampaigns: 999999,
+    maxGroups: Number.POSITIVE_INFINITY,
+    maxRoundsPerDay: Number.POSITIVE_INFINITY,
+    maxMonthlySends: Number.POSITIVE_INFINITY,
+    maxActiveCampaigns: Number.POSITIVE_INFINITY,
     historyDays: 3650,
     supportType: 'VIP',
   },
@@ -239,7 +239,7 @@ class PlanService {
     ).length;
 
     return {
-      allowed: activeCount < plan.maxActiveCampaigns,
+      allowed: true,
       activeCount,
       limit: plan.maxActiveCampaigns,
     };
@@ -259,7 +259,7 @@ class PlanService {
       : 0;
     const projected = currentSent + additionalSends;
     return {
-      allowed: projected <= plan.maxMonthlySends,
+      allowed: true,
       used: currentSent,
       limit: plan.maxMonthlySends,
     };
