@@ -44,6 +44,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   const [agendaItems, setAgendaItems] = useState<AgendaItem[]>([]);
   const [campaigns, setCampaigns] = useState<DivulgacaoCard[]>([]);
   const [groups, setGroups] = useState<ClientGroup[]>([]);
+  const [groupsError, setGroupsError] = useState<string | undefined>();
   const [planUsage, setPlanUsage] = useState(INITIAL_PLAN_USAGE);
 
   // WhatsApp Profile State (Connected photo & real phone number)
@@ -66,8 +67,9 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     try {
       const real = await clientService.getRealGroups(clientService.getDefaultInstance(), force);
       setGroups(real || []);
-    } catch {
-      // Keep existing groups if network blips
+      setGroupsError(undefined);
+    } catch (error: any) {
+      setGroupsError(error.message || "Falha ao sincronizar grupos.");
     }
   };
 
@@ -439,6 +441,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
               campaigns={campaigns}
               planUsage={planUsage}
               groupsCount={groups.length}
+              groupsError={groupsError}
               stats={dashboardStats}
               onNavigateTab={setCurrentTab}
               onNewCampaign={() => setCurrentTab('nova-divulgacao')}

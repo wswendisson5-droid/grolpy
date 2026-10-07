@@ -14,6 +14,7 @@ interface ClientHomeViewProps {
   campaigns: DivulgacaoCard[];
   planUsage: ClientPlanUsage;
   groupsCount?: number;
+  groupsError?: string;
   stats?: {
     messagesSent?: number;
     sentToday?: number;
@@ -39,6 +40,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
   campaigns,
   planUsage,
   groupsCount = 0,
+  groupsError,
   stats,
   onNavigateTab,
   onNewCampaign,
@@ -59,6 +61,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-5">
+      {groupsError && <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{groupsError} A lista de grupos ainda não foi confirmada.</div>}
       {whatsappIsConnected === false && groupsCount === 0 && !whatsappPhoneNumber && !whatsappProfilePic && (
         <div className="bg-white border border-[#dce8e1] rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xs">
           <div className="min-w-0">
@@ -98,6 +101,7 @@ export const ClientHomeView: React.FC<ClientHomeViewProps> = ({
         {/* Right Column (4 cols): WhatsApp + Próximos Envios + Uso da Conta */}
         <div className="lg:col-span-4 flex flex-col gap-4 sm:gap-5">
           <ClientWhatsAppCard
+            groupsError={groupsError}
             groupsCount={groupsCount}
             onNavigateToConnection={() => onNavigateTab('conexao')}
             initialProfilePic={whatsappProfilePic}

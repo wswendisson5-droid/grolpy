@@ -338,7 +338,7 @@ function formatChatTime(dateInput?: string | number): string {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    release: "groply-20261007-reset-v1",
+    release: "groply-20261007-groups-v2",
     evolutionConfigured: Boolean(memoryState.apiUrl && memoryState.apiKey),
     instanceName: memoryState.instanceName,
     apiUrl: memoryState.apiUrl,
@@ -348,7 +348,7 @@ app.get("/api/health", (_req, res) => {
 app.get('/api/maintenance/status', async (_req, res) => {
   try {
     const db = await getDatabase();
-    res.json({release:'groply-20261007-reset-v1', ...(await db.campaignMaintenanceStatus())});
+    res.json({release:'groply-20261007-groups-v2', ...(await db.campaignMaintenanceStatus())});
   } catch { res.status(503).json({error:'DATABASE_UNAVAILABLE'}); }
 });
 
@@ -2855,6 +2855,7 @@ let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
 const groupSyncInFlight = new Map<string, Promise<any[]>>();
 const groupSyncBlockedUntil = new Map<string, number>();
+const groupSyncFailures = new Map<string, string>();
 let lastSyncGroupsTimestamp = 0;
 
 // Helper to dynamically resolve the best active/connected instance fast
@@ -2916,7 +2917,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     return [];
   }
 
-  if (!force && cachedForInstance && now - cachedForInstance.timestamp < 15000 && cachedForInstance.groups.length > 0) {
+  if (!force && cachedForInstance && now - cachedForInstance.timestamp < 120000 && cachedForInstance.groups.length > 0) {
     return cachedForInstance.groups;
   }
 
@@ -2924,8 +2925,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   // to slow down. During the backoff window, serve only the last confirmed data.
   const blockedUntil = groupSyncBlockedUntil.get(targetInstance) || 0;
   if (now < blockedUntil) {
-    if (cachedForInstance) return cachedForInstance.groups;
-    return [];
+    throw new Error(groupSyncFailures.get(targetInstance) || "A sincronização de grupos aguarda nova tentativa. Tente novamente em instantes.");
   }
 
   let owner = getInstanceCache(targetInstance).connectedProfile?.number || '';
@@ -2941,6 +2941,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   }
   const collectedGroupsMap = new Map<string, any>();
   let evolutionQuerySucceeded = false;
+  let syncFailure = "Não foi possível consultar os grupos do WhatsApp. Tente novamente em instantes.";
   const instName = targetInstance;
 
   const extractGroupsFromPayload = (data: any, iName: string) => {
@@ -3006,19 +3007,25 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     // into a misleading successful empty snapshot.
     // Participants are required to distinguish real joined groups from stale/left
     // groups and community containers before they enter campaign selection.
-    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 10000, 0);
+    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 45000, 0);
     const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
     if (rateLimited) {
+      syncFailure = "O WhatsApp limitou a consulta de grupos. A sincronização será tentada novamente em um minuto.";
+      groupSyncFailures.set(instName, syncFailure);
       groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
       console.warn(`[GroupsSync] Evolution limitou consultas para ${instName}; aguardando 60s e preservando snapshot.`);
     } else if (groupsResponse.ok) {
       evolutionQuerySucceeded = true;
       groupSyncBlockedUntil.delete(instName);
+      groupSyncFailures.delete(instName);
       extractGroupsFromPayload(groupsResponse.data, instName);
 
     } else {
+      if (responseText.includes('connection closed')) syncFailure = 'O WhatsApp informa conexão ativa, mas a sessão não responde à consulta de grupos. A sincronização será tentada novamente.';
+      groupSyncFailures.set(instName, syncFailure);
+      groupSyncBlockedUntil.set(instName, Date.now() + 30_000);
       console.warn(`[GroupsSync] Evolution respondeu HTTP ${groupsResponse.status} para ${instName}; preservando snapshot.`);
     }
   } catch (err: any) {
@@ -3042,7 +3049,8 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   }
 
   console.warn(`[GroupsSync] Não foi possível confirmar grupos abertos para ${instName}.`);
-  return [];
+  groupSyncFailures.set(instName, syncFailure);
+  throw new Error(syncFailure);
 
 }
 
@@ -3176,7 +3184,7 @@ app.get("/api/client/groups", async (req, res) => {
 
   // 1. Check memory cache for this specific instance
   const cached = cachedGroupsByInstance.get(reqInstance);
-  if (!forceRefresh && cached && Array.isArray(cached.groups) && cached.groups.length > 0 && (Date.now() - cached.timestamp < 20000)) {
+  if (!forceRefresh && cached && Array.isArray(cached.groups) && cached.groups.length > 0 && (Date.now() - cached.timestamp < 120000)) {
     return res.json({
       success: true,
       instanceName: reqInstance,
@@ -3188,7 +3196,11 @@ app.get("/api/client/groups", async (req, res) => {
   }
 
   // 2. Perform sync with Evolution for this specific instance
-  const fresh = await syncAllWhatsAppGroups(forceRefresh, reqInstance, { id: own.user.id, db: own.db });
+  let fresh: any[];
+  try { fresh = await syncAllWhatsAppGroups(forceRefresh, reqInstance, { id: own.user.id, db: own.db }); }
+  catch (error: any) {
+    return res.status(503).json({success:false, instanceName:reqInstance, isConnected:true, groupSyncState:'error', error:error.message || 'Não foi possível sincronizar os grupos.'});
+  }
   if (fresh.length > 0) {
     return res.json({
       success: true,

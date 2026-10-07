@@ -5,6 +5,7 @@ import { SafeAvatar } from '../../common/SafeAvatar';
 interface ClientWhatsAppCardProps {
   onNavigateToConnection?: () => void;
   groupsCount?: number;
+  groupsError?: string;
   initialProfilePic?: string;
   initialProfileName?: string;
   initialPhoneNumber?: string;
@@ -14,6 +15,7 @@ interface ClientWhatsAppCardProps {
 export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
   onNavigateToConnection,
   groupsCount = 0,
+  groupsError,
   initialProfilePic,
   initialProfileName,
   initialPhoneNumber,
@@ -87,7 +89,7 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
             </div>
 
             <span className="text-xs text-[#718479] mt-0.5 truncate">
-              {isConnected ? 'Conexão ativa e pronta para envios' : 'Clique para escanear QR Code'}
+              {isConnected ? (groupsError ? 'Falha na sincronização de grupos' : groupsCount > 0 ? 'Grupos abertos disponíveis' : 'Verificando grupos do WhatsApp') : 'Clique para escanear QR Code'}
             </span>
           </div>
         </div>
@@ -104,10 +106,10 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
         <div className="bg-[#f7faf8] rounded-xl p-2.5 flex flex-col items-center text-center">
           <div className={`flex items-center gap-1 mb-0.5 ${isConnected ? 'text-[#109353]' : 'text-amber-600'}`}>
             {isConnected ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
-            <span className="text-xs font-bold">{isConnected ? '100%' : '0%'}</span>
+            <span className="text-xs font-bold">{isConnected ? 'Conectado' : 'Offline'}</span>
           </div>
           <span className="text-[10px] text-[#5e7166] font-medium leading-tight">
-            {isConnected ? 'Conexão estável' : 'Desconectado'}
+            {isConnected ? 'Sessão do WhatsApp' : 'Desconectado'}
           </span>
         </div>
 
@@ -129,7 +131,7 @@ export const ClientWhatsAppCard: React.FC<ClientWhatsAppCardProps> = ({
             <span className="text-xs font-bold">{isConnected ? 'Online' : 'Pausado'}</span>
           </div>
           <span className="text-[10px] text-[#5e7166] font-medium leading-tight">
-            {isConnected ? 'Funcionando' : 'Aguardando'}
+            {isConnected && groupsCount > 0 && !groupsError ? 'Grupos disponíveis' : 'Aguardando grupos'}
           </span>
         </div>
       </div>
