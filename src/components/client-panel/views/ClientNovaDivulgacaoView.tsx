@@ -620,8 +620,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         });
 
         if (dispatchRes.success) {
-          created.status = 'concluida';
-          created.totalSent = dispatchRes.successful !== undefined ? dispatchRes.successful : selectedGroupJids.length;
+          created.status = dispatchRes.started ? 'enviando' : 'concluida';
+          created.totalSent = dispatchRes.successful ?? 0;
         }
       }
 

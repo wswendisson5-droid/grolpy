@@ -212,7 +212,7 @@ class ClientService {
     imageUrl?: string;
     instanceName?: string;
     intervalSeconds?: number;
-  }): Promise<{ success: boolean; totalDispatched: number; successful: number; error?: string }> {
+  }): Promise<{ success: boolean; started?: boolean; totalDispatched: number; successful?: number; error?: string }> {
     try {
       const res = await fetch('/api/client/campaigns/send-now', {
         method: 'POST',

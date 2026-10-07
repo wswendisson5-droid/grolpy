@@ -12,6 +12,7 @@ export function isOpenJoinedGroup(group: any, owner: string): boolean {
   return Boolean(own && !truth(own.left) && !truth(own.removed) && own.membership !== 'left');
 }
 export function nextRecurringSlot(camp: any, date: string, time: string, day: string): string | undefined {
+  if (camp.scheduleDate && date < String(camp.scheduleDate).slice(0, 10)) return;
   const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const days = normalize(String(camp.scheduleDays || 'Todos os dias'));
   if (days !== 'todos os dias' && !days.split(/[,;\s]+/).includes(normalize(day))) return;
@@ -22,4 +23,10 @@ export function nextRecurringSlot(camp: any, date: string, time: string, day: st
   const completed: string[] = Array.isArray(camp.completedSlots) ? camp.completedSlots : [];
   return slots.filter(t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t) && t <= time && (!createdTime || t >= createdTime))
     .map(t => `${date}_${t}`).find(key => !completed.includes(key));
+}
+export function isScheduledDue(camp: any, date: string, time: string): boolean {
+  if (camp.executed || !['agendada', 'ativa'].includes(camp.status)) return false;
+  const startDate = String(camp.scheduleDate || date).slice(0, 10);
+  const startTime = String(camp.scheduleTime || '00:00').slice(0, 5);
+  return startDate < date || (startDate === date && startTime <= time);
 }

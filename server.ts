@@ -1,4 +1,4 @@
-import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot } from "./server/campaignRules";
+import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
 import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
 import path from "path";
@@ -338,7 +338,7 @@ function formatChatTime(dateInput?: string | number): string {
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    release: "groply-20261007-groups-v2",
+    release: "groply-20261007-session-v3",
     evolutionConfigured: Boolean(memoryState.apiUrl && memoryState.apiKey),
     instanceName: memoryState.instanceName,
     apiUrl: memoryState.apiUrl,
@@ -348,7 +348,7 @@ app.get("/api/health", (_req, res) => {
 app.get('/api/maintenance/status', async (_req, res) => {
   try {
     const db = await getDatabase();
-    res.json({release:'groply-20261007-groups-v2', ...(await db.campaignMaintenanceStatus())});
+    res.json({release:'groply-20261007-session-v3', ...(await db.campaignMaintenanceStatus())});
   } catch { res.status(503).json({error:'DATABASE_UNAVAILABLE'}); }
 });
 
@@ -3007,7 +3007,16 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     // into a misleading successful empty snapshot.
     // Participants are required to distinguish real joined groups from stale/left
     // groups and community containers before they enter campaign selection.
-    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true`, {}, 45000, 0);
+    let groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true&skipPicture=true`, {}, 45000, 0);
+    // A stale Evolution socket can report open. Recreate only this tenant's socket,
+    // then verify real metadata; never substitute an empty/stale successful result.
+    if (!groupsResponse.ok && JSON.stringify(groupsResponse.data).toLowerCase().includes('connection closed')) {
+      const restart = await callEvolution(`/instance/restart/${instName}`, {method:'POST'}, 15000, 0);
+      if (restart.ok && !restart.data?.error) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true&skipPicture=true`, {}, 45000, 0);
+      }
+    }
     const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
@@ -4024,7 +4033,7 @@ async function executeGroupDispatchInternal(
   campaignTitle: string,
   campaignId?: string,
   intervalMs: number = 0,
-  onProgress?: (processedCount: number, successfulCount: number, failedCount: number, targetTotal: number) => void,
+  onProgress?: (processedCount: number, successfulCount: number, failedCount: number, targetTotal: number) => void | Promise<void>,
   userId?: number,
   db?: any,
   dispatchRunKey: string = "once"
@@ -4064,14 +4073,8 @@ async function executeGroupDispatchInternal(
       console.warn(`[Dispatch] ⚠️ Destino inválido ignorado: '${jid}'. Disparos de campanha são exclusivos para grupos.`);
       dispatchResults.push({ jid, success: false, error: "Destino inválido: não é um grupo de WhatsApp." });
       failedCount++;
-      if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+      if (onProgress) await onProgress(i + 1, successfulCount, failedCount, targets.length);
       continue;
-    }
-
-    // If not the first group, apply interval between groups
-    if (i > 0 && intervalMs > 0) {
-      console.log(`[Dispatch] ⏳ Waiting ${intervalMs / 1000}s interval before sending to group ${i + 1}/${targets.length}...`);
-      await new Promise((r) => setTimeout(r, intervalMs));
     }
 
     if (userId && campaignId && db?.claimCampaignDelivery) {
@@ -4080,10 +4083,16 @@ async function executeGroupDispatchInternal(
         const delivered = await db.getCampaignDeliveryStatus(userId, campaignId, jid, dispatchRunKey) === 'delivered';
         if (delivered) successfulCount++; else failedCount++;
         dispatchResults.push({jid, success:delivered, error:delivered ? undefined : 'Envio já registrado ou aguardando confirmação nesta rodada.'});
-        if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+        if (onProgress) await onProgress(i + 1, successfulCount, failedCount, targets.length);
         continue;
       }
     }
+    // If not the first group, apply interval between groups
+    if (i > 0 && intervalMs > 0) {
+      console.log(`[Dispatch] ⏳ Waiting ${intervalMs / 1000}s interval before sending to group ${i + 1}/${targets.length}...`);
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+
     if (userId && db?.addHistoryForUser) {
       const historyId = await db.addHistoryForUser(userId, {
         campaignId: campaignId || 'manual', campaignTitle, groupJid: jid,
@@ -4200,7 +4209,7 @@ async function executeGroupDispatchInternal(
           if (mediaRes.ok) {
             isOk = true;
           } else {
-            lastErr = mediaRes.data?.message || mediaRes.data?.error || JSON.stringify(mediaRes.data) || "Falha ao enviar imagem (Evolution API).";
+            lastErr = mediaRes.data?.response?.message || mediaRes.data?.message || mediaRes.data?.error || JSON.stringify(mediaRes.data) || "Falha ao enviar imagem (Evolution API).";
           }
         } catch (e: any) {
           console.log(`[EVOLUTION RESPONSE] Error exception: ${e.message}`);
@@ -4242,7 +4251,7 @@ async function executeGroupDispatchInternal(
               isOk = true;
               lastErr = ""; // Clear media error if text fallback succeeded
             } else {
-              lastErr = sendRes.data?.message || sendRes.data?.error || JSON.stringify(sendRes.data) || "Falha Evolution sendText";
+              lastErr = sendRes.data?.response?.message || sendRes.data?.message || sendRes.data?.error || JSON.stringify(sendRes.data) || "Falha Evolution sendText";
             }
           } catch (e: any) {
             console.log(`[EVOLUTION RESPONSE] Error exception: ${e.message}`);
@@ -4263,7 +4272,7 @@ async function executeGroupDispatchInternal(
       }
 
       dispatchResults.push({ jid, success: isOk, error: isOk ? undefined : lastErr });
-      if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+      if (onProgress) await onProgress(i + 1, successfulCount, failedCount, targets.length);
 
       // Detailed history logging
       const errorDetails = !isOk ? `HTTP ${httpStatus} (${endpointUsed}): ${lastErr} (Tentativas: ${attemptCount})` : undefined;
@@ -4345,7 +4354,7 @@ async function executeGroupDispatchInternal(
           await db.releaseCampaignDelivery(userId, campaignId, jid, dispatchRunKey);
         } catch {}
       }
-      if (onProgress) onProgress(i + 1, successfulCount, failedCount, targets.length);
+      if (onProgress) await onProgress(i + 1, successfulCount, failedCount, targets.length);
     }
   }
 
@@ -4457,14 +4466,14 @@ app.post("/api/client/campaigns/send-now", async (req, res) => {
         camp?.title || "Disparo Imediato",
         camp?.id,
         intervalMs,
-        (processedCount, successfulCount, failedCount, targetTotal) => {
+        async (processedCount, successfulCount, failedCount, targetTotal) => {
           if (camp) {
             camp.totalTarget = targetTotal;
             camp.groupsCount = targetTotal;
             camp.totalSent = successfulCount;
             camp.totalFailed = failedCount;
             camp.status = "enviando";
-            own.db.saveCampaignForUser(own.user.id, camp).catch(() => {});
+            await own.db.saveCampaignForUser(own.user.id, camp).catch(() => {});
           }
         },
         own.user.id,
@@ -4560,14 +4569,7 @@ setInterval(async () => {
       }
       // Mode 1: Agendar / Programado (Disparo Único com Data e Hora)
       else if (camp.scheduleMode === 'agendar' || camp.scheduleMode === 'programado') {
-        const campDate = camp.scheduleDate || brDateStr;
-        const campTime = (camp.scheduleTime || "00:00").slice(0, 5);
-
-        if (campDate < brDateStr || (campDate === brDateStr && campTime <= brTimeStr)) {
-          if (!camp.executed && (camp.status === 'agendada' || camp.status === 'ativa')) {
-            shouldTrigger = true;
-          }
-        }
+        shouldTrigger = isScheduledDue(camp, brDateStr, brTimeStr);
       }
       // Mode 2: Recorrente (Dias da semana & horários do dia)
       else if (camp.scheduleMode === 'recorrente') {
@@ -4674,13 +4676,13 @@ setInterval(async () => {
             camp.title,
             campId,
             intervalMs,
-            (processedCount, successfulCount, failedCount, targetTotal) => {
+            async (processedCount, successfulCount, failedCount, targetTotal) => {
               camp.totalTarget = targetTotal;
               camp.groupsCount = targetTotal;
               camp.totalSent = totalAlreadySent + successfulCount;
               camp.totalFailed = failedCount;
               camp.status = 'enviando';
-              db.saveCampaignForUser(userId, camp).catch(() => {});
+              await db.saveCampaignForUser(userId, camp).catch(() => {});
             },
             userId,
             db,
