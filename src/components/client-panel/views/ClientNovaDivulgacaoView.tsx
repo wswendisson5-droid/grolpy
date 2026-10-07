@@ -622,6 +622,8 @@ export const ClientNovaDivulgacaoView: React.FC<ClientNovaDivulgacaoViewProps> =
         if (dispatchRes.success) {
           created.status = dispatchRes.started ? 'enviando' : 'concluida';
           created.totalSent = dispatchRes.successful ?? 0;
+        } else {
+          throw new Error(dispatchRes.error || 'Não foi possível iniciar o envio.');
         }
       }
 
