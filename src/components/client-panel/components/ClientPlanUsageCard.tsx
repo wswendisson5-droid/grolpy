@@ -11,20 +11,6 @@ export const ClientPlanUsageCard: React.FC<ClientPlanUsageCardProps> = ({
   usage,
   onNewCampaign,
 }) => {
-  // SVG Donut calculation
-  const radius = 40;
-  const circumference = 2 * Math.PI * radius;
-  const visualPercentage = usage.usedMessages > 0 
-    ? Math.max(2, Math.min(100, usage.percentage)) 
-    : 0;
-  const strokeDashoffset = circumference - (visualPercentage / 100) * circumference;
-
-  const displayPercentage = usage.percentage > 0 
-    ? `${usage.percentage}%` 
-    : usage.usedMessages > 0 
-    ? `< 1%` 
-    : `0%`;
-
   return (
     <div
       id="client-plan-usage-card"
@@ -32,51 +18,21 @@ export const ClientPlanUsageCard: React.FC<ClientPlanUsageCardProps> = ({
     >
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-[#f0f4f1]">
-        <h3 className="text-base font-bold text-[#11241c]">Uso da sua conta</h3>
-        <span className="text-xs font-semibold text-[#667a6f]">{usage.planName}</span>
+        <h3 className="text-base font-bold text-[#11241c]">Resumo dos envios</h3>
+        <span className="text-xs font-semibold text-[#667a6f]">Sem limites</span>
       </div>
 
       {/* Donut Chart & Legend Row */}
       <div className="flex flex-col sm:flex-row items-center justify-around gap-4 py-2">
-        {/* Donut Radial Chart */}
-        <div className="relative flex items-center justify-center shrink-0">
-          <svg className="w-28 h-28 transform -rotate-90" viewBox="0 0 100 100">
-            {/* Background Ring */}
-            <circle
-              cx="50"
-              cy="50"
-              r={radius}
-              stroke="#e8efe9"
-              strokeWidth="9"
-              fill="transparent"
-            />
-            {/* Active Progress Ring */}
-            <circle
-              cx="50"
-              cy="50"
-              r={radius}
-              stroke="#109353"
-              strokeWidth="9"
-              fill="transparent"
-              strokeDasharray={circumference}
-              strokeDashoffset={strokeDashoffset}
-              strokeLinecap="round"
-              className="transition-all duration-700 ease-out"
-            />
-          </svg>
-
-          {/* Center Text */}
-          <div className="absolute flex flex-col items-center justify-center text-center">
-            <span className="text-xl font-extrabold text-[#11241c] leading-none">
-              {displayPercentage}
-            </span>
-          </div>
+        <div className="flex flex-col items-center justify-center py-5">
+          <span className="text-3xl font-extrabold text-[#11241c]">{usage.usedMessages.toLocaleString('pt-BR')}</span>
+          <span className="text-xs text-[#63776c]">mensagens enviadas</span>
         </div>
 
         {/* Legend Details */}
         <div className="flex flex-col gap-2 min-w-[140px]">
           <div className="text-[11px] text-[#63776c] font-medium mb-1">
-            <span className="font-bold text-[#11241c]">{usage.usedMessages.toLocaleString('pt-BR')}</span> de {usage.totalMessages.toLocaleString('pt-BR')} no mês
+            <span className="font-bold text-[#11241c]">{usage.usedMessages.toLocaleString('pt-BR')}</span> mensagens enviadas no mês
           </div>
 
           <div className="flex items-center justify-between text-xs">

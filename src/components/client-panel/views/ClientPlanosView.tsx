@@ -16,7 +16,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({ onOpenChecko
     <div className="flex-1 w-full max-w-xl mx-auto pb-16 font-sans">
       <div className="text-center mb-7">
         <h1 className="text-2xl sm:text-3xl font-black text-[#11241c]">Assine a Groply</h1>
-        <p className="text-sm text-[#64786d] mt-2">Um plano simples. Tudo que você precisa para divulgar.</p>
+        <p className="text-sm text-[#64786d] mt-2">Uma assinatura única, sem limite de grupos ou mensagens.</p>
       </div>
 
       <div className="bg-white rounded-3xl border border-[#dfe8e2] shadow-sm p-6 sm:p-8">
@@ -32,7 +32,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({ onOpenChecko
         </div>        <div className="my-6 h-px bg-[#edf2ef]" />
         <div className="space-y-3 text-sm text-[#30463a]">
           {[
-            'Divulgações e agendamentos sem limite interno por plano',
+            'Grupos, mensagens e agendamentos sem limites',
             'Conexão com seus grupos do WhatsApp',
             'Histórico e relatórios de envios',
             'Cancele quando quiser',
@@ -54,7 +54,7 @@ export const ClientPlanosView: React.FC<ClientPlanosViewProps> = ({ onOpenChecko
           onClick={selectPlan}
           className="mt-6 w-full min-h-12 rounded-2xl bg-[#109353] hover:bg-[#0c7a44] text-white font-extrabold text-sm flex items-center justify-center gap-2 transition-colors"
         >
-          Selecionar plano
+          Assinar Groply
           <ArrowRight size={17} />
         </button>
       </div>

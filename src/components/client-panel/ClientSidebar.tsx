@@ -206,7 +206,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                   >
                     {subscription.status === 'active' && subscription.planId
                       ? 'Groply sem limites'
-                      : 'Sem Plano Ativo'}
+                      : 'Assinatura inativa'}
                   </span>
                   <span
                     className={`text-[10px] ${
@@ -233,7 +233,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                   : 'bg-[#109353] hover:bg-[#0d7c46] text-white'
               }`}
             >
-              {subscription.status === 'active' && subscription.planId ? 'Gerenciar plano' : 'Escolher plano'}
+              {subscription.status === 'active' && subscription.planId ? 'Gerenciar assinatura' : 'Assinar Groply'}
             </button>
           </div>
 
