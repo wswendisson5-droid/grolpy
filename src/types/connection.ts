@@ -12,6 +12,7 @@ export interface QrCodeData {
   base64?: string;
   pairingCode?: string;
   updatedAt?: number;
+  refreshAt?: number;
 }
 
 export interface ConnectedProfile {
