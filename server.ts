@@ -1,3 +1,4 @@
+import { pairingCodeFrom, preserveChallengeTime } from "./src/utils/connectionChallenge";
 import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
 import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
@@ -86,6 +87,7 @@ interface EvolutionLocalCache {
     base64?: string;
     pairingCode?: string;
     updatedAt: number;
+    refreshAt?: number;
   };
   connectedProfile?: {
     name?: string;
@@ -121,17 +123,12 @@ function getInstanceCache(instanceName: string): EvolutionLocalCache {
 const memoryState: EvolutionLocalCache = getInstanceCache(DEFAULT_INSTANCE_NAME);
 
 // Helper: Normalize QR code payload and ensure a clean Base64 DataURL is always available
-async function normalizeQrCode(rawQr: any): Promise<{ base64?: string; code?: string; pairingCode?: string; updatedAt: number } | null> {
+async function normalizeQrCode(rawQr: any): Promise<{ base64?: string; code?: string; pairingCode?: string; updatedAt: number; refreshAt?: number } | null> {
   if (!rawQr) return null;
   const q = rawQr.qrcode || rawQr;
   let base64 = typeof q.base64 === "string" && q.base64.trim() ? q.base64.trim() : undefined;
   const code = typeof q.code === "string" && q.code.trim() ? q.code.trim() : undefined;
-  let pairingCode = typeof q.pairingCode === "string" && q.pairingCode.trim() ? q.pairingCode.trim() : undefined;
-
-  // If pairingCode not explicit, check if code is an 8-character pairing code (not a full QR string)
-  if (!pairingCode && code && code.length <= 12 && !code.startsWith('2@') && !code.startsWith('1@') && !code.includes(',')) {
-    pairingCode = code;
-  }
+  const pairingCode = pairingCodeFrom(q);
 
   if (!base64 && code && (code.length > 20 || code.startsWith('2@') || code.startsWith('1@') || code.includes(','))) {
     try {
@@ -146,7 +143,12 @@ async function normalizeQrCode(rawQr: any): Promise<{ base64?: string; code?: st
   }
 
   if (!base64 && !code && !pairingCode) return null;
-  return { base64, code, pairingCode, updatedAt: Date.now() };
+  return preserveChallengeTime({ base64, code, pairingCode, updatedAt: Date.now() });
+}
+
+function currentChallenge(cache: EvolutionLocalCache) {
+  const qr = cache.qrCode;
+  return qr && Date.now() < (qr.refreshAt || qr.updatedAt + 40000) ? qr : undefined;
 }
 
 // Helper: Make authenticated calls to Evolution API with robust timeout & auto-retry on transient db lock
@@ -1160,6 +1162,7 @@ app.get("/api/whatsapp/avatar", async (req, res) => {
 
 // 4. Evolution API status check (Real connection state)
 app.get("/api/evolution/status", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: own.error, configured: true, instanceExists: false, state: "disconnected", connectedProfile: null });
@@ -1170,7 +1173,7 @@ app.get("/api/evolution/status", async (req, res) => {
   try {
     let appState: EvolutionLocalCache["state"] = isConnected
       ? "connected"
-      : (currentInst.qrCode?.base64 || currentInst.qrCode?.pairingCode ? "waiting_qr" : "disconnected");
+      : (currentChallenge(currentInst) ? "waiting_qr" : "disconnected");
 
     // When connected, ALWAYS clear any stale QR code from cache
     if (isConnected) {
@@ -1244,7 +1247,7 @@ app.get("/api/evolution/status", async (req, res) => {
       instanceName: activeInstance,
       platform: "Evolution API",
       state: appState,
-      qrCode: currentInst.qrCode,
+      qrCode: currentChallenge(currentInst),
       connectedProfile: currentInst.connectedProfile,
       webhook: {
         status: currentInst.webhookStatus,
@@ -1263,11 +1266,25 @@ app.get("/api/evolution/status", async (req, res) => {
   }
 });
 
+const challengeRequests = new Set<string>();
+async function challengeRequestGuard(req: Request, res: Response, next: NextFunction) {
+  res.setHeader("Cache-Control", "no-store");
+  const own: any = await ownedInstance(req, true, true);
+  if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
+  const key = String(own.user.id);
+  if (challengeRequests.has(key)) return res.status(409).json({ error: "Uma solicitação já está em andamento. Aguarde antes de gerar outro código." });
+  challengeRequests.add(key);
+  // An aborted browser request must not unlock upstream work that is still running.
+  const lease = setTimeout(() => challengeRequests.delete(key), 60000);
+  res.once("finish", () => { clearTimeout(lease); challengeRequests.delete(key); });
+  next();
+}
+
 // 5. Request REAL QR Code from Evolution API: GET /instance/connect/{instance}
 // Ultra-resilient implementation: Handles cold-start instance initialization,
 // integrates with webhook cache, auto-converts raw strings to Base64, and returns 200
 // pending instead of premature 502 error pages so the user experience is smooth and uninterrupted.
-app.get("/api/evolution/qrcode", async (req, res) => {
+app.get("/api/evolution/qrcode", challengeRequestGuard, async (req, res) => {
   const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
@@ -1302,11 +1319,11 @@ app.get("/api/evolution/qrcode", async (req, res) => {
   }
 
   // If we already have a valid QR code generated recently and force refresh wasn't requested, return it immediately
-  if (!force && currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
+  if (!force && currentInst.qrCode?.base64 && Date.now() < (currentInst.qrCode.refreshAt || currentInst.qrCode.updatedAt + 40000)) {
     return res.json({
       success: true,
       instanceName: instance,
-      qrCode: currentInst.qrCode,
+      qrCode: currentChallenge(currentInst),
       state: "waiting_qr",
       cached: true,
     });
@@ -1333,31 +1350,31 @@ app.get("/api/evolution/qrcode", async (req, res) => {
       if (createRes.ok) {
         const norm = await normalizeQrCode(createRes.data);
         if (norm) {
-          currentInst.qrCode = norm;
+          currentInst.qrCode = preserveChallengeTime(norm, currentInst.qrCode);
           currentInst.state = "waiting_qr";
           currentInst.lastUpdated = new Date().toISOString();
           try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-          return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+          return res.json({ success: true, instanceName: instance, qrCode: currentChallenge(currentInst), state: "waiting_qr" });
         }
       }
     } else if (connectRes.ok) {
       const norm = await normalizeQrCode(connectRes.data);
       if (norm) {
-        currentInst.qrCode = norm;
+        currentInst.qrCode = preserveChallengeTime(norm, currentInst.qrCode);
         currentInst.state = "waiting_qr";
         currentInst.lastUpdated = new Date().toISOString();
         try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-        return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+        return res.json({ success: true, instanceName: instance, qrCode: currentChallenge(currentInst), state: "waiting_qr" });
       }
     }
 
     // Do not hold the HTTP request open polling Evolution repeatedly.
     // If Baileys is still preparing, the UI retries after 2s and the webhook can
     // populate qrcode.updated in the meantime. This keeps "Gerar QR" responsive.
-    if (currentInst.qrCode?.base64 && Date.now() - currentInst.qrCode.updatedAt < 25000) {
+    if (currentInst.qrCode?.base64 && Date.now() < (currentInst.qrCode.refreshAt || currentInst.qrCode.updatedAt + 40000)) {
       currentInst.state = "waiting_qr";
       try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-      return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+      return res.json({ success: true, instanceName: instance, qrCode: currentChallenge(currentInst), state: "waiting_qr" });
     }
 
     // Never return 502 when Baileys socket is still preparing; return 200 with pending state
@@ -1366,7 +1383,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
       success: true,
       pending: true,
       instanceName: instance,
-      qrCode: currentInst.qrCode || null,
+      qrCode: currentChallenge(currentInst) || null,
       state: "waiting_qr",
       message: "A Evolution está gerando o QR Code. Aguarde...",
     });
@@ -1376,7 +1393,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
       success: true,
       pending: true,
       instanceName: instance,
-      qrCode: currentInst.qrCode || null,
+      qrCode: currentChallenge(currentInst) || null,
       state: "waiting_qr",
       message: "Aguardando QR Code...",
     });
@@ -1384,7 +1401,7 @@ app.get("/api/evolution/qrcode", async (req, res) => {
 });
 
 // 5.1 Clean Reset & Refresh QR Code (Preserves instance session, refreshes QR)
-app.post("/api/evolution/reset-instance", async (req, res) => {
+app.post("/api/evolution/reset-instance", challengeRequestGuard, async (req, res) => {
   const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const instance = own.instance;
@@ -1420,7 +1437,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
       if (poll.ok) {
         const norm = await normalizeQrCode(poll.data);
         if (norm) {
-          currentInst.qrCode = norm;
+          currentInst.qrCode = preserveChallengeTime(norm, currentInst.qrCode);
           currentInst.state = "waiting_qr";
           currentInst.lastUpdated = new Date().toISOString();
           try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
@@ -1443,7 +1460,7 @@ app.post("/api/evolution/reset-instance", async (req, res) => {
 });
 
 // 5.2 Request Pairing Code from Evolution API (Connect with Phone Number)
-app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
+app.post("/api/evolution/pairing-code", challengeRequestGuard, async (req: Request, res: Response) => {
   const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") return res.status(401).json({ error: "Sessão inválida." });
   if (own.error) return res.status(402).json({ error: "Plano inativo." });
@@ -1501,23 +1518,11 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
       });
     }
 
-    // 2. Request pairing code from Evolution API
-    // GET /instance/connect/{instance}?number={cleanPhone}
+    const requestedAt = Date.now();
+    const previousChallenge = currentInst.qrCode;
+    currentInst.qrCode = undefined;
+    // Exactly one generation request. Follow-up requests only inspect the existing challenge.
     let connectRes = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 8000, 0);
-
-    // Evolution variants differ: newer builds expose a dedicated pairing endpoint.
-    // Try it before recreating the instance so an existing session can pair by phone.
-    if (connectRes.ok && !connectRes.data?.pairingCode && !connectRes.data?.code) {
-      const pairRes = await callEvolution(`/instance/pair/${instance}`, {
-        method: "POST",
-        body: JSON.stringify({ phone: cleanPhone, number: cleanPhone }),
-      }, 8000, 0);
-      if (pairRes.ok && pairRes.data) {
-        const pairData = pairRes.data?.data || pairRes.data;
-        const dedicatedCode = pairData?.pairingCode || pairData?.PairingCode || pairData?.code;
-        if (dedicatedCode) connectRes = { ok: true, status: pairRes.status, data: { pairingCode: dedicatedCode } };
-      }
-    }
 
     // If 404, instance does not exist on Evolution server -> proactively create it
     if (!connectRes.ok && connectRes.status === 404) {
@@ -1546,6 +1551,7 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
     }
 
     let pairingCode: string | undefined = undefined;
+    let challenge: Awaited<ReturnType<typeof normalizeQrCode>> = null;
 
     if (!connectRes.ok && connectRes.status !== 404) {
       const evolutionMessage = connectRes.data?.message || connectRes.data?.error;
@@ -1556,41 +1562,37 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
     }
 
     if (connectRes.ok && connectRes.data) {
-      const norm = await normalizeQrCode(connectRes.data);
-      pairingCode = norm?.pairingCode || connectRes.data?.pairingCode || connectRes.data?.code;
-      if (pairingCode && (pairingCode.length > 15 || pairingCode.includes("@") || pairingCode.includes(","))) {
-        pairingCode = connectRes.data?.pairingCode;
-      }
+      challenge = await normalizeQrCode(connectRes.data);
+      pairingCode = pairingCodeFrom(connectRes.data);
     }
 
-    // 3. If pairingCode not returned in initial call, poll briefly
-    if (!pairingCode) {
-      for (let attempt = 0; attempt < 6; attempt++) {
-        await sleep(700);
-
-        if (currentInst.qrCode?.pairingCode) {
-          pairingCode = currentInst.qrCode.pairingCode;
-          break;
-        }
-
-        const poll = await callEvolution(`/instance/connect/${instance}?number=${cleanPhone}`, { method: "GET" }, 4000, 0);
-        if (poll.ok && poll.data) {
-          const norm = await normalizeQrCode(poll.data);
-          pairingCode = norm?.pairingCode || poll.data?.pairingCode || poll.data?.code;
-          if (pairingCode && (pairingCode.length > 15 || pairingCode.includes("@") || pairingCode.includes(","))) {
-            pairingCode = poll.data?.pairingCode;
-          }
-          if (pairingCode) break;
-        }
+    // The connect endpoint returns the current challenge while Evolution is connecting.
+    // Do not hammer it with the number and invalidate a code the customer is typing.
+    for (let attempt = 0; !pairingCode && attempt < 5; attempt++) {
+      await sleep(700);
+      if (currentInst.qrCode?.pairingCode && currentInst.qrCode.updatedAt >= requestedAt) {
+        challenge = currentInst.qrCode;
+        pairingCode = challenge.pairingCode;
+        break;
+      }
+      const poll = await callEvolution(`/instance/connect/${instance}`, { method: "GET" }, 2000, 0);
+      if (poll.ok) {
+        challenge = await normalizeQrCode(poll.data);
+        pairingCode = pairingCodeFrom(poll.data);
       }
     }
 
     if (pairingCode) {
       const formattedCode = String(pairingCode).trim();
-      currentInst.qrCode = {
+      currentInst.qrCode = preserveChallengeTime({
+        ...challenge,
         pairingCode: formattedCode,
-        updatedAt: Date.now(),
-      };
+        updatedAt: challenge?.updatedAt || Date.now(),
+      }, currentInst.qrCode || previousChallenge);
+      if (Date.now() >= (currentInst.qrCode.refreshAt || 0)) {
+        currentInst.qrCode = undefined;
+        return res.status(504).json({ success: false, error: "O código anterior expirou. Aguarde a renovação e tente novamente ou use QR Code." });
+      }
       currentInst.state = "waiting_qr";
       currentInst.lastUpdated = new Date().toISOString();
       try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
@@ -1599,6 +1601,9 @@ app.post("/api/evolution/pairing-code", async (req: Request, res: Response) => {
         success: true,
         instanceName: instance,
         pairingCode: formattedCode,
+        qrCode: currentChallenge(currentInst),
+        updatedAt: currentInst.qrCode.updatedAt,
+        refreshAt: currentInst.qrCode.refreshAt,
         code: formattedCode,
         phone: cleanPhone,
         state: "waiting_qr",
@@ -1666,11 +1671,11 @@ app.post("/api/evolution/create-instance", async (req, res) => {
     }
 
     if (norm) {
-      currentInst.qrCode = norm;
+      currentInst.qrCode = preserveChallengeTime(norm, currentInst.qrCode);
       currentInst.state = "waiting_qr";
       currentInst.lastUpdated = new Date().toISOString();
       try { await own.db.setUserInstanceStatus(own.user.id, "waiting_qr"); } catch {}
-      return res.json({ success: true, instanceName: instance, qrCode: currentInst.qrCode, state: "waiting_qr" });
+      return res.json({ success: true, instanceName: instance, qrCode: currentChallenge(currentInst), state: "waiting_qr" });
     }
 
     return res.json({
@@ -1825,6 +1830,7 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
     const rawState = event.data?.state || event.data?.connection;
     if (rawState === "open") {
       targetCache.state = "connected";
+      targetCache.qrCode = undefined;
       targetCache.webhookStatus = "active";
       if (instanceName === DEFAULT_INSTANCE_NAME) {
         memoryState.state = "connected";
@@ -1850,7 +1856,7 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
           console.warn(`[Webhook] Error auto-syncing on connect:`, err?.message || err);
         }
       })();
-    } else if (rawState === "close" || rawState === "closed" || rawState === "disconnected") {
+    } else if (rawState === "close" || rawState === "closed" || rawState === "disconnected" || rawState === "refused") {
       targetCache.state = "disconnected";
       targetCache.qrCode = undefined;
       targetCache.connectedProfile = undefined;
@@ -1906,11 +1912,11 @@ app.post("/api/evolution/webhook", async (req: Request, res: Response) => {
     const rawQr = event.data?.qrcode || event.data;
     normalizeQrCode(rawQr).then((norm) => {
       if (norm) {
-        targetCache.qrCode = norm;
+        targetCache.qrCode = preserveChallengeTime(norm, targetCache.qrCode);
         targetCache.state = "waiting_qr";
         targetCache.lastUpdated = new Date().toISOString();
         if (instanceName === DEFAULT_INSTANCE_NAME) {
-          memoryState.qrCode = norm;
+          memoryState.qrCode = targetCache.qrCode;
           memoryState.state = "waiting_qr";
           memoryState.lastUpdated = new Date().toISOString();
         }
@@ -3076,6 +3082,7 @@ const clientImportedGroupsStore = new Map<string, any[]>();
 
 // Dedicated Client WhatsApp Status endpoint (Strict tenant isolation)
 app.get("/api/client/whatsapp/status", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   const own: any = await ownedInstance(req, true, true);
   if (own.error === "UNAUTHORIZED") {
     return res.status(401).json({ error: "Sessão inválida." });
@@ -3100,6 +3107,10 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
 
   try {
     const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(instance, own.user?.id, own.db);
+    const challenge = getInstanceCache(activeInstance).qrCode;
+    if (!isConnected && challenge && Date.now() < (challenge.refreshAt || challenge.updatedAt + 40000)) {
+      return res.json({ success: true, configured: true, isConnected: false, state: "waiting_qr", qrCode: challenge });
+    }
     if (isConnected) {
       const prof = await fetchInstanceProfile(activeInstance, instanceData || stateRes.data);
       const realName = prof.name || own.record?.profile_name || own.user?.name || "WhatsApp Conectado";

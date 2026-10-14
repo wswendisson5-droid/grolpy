@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
+import { CHALLENGE_REFRESH_MS, connectionFetch, pairingCodeFrom } from '../../../utils/connectionChallenge';
 import {
   Loader2,
   CheckCircle2,
@@ -42,6 +43,27 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   const [errorMessage, setErrorMessage] = useState('');
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const isWaitingQrRef = useRef(false);
+  const generationRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const methodRef = useRef(activeMethod);
+  methodRef.current = activeMethod;
+  const challengeRef = useRef<{ identity: string; refreshAt: number } | null>(null);
+  const attemptStartedRef = useRef(0);
+  const lastRequestAtRef = useRef(0);
+  const renewalCountRef = useRef(0);
+  const mountedRef = useRef(true);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; requestIdRef.current++; isWaitingQrRef.current = false; }; }, []);
+  const cancelAttempt = () => {
+    requestIdRef.current++;
+    isWaitingQrRef.current = false;
+    challengeRef.current = null;
+    renewalCountRef.current = 0;
+    setQrCode(null);
+    setPairingCode(null);
+    setIsGenerating(false);
+    setStatus('disconnected');
+  };
 
   const authHeaders = useCallback(() => ({
     Authorization: `Bearer ${''}`,
@@ -61,12 +83,22 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     const formatted = formatPhoneMask(e.target.value);
     setPhoneNumber(formatted);
     if (phoneError) setPhoneError('');
+    setPairingCode(null);
+    challengeRef.current = null;
   };
 
   const handleSetQrCode = useCallback(async (codeData: any, method: 'qr' | 'number' = activeMethod) => {
-    if (!codeData) return;
+    if (!codeData || !isWaitingQrRef.current || generationRef.current) return;
+    const identity = method === 'number' ? pairingCodeFrom(codeData) : (codeData.code || codeData.base64);
+    if (!identity) return;
+    if (challengeRef.current?.identity !== identity) {
+      const refreshAt = codeData.refreshAt || ((codeData.updatedAt || Date.now()) + CHALLENGE_REFRESH_MS);
+      challengeRef.current = { identity, refreshAt };
+      setSecondsLeft(Math.max(0, Math.ceil((refreshAt - Date.now()) / 1000)));
+    }
+    if (challengeRef.current.refreshAt <= Date.now()) return;
     if (method === 'number') {
-      const code = codeData.pairingCode || ((typeof codeData.code === 'string' && codeData.code.length <= 15) ? codeData.code : null);
+      const code = pairingCodeFrom(codeData);
       if (code) setPairingCode(code);
       setQrCode(null);
       return;
@@ -96,16 +128,20 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch('/api/client/whatsapp/status', { headers: authHeaders() });
+      if (generationRef.current) return;
+      const requestId = requestIdRef.current;
+      const res = await connectionFetch('/api/client/whatsapp/status', { headers: authHeaders() });
       if (!res.ok) {
         if (status === 'loading') setStatus('disconnected');
         return;
       }
       const data = await res.json();
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const appState = data.state;
 
       if (data.isConnected === true && (appState === 'connected' || appState === 'open')) {
         isWaitingQrRef.current = false;
+        challengeRef.current = null;
         setStatus('connected');
         const confirmedProfile = data.profile || data.connectedProfile || null;
         setProfile(confirmedProfile);
@@ -116,7 +152,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       } else if (isWaitingQrRef.current && data.qrCode) {
         setStatus('waiting_qr');
         await handleSetQrCode(data.qrCode, activeMethod);
-      } else if (!isWaitingQrRef.current) {
+      } else if (!isWaitingQrRef.current && status !== 'error') {
         setStatus('disconnected');
         setProfile(null);
         setQrCode(null);
@@ -130,8 +166,14 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     }
   }, [authHeaders, handleSetQrCode, status]);
 
-  const generateQrCode = async (forceRefresh = false) => {
+  const generateQrCode = async (forceRefresh = false, automatic = false) => {
+    if (generationRef.current) return;
+    generationRef.current = true;
+    lastRequestAtRef.current = Date.now();
+    const requestId = ++requestIdRef.current;
+    if (!automatic) { renewalCountRef.current = 0; attemptStartedRef.current = Date.now(); }
     isWaitingQrRef.current = true;
+    setQrCode(null);
     setIsGenerating(true);
     setErrorMessage('');
     if (!forceRefresh) {
@@ -140,8 +182,10 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
     try {
       const url = forceRefresh ? '/api/evolution/qrcode?force=true' : '/api/evolution/qrcode';
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await connectionFetch(url, { headers: authHeaders() });
       const data = await res.json().catch(() => ({}));
+      if (!mountedRef.current || requestId !== requestIdRef.current || methodRef.current !== 'qr') return;
+      if (!res.ok) throw new Error(data.error || 'Não foi possível gerar o QR Code.');
 
       if (data.state === 'connected') {
         isWaitingQrRef.current = false;
@@ -154,38 +198,43 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       setStatus('waiting_qr');
 
       const qr = data.qrCode || data.qrcode || data;
-      if (qr?.base64 || qr?.code || qr?.pairingCode) {
-        await handleSetQrCode(qr);
-      } else if (data.pending && isWaitingQrRef.current) {
-        // Baileys socket is initializing: retry automatically in 2 seconds
-        setTimeout(() => {
-          if (isWaitingQrRef.current && !qrCode) {
-            generateQrCode(false);
-          }
-        }, 2000);
-      }
+      generationRef.current = false;
+      if (qr?.base64 || qr?.code) await handleSetQrCode(qr, 'qr');
+      // Pending challenges are retried by one lifecycle-owned timer below.
+
     } catch (e: any) {
       console.error('[ClientConexao] QR request:', e);
-      setErrorMessage('Erro ao solicitar QR Code. Tente novamente.');
+      if (requestId !== requestIdRef.current || !mountedRef.current) return;
+      isWaitingQrRef.current = false;
+      setErrorMessage(e.message || 'Erro ao solicitar QR Code. Tente novamente.');
+      setStatus('error');
     } finally {
-      setIsGenerating(false);
+      generationRef.current = false;
+      if (mountedRef.current && requestId === requestIdRef.current) setIsGenerating(false);
     }
   };
 
-  const generatePairingCode = async () => {
+  const generatePairingCode = async (automatic: boolean = false) => {
+    if (generationRef.current) return;
     const rawDigits = phoneNumber.replace(/\D/g, '');
     if (!rawDigits || rawDigits.length < 10) {
       setPhoneError('Digite um número de WhatsApp válido com DDD (ex: 11 98888-7777).');
       return;
     }
 
+    generationRef.current = true;
+    lastRequestAtRef.current = Date.now();
+    const requestId = ++requestIdRef.current;
+    if (!automatic) { renewalCountRef.current = 0; attemptStartedRef.current = Date.now(); }
+    setPairingCode(null);
+    setStatus('waiting_qr');
     setPhoneError('');
     setIsGenerating(true);
     setErrorMessage('');
     isWaitingQrRef.current = true;
 
     try {
-      const res = await fetch('/api/evolution/pairing-code', {
+      const res = await connectionFetch('/api/evolution/pairing-code', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({ phone: rawDigits }),
@@ -193,7 +242,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
       const data = await res.json().catch(() => ({}));
 
+      if (!mountedRef.current || requestId !== requestIdRef.current || methodRef.current !== 'number') return;
       if (!res.ok) {
+        isWaitingQrRef.current = false;
         setErrorMessage(data.error || 'Não foi possível gerar o código. Verifique o número digitado.');
         setStatus('error');
         return;
@@ -209,8 +260,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
       setActiveMethod('number');
       setQrCode(null);
-      if (data.pairingCode || data.code) {
-        setPairingCode(data.pairingCode || data.code);
+      if (pairingCodeFrom(data)) {
+        generationRef.current = false;
+        await handleSetQrCode(data.qrCode || data, 'number');
         setStatus('waiting_qr');
       } else {
         isWaitingQrRef.current = false;
@@ -219,11 +271,14 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         setStatus('error');
       }
     } catch (e: any) {
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      isWaitingQrRef.current = false;
       console.error('[ClientConexao] Pairing code request:', e);
       setErrorMessage(e.message || 'Falha de comunicação ao gerar o código.');
       setStatus('error');
     } finally {
-      setIsGenerating(false);
+      generationRef.current = false;
+      if (mountedRef.current && requestId === requestIdRef.current) setIsGenerating(false);
     }
   };
 
@@ -308,7 +363,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       }
     })();
     return () => { mounted = false; };
-  }, [authHeaders, handleSetQrCode, cachedConnected]);
+  }, []);
 
   // Polling loop
   useEffect(() => {
@@ -316,6 +371,32 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     const interval = setInterval(fetchStatus, intervalTime);
     return () => clearInterval(interval);
   }, [fetchStatus, status]);
+
+  useEffect(() => {
+    if (status !== 'waiting_qr') return;
+    const timer = setInterval(() => {
+      if (!isWaitingQrRef.current || generationRef.current || document.hidden) return;
+      const challenge = challengeRef.current;
+      const remaining = challenge ? Math.max(0, Math.ceil((challenge.refreshAt - Date.now()) / 1000)) : 0;
+      setSecondsLeft(remaining);
+      if (remaining > 0) return;
+      if (Date.now() - attemptStartedRef.current > (challenge ? 180_000 : 35000) || renewalCountRef.current >= 4) {
+        isWaitingQrRef.current = false;
+        challengeRef.current = null;
+        setQrCode(null); setPairingCode(null);
+        setErrorMessage('Não foi possível confirmar a conexão. Confira o número e tente novamente ou escolha QR Code.');
+        setStatus('error');
+        return;
+      }
+      // Give webhooks a short grace period to publish the next 45s QR event.
+      if (challenge && Date.now() < challenge.refreshAt + 6000) return;
+      if (Date.now() - lastRequestAtRef.current < 2500) return;
+      if (challenge) renewalCountRef.current++;
+      if (activeMethod === 'number') void generatePairingCode(true);
+      else void generateQrCode(true, true);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [status, activeMethod, phoneNumber, isGenerating, handleSetQrCode]);
 
   const renderPairingCodeDisplay = (code: string) => {
     const clean = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -390,7 +471,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         <div className="flex items-center bg-[#edf3f0] p-1.5 rounded-2xl w-full max-w-md mx-auto mb-6">
           <button
             type="button"
-            onClick={() => setActiveMethod('qr')}
+            onClick={() => { cancelAttempt(); methodRef.current = 'qr'; setActiveMethod('qr'); }}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeMethod === 'qr'
                 ? 'bg-white text-[#11241c] shadow-xs'
@@ -402,7 +483,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           </button>
           <button
             type="button"
-            onClick={() => setActiveMethod('number')}
+            onClick={() => { cancelAttempt(); methodRef.current = 'number'; setActiveMethod('number'); }}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
               activeMethod === 'number'
                 ? 'bg-white text-[#11241c] shadow-xs'
@@ -495,7 +576,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 </div>
 
                 <button
-                  onClick={generatePairingCode}
+                  onClick={() => generatePairingCode()}
                   disabled={isGenerating || !phoneNumber}
                   className="w-full sm:w-auto sm:min-w-48 sm:self-center inline-flex min-h-11 items-center justify-center px-5 py-2.5 bg-[#109353] hover:bg-[#0c7a44] active:scale-[0.99] text-white font-bold rounded-xl shadow-sm transition-all cursor-pointer disabled:opacity-60"
                 >
@@ -522,8 +603,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
                 {/* Left: QR Code Box & Refresh Action */}
                 <div className="lg:col-span-5 flex flex-col items-center justify-center">
-                  <div className="p-4 sm:p-5 bg-white rounded-2xl border-2 border-[#109353]/25 shadow-[0_4px_20px_rgba(16,147,83,0.06)] relative w-72 h-72 sm:w-80 sm:h-80 flex items-center justify-center">
-                    {qrCode ? (
+                  <div className="p-4 sm:p-5 bg-white rounded-2xl border-2 border-[#109353]/25 shadow-[0_4px_20px_rgba(16,147,83,0.06)] relative w-full max-w-80 aspect-square flex items-center justify-center">
+                    {qrCode && secondsLeft > 0 ? (
                       <img
                         src={qrCode}
                         alt="QR Code WhatsApp"
@@ -538,6 +619,9 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                     )}
                   </div>
 
+                  <p role="status" className="mt-3 text-xs font-semibold text-[#5b6e63] text-center">
+                    {secondsLeft > 0 ? `Novo QR em ${secondsLeft}s · atualização automática` : 'Aguardando um novo QR Code…'}
+                  </p>
                   {/* Action Buttons below QR */}
                   <div className="mt-5 flex items-center gap-3 w-full max-w-xs">
                     <button
@@ -552,10 +636,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
 
                     <button
                       onClick={() => {
-                        isWaitingQrRef.current = false;
-                        setStatus('disconnected');
-                        setQrCode(null);
-                        setPairingCode(null);
+                        cancelAttempt();
                       }}
                       className="px-4 py-2.5 bg-white hover:bg-[#f9faf9] text-[#5b6e63] hover:text-[#11241c] text-xs font-semibold rounded-xl border border-[#e5ebe7] transition-all cursor-pointer"
                     >
@@ -628,7 +709,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       Código de Pareamento
                     </span>
 
-                    {pairingCode ? (
+                    {pairingCode && secondsLeft > 0 ? (
                       <div className="my-4">
                         {renderPairingCodeDisplay(pairingCode)}
                       </div>
@@ -639,7 +720,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                       </div>
                     )}
 
-                    {pairingCode && (
+                    {pairingCode && secondsLeft > 0 && (
                       <button
                         onClick={handleCopyCode}
                         className={`mt-2 w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
@@ -663,26 +744,23 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                     )}
 
                     <p className="text-[11px] text-[#708479] mt-3">
-                      Insira este código no WhatsApp do seu celular no prazo de 2 minutos.
+                      {secondsLeft > 0 ? `Novo código em ${secondsLeft}s · atualização automática` : 'Aguardando um novo código…'}
                     </p>
                   </div>
 
                   {/* Action Buttons below Code */}
                   <div className="mt-5 grid grid-cols-2 gap-2 sm:gap-3 w-full max-w-sm">
                     <button
-                      onClick={generatePairingCode}
+                      onClick={() => generatePairingCode()}
                       disabled={isGenerating}
                       className="inline-flex min-h-11 items-center justify-center px-3 py-2.5 bg-[#f0f4f1] hover:bg-[#e4ede8] active:scale-[0.98] text-[#11241c] text-xs sm:text-sm font-bold rounded-xl border border-[#d8e3dd] transition-all cursor-pointer disabled:opacity-60 whitespace-nowrap"
                     >
-                      <span>{isGenerating ? 'Gerando...' : 'Gerar Código'}</span>
+                      <span>{isGenerating ? 'Gerando...' : 'Gerar outro código'}</span>
                     </button>
 
                     <button
                       onClick={() => {
-                        isWaitingQrRef.current = false;
-                        setStatus('disconnected');
-                        setPairingCode(null);
-                        setQrCode(null);
+                        cancelAttempt();
                       }}
                       className="px-4 py-2.5 bg-white hover:bg-[#f9faf9] text-[#5b6e63] hover:text-[#11241c] text-xs font-semibold rounded-xl border border-[#e5ebe7] transition-all cursor-pointer"
                     >

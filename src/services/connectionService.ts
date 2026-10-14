@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { connectionFetch, pairingCodeFrom } from '../utils/connectionChallenge';
 import { ConnectionInfo, ConnectionStatus, QrCodeData } from '../types/connection';
 import { safeEncodeURIComponent } from '../utils/safeUri';
 
@@ -22,7 +23,7 @@ class ConnectionService {
    */
   async getStatus(instanceName?: string): Promise<ConnectionInfo> {
     const url=instanceName?`/api/evolution/status?instance=${safeEncodeURIComponent(instanceName)}`:'/api/evolution/status';
-    const res=await fetch(url,{headers:this.authHeaders()}); if(!res.ok) throw new Error(`Erro na resposta do servidor (${res.status})`);
+    const res=await connectionFetch(url,{headers:this.authHeaders()}); if(!res.ok) throw new Error(`Erro na resposta do servidor (${res.status})`);
     const data=await res.json(); let qrCode=data.qrCode;
     if(qrCode?.code&&!qrCode?.base64){try{qrCode.base64=await QRCode.toDataURL(qrCode.code,{margin:2,width:320,color:{dark:'#12382c',light:'#ffffff'}})}catch{}}
     return {instanceName:data.instanceName||instanceName||'',platform:data.platform||'Evolution API',status:data.state||data.status||'disconnected',webhookStatus:data.webhook?.status||'waiting',qrCode,profile:data.connectedProfile,apiStatus:'online',messagesToday:0,lastActivity:data.lastUpdated||''} as ConnectionInfo;
@@ -32,7 +33,7 @@ class ConnectionService {
     try {
       const base = instanceName ? `/api/evolution/qrcode?instance=${safeEncodeURIComponent(instanceName)}` : '/api/evolution/qrcode';
       const url = force ? `${base}${base.includes('?') ? '&' : '?'}force=true` : base;
-      const res = await fetch(url, { headers: this.authHeaders() });
+      const res = await connectionFetch(url, { headers: this.authHeaders() });
       const raw = await res.text();
       let data: any = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch { data = { error: 'O servidor retornou uma resposta inválida. Tente novamente.' }; }
@@ -55,7 +56,7 @@ class ConnectionService {
    */
   async createInstance(instanceName?: string): Promise<{ success: boolean; qrCode?: QrCodeData; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/create-instance', {
+      const res = await connectionFetch('/api/evolution/create-instance', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -88,22 +89,22 @@ class ConnectionService {
     }
   }
 
-  async requestPairingCode(phone: string): Promise<{ success: boolean; pairingCode?: string; error?: string }> {
+  async requestPairingCode(phone: string): Promise<{ success: boolean; pairingCode?: string; qrCode?: QrCodeData; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/pairing-code', {
+      const res = await connectionFetch('/api/evolution/pairing-code', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ phone }),
       });
       const data = await res.json().catch(() => ({}));
-      const pairingCode = data.pairingCode || (typeof data.code === 'string' && data.code.length <= 15 ? data.code : undefined);
+      const pairingCode = pairingCodeFrom(data);
       if (res.ok && data.state === 'connected' && !pairingCode) {
         return { success: false, error: 'Esta sessão já está conectada. Desconecte-a antes de gerar um novo código.' };
       }
       if (res.ok && data.pending && !pairingCode) {
         return { success: false, error: data.message || 'A Evolution ainda não retornou o código. Tente novamente.' };
       }
-      return { success: res.ok && Boolean(pairingCode), pairingCode, error: data.error || (!pairingCode ? 'A Evolution não retornou um código de pareamento.' : undefined) };
+      return { success: res.ok && Boolean(pairingCode), pairingCode, qrCode: data.qrCode, error: data.error || (!pairingCode ? 'A Evolution não retornou um código de pareamento.' : undefined) };
     } catch (err: any) {
       return { success: false, error: err?.message || 'Falha ao gerar código.' };
     }
@@ -114,7 +115,7 @@ class ConnectionService {
    */
   async restartInstance(instanceName?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/restart', {
+      const res = await connectionFetch('/api/evolution/restart', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -131,7 +132,7 @@ class ConnectionService {
    */
   async disconnectInstance(instanceName?: string): Promise<{ success: boolean; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/logout', {
+      const res = await connectionFetch('/api/evolution/logout', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -148,7 +149,7 @@ class ConnectionService {
    */
   async setupWebhook(instanceName?: string): Promise<{ success: boolean; webhookUrl?: string; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/set-webhook', {
+      const res = await connectionFetch('/api/evolution/set-webhook', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -181,7 +182,7 @@ class ConnectionService {
     }>;
   }> {
     try {
-      const res = await fetch('/api/evolution/instances',{headers:this.authHeaders()});
+      const res = await connectionFetch('/api/evolution/instances',{headers:this.authHeaders()});
       const data = await res.json();
       return data;
     } catch {
@@ -195,7 +196,7 @@ class ConnectionService {
   async selectInstance(instanceName: string): Promise<boolean> {
     this.currentSelectedInstance = instanceName;
     try {
-      const res = await fetch('/api/evolution/select-instance', {
+      const res = await connectionFetch('/api/evolution/select-instance', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -211,7 +212,7 @@ class ConnectionService {
    */
   async resetInstance(instanceName?: string): Promise<{ success: boolean; qrCode?: QrCodeData; error?: string }> {
     try {
-      const res = await fetch('/api/evolution/reset-instance', {
+      const res = await connectionFetch('/api/evolution/reset-instance', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ instanceName }),
@@ -237,7 +238,7 @@ class ConnectionService {
    */
   async saveCredentials(config: { apiUrl: string; apiKey: string; instanceName: string }): Promise<boolean> {
     try {
-      const res = await fetch('/api/evolution/credentials', {
+      const res = await connectionFetch('/api/evolution/credentials', {
         method: 'POST',
         headers: this.authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(config),

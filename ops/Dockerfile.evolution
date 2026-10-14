@@ -1,3 +1,4 @@
 FROM evoapicloud/evolution-api@sha256:966625532d9076a2381e973a271307d107e6f070450de3abeeea8bd18be07252
 COPY patch-evolution-session.cjs /tmp/patch-evolution-session.cjs
-RUN node /tmp/patch-evolution-session.cjs && node --check /evolution/dist/main.js
+COPY patch-evolution-pairing.cjs /tmp/patch-evolution-pairing.cjs
+RUN node /tmp/patch-evolution-session.cjs && node /tmp/patch-evolution-pairing.cjs && node --check /evolution/dist/main.js

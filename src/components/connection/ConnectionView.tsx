@@ -58,7 +58,7 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
         ...prev,
         ...data,
         instanceName: data.instanceName || prev.instanceName,
-        qrCode: data.qrCode || prev.qrCode,
+        qrCode: data.qrCode,
       }));
       onStatusChange?.(data.status);
       return data;
@@ -77,9 +77,9 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
       // A brand-new Evolution instance can take a moment to expose the QR.
       // Retry transient failures automatically so the customer does not have to
       // press "Tentar novamente" just to get the first QR.
-      for (let attempt = 1; !result.success && attempt <= 2; attempt++) {
+      for (let attempt = 1; (!result.success || result.pending) && attempt <= 2; attempt++) {
         await new Promise(resolve => setTimeout(resolve, attempt * 900));
-        result = await connectionService.requestNewQrCode(instToUse, true);
+        result = await connectionService.requestNewQrCode(instToUse, false);
       }
       if (result.success && result.qrCode) {
         setInfo(prev => ({
@@ -195,7 +195,7 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
               ...prev,
               ...data,
               instanceName: data.instanceName || preferred.name,
-              qrCode: data.qrCode || prev.qrCode,
+              qrCode: data.qrCode,
             }));
 
             if (data.status !== 'connected' && !data.qrCode) {
@@ -212,7 +212,7 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
           ...prev,
           ...data,
           instanceName: data.instanceName || prev.instanceName,
-          qrCode: data.qrCode || prev.qrCode,
+          qrCode: data.qrCode,
         }));
 
         if (data.status !== 'connected' && !data.qrCode) {
@@ -401,6 +401,7 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
                     setInfo(prev => ({ ...prev, error: result.error || 'Falha ao gerar código.' }));
                     return null;
                   }
+                  setInfo(prev => ({ ...prev, qrCode: result.qrCode, status: 'waiting_qr', error: undefined }));
                   return result.pairingCode || null;
                 }}
                 isResetting={isResetting}
