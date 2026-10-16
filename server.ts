@@ -1,5 +1,5 @@
 import { pairingCodeFrom, preserveChallengeTime } from "./src/utils/connectionChallenge";
-import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
+import { UNLIMITED, isConfirmedGroupMember, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
 import { GroupAutomationEngine, groupList, GROUP_AUTOMATION_CAMPAIGN } from './server/groupAutomation';
 import * as groupAutomationQueries from './server/groupAutomationDatabase';
 import "dotenv/config";
@@ -2861,6 +2861,7 @@ interface ClientHistoryLog {
 // In-memory cache for active instance and groups to eliminate latency
 let cachedActiveInstance: { name: string; timestamp: number } | null = null;
 const cachedGroupsByInstance = new Map<string, { timestamp: number; groups: any[] }>();
+const confirmedMembershipsByInstance = new Map<string, any[]>();
 const groupSyncInFlight = new Map<string, Promise<any[]>>();
 const groupSyncBlockedUntil = new Map<string, number>();
 const groupSyncFailures = new Map<string, string>();
@@ -2948,6 +2949,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     owner = own?.ownerJid || own?.instance?.ownerJid || own?.number || '';
   }
   const collectedGroupsMap = new Map<string, any>();
+  const allMemberships = new Map<string, any>();
   let evolutionQuerySucceeded = false;
   let syncFailure = "Não foi possível consultar os grupos do WhatsApp. Tente novamente em instantes.";
   const instName = targetInstance;
@@ -2985,6 +2987,18 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       // Strictly WhatsApp groups ending or containing @g.us, NEVER broadcasts, channels/newsletters or personal contacts
       const isGroup = jid.includes("@g.us") && !jid.includes("@broadcast") && !jid.includes("@newsletter") && !jid.includes("@s.whatsapp.net") && !jid.includes("@lid");
       if (!isGroup) continue;
+
+      // Membership and permission to speak are separate facts. Remember closed
+      // memberships too, so an existing group cannot be mistaken for a new join.
+      if (isConfirmedGroupMember(g, owner)) allMemberships.set(jid, {
+        id: jid, jid, name: g.subject || g.name || 'Grupo WhatsApp',
+        description: g.desc || g.description || '', announce: g.announce,
+        size: Number(g.size ?? g.participants?.length ?? 0),
+        membersCount: Number(g.size ?? g.participants?.length ?? 0),
+        canSend: g.canSend, restrictSend: g.restrictSend,
+        isCommunity: g.isCommunity, isCommunityAnnounce: g.isCommunityAnnounce,
+        membershipConfirmed: true,
+      });
 
       if (!isOpenJoinedGroup(g, owner)) continue;
 
@@ -3055,6 +3069,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
 
   if (evolutionQuerySucceeded) {
     const freshGroups = Array.from(collectedGroupsMap.values());
+    confirmedMembershipsByInstance.set(instName, Array.from(allMemberships.values()));
 
     cachedGroupsByInstance.set(instName, { timestamp: now, groups: freshGroups });
     clientImportedGroupsStore.set(instName, freshGroups);
@@ -4041,8 +4056,13 @@ async function groupAutomationDatabase() {
 }
 const groupAutomation = new GroupAutomationEngine({
   database: groupAutomationDatabase,
-  evolution: endpoint => callEvolution(endpoint, {}, 15000, 0),
-  joined: (instance, userId, db) => syncAllWhatsAppGroups(true, instance, { id: userId, db }),
+  evolution: (endpoint, options) => callEvolution(endpoint, options || {}, 15000, 0),
+  joined: async (instance, userId, db) => {
+    await syncAllWhatsAppGroups(true, instance, { id: userId, db });
+    const memberships = confirmedMembershipsByInstance.get(instance);
+    if (!memberships) throw new Error('Não foi possível confirmar as participações atuais.');
+    return memberships;
+  },
   busy: campaign => activeCampaignsRunning.has(campaign),
   catalog: async offset => {
     const base = String(process.env.WAZZO_API_URL || 'https://wazzo.minhabagg.com.br/api').replace(/\/+$/, '');

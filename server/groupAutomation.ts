@@ -1,4 +1,4 @@
-import { isOpenJoinedGroup } from './campaignRules';
+import { isConfirmedGroupMember, isOpenJoinedGroup } from './campaignRules';
 
 // This rollout is explicitly restricted to the account and phone requested by its owner.
 export const GROUP_AUTOMATION_CAMPAIGN = 'div-1791448389589';
@@ -51,12 +51,13 @@ export interface GroupAutomationState {
   attempts: Record<string, { jid: string; status: string; at: number; retryAt?: number }>;
   candidates: any[]; offset: number; catalogNextAt: number; syncAt: number; nextRunAt: number;
   failures: number; status: string; lastError?: string; updatedAt: number;
+  lastOperation?: string;
   events: { at: number; text: string }[];
 }
 type EvolutionResult = { ok: boolean; status: number; data: any };
 export interface GroupAutomationDeps {
   database(): Promise<any>;
-  evolution(endpoint: string): Promise<EvolutionResult>;
+  evolution(endpoint: string, options?: { method?: string }): Promise<EvolutionResult>;
   joined(instance: string, userId: number, db: any): Promise<any[]>;
   catalog(offset: number): Promise<{ groups: any[]; hasMore: boolean; limit: number }>;
   busy(campaign: string): boolean;
@@ -102,8 +103,8 @@ export class GroupAutomationEngine {
       }
     } finally { await release(); }
   }
-  private async request(endpoint: string) {
-    const r = await this.deps.evolution(endpoint);
+  private async request(endpoint: string, options?: { method?: string }) {
+    const r = await this.deps.evolution(endpoint, options);
     const text = normalize(JSON.stringify(r.data));
     if (r.status === 429 || /rate.overlimit|rate limit/.test(text)) throw Object.assign(new Error('WhatsApp limitou as consultas; próxima tentativa com intervalo maior.'), { rateLimited: true });
     return r;
@@ -152,6 +153,7 @@ export class GroupAutomationEngine {
         state.status = 'desconectada'; state.lastError = 'Aguardando reconexão do WhatsApp.'; return;
       }
       // A failed/limited snapshot must throw. Never infer removals from an unavailable list.
+      state.lastOperation = 'consultando participações';
       const live = await this.deps.joined(state.instance, user.id, db);
       const observed = new Set<string>(live.map(g => String(g.jid || g.id)));
       for (const jid of state.observedJids) if (!observed.has(jid) && !state.excludedJids.includes(jid)) {
@@ -162,7 +164,14 @@ export class GroupAutomationEngine {
         .slice(0, state.target).map(g => ({ jid: g.jid || g.id, name: g.name || g.subject,
           membersCount: Number(g.membersCount ?? g.size), checkedAt: this.now() }));
       state.syncAt = this.now();
-      for (const a of Object.values(state.attempts)) if (observed.has(a.jid)) a.status = 'participando';
+      for (const a of Object.values(state.attempts)) {
+        const existing = live.find(g => String(g.jid || g.id) === a.jid);
+        if (existing) a.status = groupEligibility(existing, true, state.ownerPhone) ? 'Participação existente, mas grupo não elegível' : 'participando';
+        else if (a.status === 'confirmando' && this.now() - a.at > 10 * 60_000) {
+          a.status = 'Entrada não localizada na lista atual de participações';
+          a.retryAt = this.now() + 24 * 60 * 60_000;
+        }
+      }
       await this.updateCampaign(db, user.id, state, campaign);
       state.status = state.groups.length >= state.target ? 'meta_atingida' : 'completando_grupos';
       state.lastError = undefined;
@@ -170,47 +179,70 @@ export class GroupAutomationEngine {
       const pending = Object.values(state.attempts).filter(a => a.status === 'confirmando' && !observed.has(a.jid) && !state!.excludedJids.includes(a.jid)).length;
       if (state.groups.length + pending >= state.target) { state.status = 'aguardando_confirmacoes'; return; }
 
-      // Bound work per tick: at most one new invitation; pending/ambiguous joins are not retried.
+      // Scan several rejected/known candidates per pass, while accepting at most one new invitation.
+      let pagesRead = 0;
+      for (let checked = 0; checked < 5; checked++) {
       if (!state.candidates.length && this.now() >= state.catalogNextAt) {
+        if (pagesRead >= 2) break;
+        state.lastOperation = 'consultando catálogo WAZZO';
         const page = await this.deps.catalog(state.offset);
+        pagesRead++;
         state.candidates = page.groups.filter(g => inviteCode(g.whatsappLink) && Number(g.memberCount) >= 100 && permitsAdvertising(g))
           .map(g => ({ name: g.name, description: g.description, whatsappLink: g.whatsappLink }));
         state.offset = page.hasMore ? state.offset + page.limit : 0;
         state.catalogNextAt = page.hasMore ? this.now() : this.now() + 30 * 60_000;
       }
       const candidate = state.candidates.shift();
-      if (!candidate) { state.status = 'buscando_candidatos'; state.failures = 0; return; }
+      if (!candidate) { state.status = 'buscando_candidatos'; state.failures = 0; continue; }
       const code = inviteCode(candidate.whatsappLink)!;
       const attempt = state.attempts[code];
-      if (attempt && (!attempt.retryAt || attempt.retryAt > this.now())) return;
+      if (attempt && (!attempt.retryAt || attempt.retryAt > this.now())) continue;
+      state.lastOperation = 'validando convite';
       const infoResponse = await this.request(`/group/inviteInfo/${encodeURIComponent(state.instance)}?inviteCode=${encodeURIComponent(code)}`);
       if (!infoResponse.ok) {
         if (infoResponse.status !== 404 && infoResponse.status !== 400) throw new Error('Não foi possível validar o convite agora.');
-        state.attempts[code] = { jid: '', status: 'convite_invalido', at: this.now(), retryAt: this.now() + 24 * 60 * 60_000 }; return;
+        state.attempts[code] = { jid: '', status: 'convite_invalido', at: this.now(), retryAt: this.now() + 24 * 60 * 60_000 }; continue;
       }
       const info = infoResponse.data?.data || infoResponse.data;
       const jid = String(info?.id || info?.jid || info?.groupJid || '');
       const reason = groupEligibility(info);
       if (reason || truth(info?.joinApprovalMode) || observed.has(jid) || state.excludedJids.includes(jid)) {
-        state.attempts[code] = { jid, status: reason || 'Já participa, removido anteriormente ou exige aprovação', at: this.now(), retryAt: this.now() + 24 * 60 * 60_000 }; return;
+        state.attempts[code] = { jid, status: reason || 'Já participa, removido anteriormente ou exige aprovação', at: this.now(), retryAt: this.now() + 24 * 60 * 60_000 }; continue;
       }
       // Durable intent BEFORE the network mutation: a timeout/process death cannot cause a second join.
       state.attempts[code] = { jid, status: 'confirmando', at: this.now() };
       await db.setAdminState(this.key(user.id), state);
+      state.lastOperation = 'solicitando entrada';
       const accepted = await this.request(`/group/acceptInviteCode/${encodeURIComponent(state.instance)}?inviteCode=${encodeURIComponent(code)}`);
       if (!accepted.ok || accepted.data?.accepted !== true || accepted.data?.groupJid !== jid) {
         this.note(state, `Entrada aguardando confirmação: ${info.subject || info.name || jid}.`); return;
       }
       // Count only membership verified by real metadata, never just accepted:true.
+      state.lastOperation = 'confirmando permissão de envio';
       const verification = await this.request(`/group/findGroupInfos/${encodeURIComponent(state.instance)}?groupJid=${encodeURIComponent(jid)}`);
       const metadata = verification.data?.data || verification.data;
-      if (verification.ok && !groupEligibility(metadata, true, state.ownerPhone)) {
+      const postJoinReason = verification.ok ? groupEligibility(metadata, true, state.ownerPhone) : `Consulta indisponível (HTTP ${verification.status})`;
+      if (verification.ok && !postJoinReason) {
         state.attempts[code].status = 'participando';
         if (!state.groups.some(g => g.jid === jid)) state.groups.push({ jid, name: metadata.subject || metadata.name,
           membersCount: Number(metadata.size ?? metadata.participants?.length), checkedAt: this.now() });
         if (!state.observedJids.includes(jid)) state.observedJids.push(jid);
         this.note(state, `Entrada confirmada: ${metadata.subject || jid} (${state.groups.length}/100).`);
         await this.updateCampaign(db, user.id, state, campaign);
+      } else {
+        this.note(state, `Entrada não validada: ${info.subject || jid}. ${postJoinReason}.`);
+        // Only undo a NEW, confirmed membership that fails the post-join checks.
+        // Pre-existing memberships are present in observed and never reach this branch.
+        if (verification.ok && isConfirmedGroupMember(metadata, state.ownerPhone)) {
+          const left = await this.request(`/group/leaveGroup/${encodeURIComponent(state.instance)}?groupJid=${encodeURIComponent(jid)}`, { method: 'DELETE' });
+          if (left.ok) {
+            state.attempts[code].status = 'Descartado após confirmar que o grupo não permite divulgação';
+            state.excludedJids.push(jid);
+            this.note(state, `Saída do grupo recém-adicionado: ${info.subject || jid}. ${postJoinReason}.`);
+          }
+        }
+      }
+      break;
       }
       state.failures = 0;
     } catch (e: any) {
@@ -219,7 +251,8 @@ export class GroupAutomationEngine {
         state.nextRunAt = this.now() + Math.min(60 * 60_000, 60_000 * 2 ** state.failures);
         state.status = 'aguardando_nova_tentativa';
         // Never persist upstream response bodies, invite codes, keys, or credentials in logs/UI.
-        state.lastError = e?.rateLimited ? 'WhatsApp limitou as consultas. Aguardando nova tentativa.' : 'Verificação temporariamente indisponível. Os envios exigem nova confirmação ao vivo.';
+        const limited = e?.rateLimited || /limitou|rate.overlimit|rate limit/.test(normalize(e?.message));
+        state.lastError = limited ? 'WhatsApp limitou as consultas. Aguardando nova tentativa.' : `Falha ao ${state.lastOperation || 'verificar grupos'}. Os envios exigem nova confirmação ao vivo.`;
       }
     } finally {
       try { if (db && user && state && release) await db.setAdminState(this.key(user.id), state); }

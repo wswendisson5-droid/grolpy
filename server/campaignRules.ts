@@ -2,14 +2,19 @@
 export const UNLIMITED = Number.MAX_SAFE_INTEGER;
 const truth = (v: any) => v === true || v === 1 || v === 'true' || v === '1';
 const identity = (v: any) => String(v || '').split('@')[0].split(':')[0].replace(/\D/g, '');
-export function isOpenJoinedGroup(group: any, owner: string): boolean {
+export function isConfirmedGroupMember(group: any, owner: string): boolean {
   if (!String(group?.id || group?.jid || group?.remoteJid || '').endsWith('@g.us')) return false;
-  if (['isCommunity', 'community', 'isCommunityAnnounce', 'isCommunityAnnouncement', 'announce', 'restrictSend', 'left', 'isLeft'].some(k => truth(group[k]))) return false;
-  if (group.leftAt || group.leaveTimestamp || group.membership === 'left' || group.participation === 'left' || group.canSend === false || group.sendMessages === false) return false;
+  if (truth(group.left) || truth(group.isLeft) || group.leftAt || group.leaveTimestamp || group.membership === 'left' || group.participation === 'left') return false;
   const participants = Array.isArray(group.participants) ? group.participants : [];
   const own = participants.find((p: any) => truth(p.isMe) || truth(p.me) || truth(p.isSelf) ||
     (identity(owner) && [p.id, p.jid, p.phoneNumber, p.phone, p.pn].some(v => identity(v) === identity(owner))));
   return Boolean(own && !truth(own.left) && !truth(own.removed) && own.membership !== 'left');
+}
+export function isOpenJoinedGroup(group: any, owner: string): boolean {
+  if (!String(group?.id || group?.jid || group?.remoteJid || '').endsWith('@g.us')) return false;
+  if (['isCommunity', 'community', 'isCommunityAnnounce', 'isCommunityAnnouncement', 'announce', 'restrictSend', 'left', 'isLeft'].some(k => truth(group[k]))) return false;
+  if (group.leftAt || group.leaveTimestamp || group.membership === 'left' || group.participation === 'left' || group.canSend === false || group.sendMessages === false) return false;
+  return isConfirmedGroupMember(group, owner);
 }
 export function nextRecurringSlot(camp: any, date: string, time: string, day: string): string | undefined {
   if (camp.scheduleDate && date < String(camp.scheduleDate).slice(0, 10)) return;

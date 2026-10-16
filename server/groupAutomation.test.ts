@@ -28,7 +28,7 @@ function harness() {
     database: async () => h.db, now: () => now, busy: () => h.busy,
     joined: async () => { if (h.syncError) throw new Error('rate-overlimit'); return clone(h.live); },
     catalog: async () => ({ groups: clone(h.catalog), hasMore: false, limit: 25 }),
-    evolution: async (endpoint: string) => {
+    evolution: async (endpoint: string, options?: { method?: string }) => {
       h.calls.push(endpoint);
       if (h.rateLimited) return { ok: false, status: 429, data: {} };
       if (endpoint.startsWith('/instance/')) return { ok: true, status: 200, data: { instance: { state: 'open' } } };
@@ -40,9 +40,14 @@ function harness() {
         h.live.push(clone(info));
         return { ok: true, status: 200, data: { accepted: true, groupJid: info.id } };
       }
+      if (endpoint.includes('/leaveGroup/')) {
+        assert.equal(options?.method, 'DELETE');
+        h.live = h.live.filter((g: any) => g.id !== url.searchParams.get('groupJid'));
+        return { ok: true, status: 200, data: { success: true } };
+      }
       if (endpoint.includes('/findGroupInfos/')) {
         const g = h.live.find((g: any) => g.id === url.searchParams.get('groupJid'));
-        return { ok: !!g, status: g ? 200 : 404, data: g ? clone(g) : {} };
+        return { ok: !!g, status: g ? 200 : 404, data: g ? { ...clone(g), ...(h.postJoinClosed ? { announce: true } : {}) } : {} };
       }
       throw new Error('Unexpected call');
     },
@@ -148,4 +153,35 @@ test('delivery check refuses closed groups, removals, number changes and paused 
   h.live = []; assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
   assert.equal(await h.engine.canSend(7, 'other-tenant', '1@g.us', h.db), false);
   h.record.owner_phone = '5511000000000'; assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+});
+
+test('closed membership already owned is never accepted again or left', async () => {
+  const h = harness(); h.live = [group(1), group(2, { announce: true })];
+  h.catalog = [h.candidate(2)]; await h.engine.tick();
+  assert.equal(h.state().groups.length, 1);
+  assert.ok(h.state().observedJids.includes('2@g.us'));
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode') || s.includes('leaveGroup')).length, 0);
+});
+test('new membership whose live metadata forbids speaking is left and never selected', async () => {
+  const h = harness(); h.catalog = [h.candidate(2)]; h.postJoinClosed = true;
+  await h.engine.tick();
+  assert.deepEqual(h.campaign.selectedGroupJids, ['1@g.us']);
+  assert.equal(h.live.some((g: any) => g.id === '2@g.us'), false);
+  assert.ok(h.state().excludedJids.includes('2@g.us'));
+  assert.equal(h.calls.filter((s: string) => s.includes('leaveGroup')).length, 1);
+});
+test('several unsuitable candidates can be skipped within one pass without multiple joins', async () => {
+  const h = harness(); h.catalog = [2, 3, 4, 5].map(n => h.candidate(n, { announce: true })); h.catalog.push(h.candidate(6));
+  await h.engine.tick();
+  assert.equal(h.calls.filter((s: string) => s.includes('inviteInfo')).length, 5);
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+  assert.deepEqual(h.campaign.selectedGroupJids, ['1@g.us', '6@g.us']);
+});
+test('legacy pending closed membership is classified without claiming an eligible entry or leaving an old group', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  state.attempts[code(2)] = { jid: '2@g.us', status: 'confirmando', at: 1 };
+  h.seed(state); h.live.push(group(2, { announce: true })); h.advance(); await h.engine.tick();
+  assert.equal(h.state().groups.length, 1);
+  assert.equal(h.state().attempts[code(2)].status, 'Participação existente, mas grupo não elegível');
+  assert.equal(h.calls.filter((s: string) => s.includes('leaveGroup')).length, 0);
 });
