@@ -1,5 +1,7 @@
 import { pairingCodeFrom, preserveChallengeTime } from "./src/utils/connectionChallenge";
 import { UNLIMITED, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
+import { GroupAutomationEngine, groupList, GROUP_AUTOMATION_CAMPAIGN } from './server/groupAutomation';
+import * as groupAutomationQueries from './server/groupAutomationDatabase';
 import "dotenv/config";
 import express, { NextFunction, Request, Response } from "express";
 import path from "path";
@@ -2917,10 +2919,10 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       cachedGroupsByInstance.delete(targetInstance);
       clientImportedGroupsStore.delete(targetInstance);
       if (dbUser?.db && dbUser?.id) await dbUser.db.clearGroupsForUser(dbUser.id).catch(() => {});
-      return [];
+      throw new Error('WhatsApp desconectado; a participação nos grupos não foi consultada.');
     }
   } catch {
-    return [];
+    throw new Error('Não foi possível confirmar a conexão para consultar os grupos.');
   }
 
   if (!force && cachedForInstance && now - cachedForInstance.timestamp < 120000 && cachedForInstance.groups.length > 0) {
@@ -2996,6 +2998,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
           jid,
           name,
           membersCount,
+          description: g.desc || g.description || '',
+          announce: g.announce,
+          membershipConfirmed: true,
           category: "Vendas & Negócios",
           status: "ativo",
           totalPosts: 0,
@@ -3032,6 +3037,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
       groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
       console.warn(`[GroupsSync] Evolution limitou consultas para ${instName}; aguardando 60s e preservando snapshot.`);
     } else if (groupsResponse.ok) {
+      groupList(groupsResponse.data); // Reject malformed success bodies rather than recording zero groups.
       evolutionQuerySucceeded = true;
       groupSyncBlockedUntil.delete(instName);
       groupSyncFailures.delete(instName);
@@ -4028,6 +4034,44 @@ function lookupGroupName(jid: string, instance: string): string {
 // Real Dispatch Function with robust base64 / URL media support and fail-safe text fallback
 const activeCampaignsRunning = new Set<string>();
 
+async function groupAutomationDatabase() { return { ...(await getDatabase()), ...groupAutomationQueries }; }
+const groupAutomation = new GroupAutomationEngine({
+  database: groupAutomationDatabase,
+  evolution: endpoint => callEvolution(endpoint, {}, 15000, 0),
+  joined: (instance, userId, db) => syncAllWhatsAppGroups(true, instance, { id: userId, db }),
+  busy: campaign => activeCampaignsRunning.has(campaign),
+  catalog: async offset => {
+    const base = String(process.env.WAZZO_API_URL || 'https://wazzo.minhabagg.com.br/api').replace(/\/+$/, '');
+    const response = await fetch(`${base}/groups-list.php?min_members=100&limit=25&offset=${offset}&sort=members&compact=1`, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('Catálogo WAZZO temporariamente indisponível.');
+    const data = await response.json();
+    if (data.success !== true || !Array.isArray(data.groups)) throw new Error('Resposta inválida do catálogo WAZZO.');
+    return { groups: data.groups, hasMore: data.hasMore === true, limit: Number(data.limit) || 25 };
+  },
+});
+// No browser/login is needed for maintenance. MySQL persists progress and arbitrates workers.
+setInterval(() => { void groupAutomation.tick().catch(() => console.warn('[GroupAutomation] Banco de dados indisponível.')); }, 60_000);
+
+app.get('/api/client/group-automation', async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Sessão inválida.' });
+    const db: any = await groupAutomationDatabase();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(await groupAutomation.status(user, db));
+  } catch { return res.status(503).json({ error: 'Não foi possível consultar a automação.' }); }
+});
+app.post('/api/client/group-automation', async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Sessão inválida.' });
+    if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'Informe se a automação deve ficar ativa.' });
+    const db: any = await groupAutomationDatabase();
+    await groupAutomation.setEnabled(user, db, req.body.enabled);
+    return res.json({ success: true, ...(await groupAutomation.status(user, db)) });
+  } catch (e: any) { return res.status(409).json({ error: e.message || 'Não foi possível atualizar a automação.' }); }
+});
+
 async function executeGroupDispatch(...args: Parameters<typeof executeGroupDispatchInternal>) {
   const db = args[9];
   if (!db?.acquireDispatchQueue) throw new Error('Fila de envio indisponível.');
@@ -4063,6 +4107,7 @@ async function executeGroupDispatchInternal(
 
   const liveGroups = await syncAllWhatsAppGroups(true, instance, userId && db ? {id:userId, db} : undefined);
   const liveJids = new Set(liveGroups.map((g: any) => g.jid || g.id));
+  const sourceCampaign = userId && campaignId && db ? (await db.listCampaignsForUser(userId)).find((c: any) => c.id === campaignId) : null;
   targets = [...new Set(targets)].filter(jid => liveJids.has(jid));
   if (!targets.length) throw new Error('Nenhum grupo aberto com participação confirmada. Atualize os grupos.');
   const dispatchResults: Array<{ jid: string; success: boolean; error?: string }> = [];
@@ -4102,6 +4147,19 @@ async function executeGroupDispatchInternal(
     if (i > 0 && intervalMs > 0) {
       console.log(`[Dispatch] ⏳ Waiting ${intervalMs / 1000}s interval before sending to group ${i + 1}/${targets.length}...`);
       await new Promise((r) => setTimeout(r, intervalMs));
+    }
+
+    if (sourceCampaign?.managedGroupAutomation && userId && db) {
+      // Revalidate at delivery time too: a group may close or remove us between scheduled sends.
+      let eligible = false;
+      try { eligible = await groupAutomation.canSend(userId, instance, jid, db); }
+      catch (error: any) { if (error?.rateLimited) throw error; /* Fail closed on unknown metadata. */ }
+      if (!eligible) {
+        dispatchResults.push({ jid, success: false, error: 'Grupo não elegível ou participação não confirmada no momento do envio.' });
+        failedCount++;
+        if (onProgress) await onProgress(i + 1, successfulCount, failedCount, targets.length);
+        continue;
+      }
     }
 
     if (userId && db?.addHistoryForUser) {
@@ -4569,6 +4627,7 @@ setInterval(async () => {
       if (!camp.active && camp.status !== 'enviando') continue;
       if (camp.status === 'concluida' || camp.status === 'falha') continue;
       if (activeCampaignsRunning.has(campId)) continue;
+      if (camp.managedGroupAutomation && !(camp.selectedGroupJids || []).length) continue;
 
       let shouldTrigger = false;
       const slotKey = `${brDateStr}_${brTimeStr}`;
@@ -4598,6 +4657,7 @@ setInterval(async () => {
         db.getSubscriptionForUser(userId).catch(() => null),
       ]);
       const schedulerIsInternal = schedulerUser?.role === "admin" || schedulerUser?.role === "manager";
+      if (camp.id === GROUP_AUTOMATION_CAMPAIGN && !camp.managedGroupAutomation) continue;
       const schedulerHasAccess = schedulerIsInternal || String(schedulerSubscription?.status || "").toLowerCase() === "active";
       if (!schedulerHasAccess) {
         camp.status = 'pausada';
@@ -4861,6 +4921,7 @@ async function startServer() {
 
   app.listen(Number(PORT), "0.0.0.0", () => {
     console.log(`Nexus Evolution Backend running on http://0.0.0.0:${PORT}`);
+    void groupAutomation.tick().catch(() => console.warn('[GroupAutomation] Aguardando banco de dados.'));
 
     // Radar polling can work while the webhook is missing, hiding failures in
     // private inbound messages. Re-register the admin webhook on every boot.

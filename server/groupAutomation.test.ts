@@ -1,0 +1,151 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { GroupAutomationEngine, GROUP_AUTOMATION_CAMPAIGN, groupEligibility, inviteCode, permitsAdvertising, groupList } from './groupAutomation';
+const GROUP_AUTOMATION_PHONE = '5527000006930';
+const GROUP_AUTOMATION_EMAIL = 'owner@example.test';
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+const group = (n: number, extra = {}) => ({ id: `${n}@g.us`, subject: `Divulgação ${n}`, desc: 'Divulgue seus produtos e serviços.', size: 150, announce: false, participants: [{ id: `${GROUP_AUTOMATION_PHONE}@s.whatsapp.net` }], ...extra });
+const code = (n: number) => 'A'.repeat(20) + String(n).padStart(2, '0');
+function harness() {
+  let now = Date.parse('2026-10-16T19:45:00Z');
+  const states = new Map<string, any>();
+  const h: any = { live: [group(1)], catalog: [], calls: [], syncError: false, rateLimited: false, joinError: false, locked: false,
+    record: { instance_name: 'tenant-7', owner_phone: GROUP_AUTOMATION_PHONE },
+    user: { id: 7, email: GROUP_AUTOMATION_EMAIL, role: 'client' },
+    campaign: { id: GROUP_AUTOMATION_CAMPAIGN, title: 'Oferta', previewText: 'Anúncio existente', imageUrl: '/uploads/existing.jpg', active: true, status: 'ativa', scheduleTimes: ['06:00'], selectedGroupJids: ['1@g.us'], completedSlots: [], totalSent: 18 },
+    sub: { status: 'active' }, busy: false,
+  };
+  h.db = {
+    findGroupAutomationUser: async () => clone(h.user),
+    getUserInstance: async () => clone(h.record), getSubscriptionForUser: async () => h.sub,
+    acquireGroupAutomationLock: async () => h.locked ? null : async () => {},
+    getAdminState: async (key: string) => states.has(key) ? clone(states.get(key)) : null,
+    setAdminState: async (key: string, state: any) => { states.set(key, clone(state)); },
+    listCampaignsForUser: async () => [clone(h.campaign)],
+    saveCampaignForUser: async (_id: number, camp: any) => { h.campaign = clone(camp); },
+  };
+  h.deps = {
+    database: async () => h.db, now: () => now, busy: () => h.busy,
+    joined: async () => { if (h.syncError) throw new Error('rate-overlimit'); return clone(h.live); },
+    catalog: async () => ({ groups: clone(h.catalog), hasMore: false, limit: 25 }),
+    evolution: async (endpoint: string) => {
+      h.calls.push(endpoint);
+      if (h.rateLimited) return { ok: false, status: 429, data: {} };
+      if (endpoint.startsWith('/instance/')) return { ok: true, status: 200, data: { instance: { state: 'open' } } };
+      const url = new URL(`https://example.test${endpoint}`);
+      const info = h.catalog.find((g: any) => g.whatsappLink.endsWith(url.searchParams.get('inviteCode')))?.metadata;
+      if (endpoint.includes('/inviteInfo/')) return info ? { ok: true, status: 200, data: clone(info) } : { ok: false, status: 404, data: {} };
+      if (endpoint.includes('/acceptInviteCode/')) {
+        if (h.joinError) return { ok: false, status: 408, data: {} };
+        h.live.push(clone(info));
+        return { ok: true, status: 200, data: { accepted: true, groupJid: info.id } };
+      }
+      if (endpoint.includes('/findGroupInfos/')) {
+        const g = h.live.find((g: any) => g.id === url.searchParams.get('groupJid'));
+        return { ok: !!g, status: g ? 200 : 404, data: g ? clone(g) : {} };
+      }
+      throw new Error('Unexpected call');
+    },
+  };
+  h.engine = new GroupAutomationEngine(h.deps);
+  h.advance = () => { now += 2 * 60 * 60_000; };
+  h.state = () => clone(states.get('group-automation:7'));
+  h.seed = (v: any) => { states.set('group-automation:7', clone(v)); };
+  h.candidate = (n: number, extra = {}) => ({ name: `Divulgação ${n}`, memberCount: 150, description: 'Anúncios permitidos', whatsappLink: `https://chat.whatsapp.com/${code(n)}`, metadata: group(n, extra) });
+  return h;
+}
+
+test('strict link parser rejects wrong origins, partial codes, credentials and arbitrary paths', () => {
+  assert.equal(inviteCode(`https://chat.whatsapp.com/${code(2)}`), code(2));
+  for (const s of ['http://chat.whatsapp.com/' + code(2), 'https://chat.whatsapp.com.evil/' + code(2), `https://secret@chat.whatsapp.com/${code(2)}`, `https://chat.whatsapp.com/x/${code(2)}`, 'https://chat.whatsapp.com/short']) assert.equal(inviteCode(s), undefined);
+});
+test('eligibility enforces open conversation, at least 100 members, advertising and membership', () => {
+  assert.equal(groupEligibility(group(1, { size: 100 }), true, GROUP_AUTOMATION_PHONE), null);
+  for (const extra of [{ size: 99 }, { size: 0 }, { announce: true }, { announce: undefined }, { participants: [] }, { isCommunity: true }, { desc: 'Proibido vendas' }, { desc: 'É proibida a divulgação' }, { desc: 'Apenas uma mensagem por dia' }, { desc: 'Não é permitido anúncios' }, { desc: 'Vendas proibidas' }]) assert.ok(groupEligibility(group(1, extra), true, GROUP_AUTOMATION_PHONE));
+  assert.equal(permitsAdvertising({ name: 'Moradores do bairro' }), false);
+  assert.equal(permitsAdvertising({ name: 'Bairro', desc: 'Anuncie seus serviços' }), true);
+});
+test('invalid successful upstream bodies never become empty membership snapshots', () => {
+  assert.throws(() => groupList({ error: 'Unavailable' }));
+  assert.deepEqual(groupList({ groups: [] }), []);
+});
+test('initialization restricts account, preserves content, filters existing groups and sets only future slots', async () => {
+  const h = harness(); h.live = [group(1), group(2, { size: 99 }), group(3, { announce: true })];
+  await h.engine.tick();
+  assert.equal(h.state().groups.length, 1);
+  assert.deepEqual(h.campaign.selectedGroupJids, ['1@g.us']);
+  assert.deepEqual(h.campaign.scheduleTimes, ['07:00', '15:00', '21:00']);
+  assert.equal(h.campaign.previewText, 'Anúncio existente'); assert.equal(h.campaign.imageUrl, '/uploads/existing.jpg');
+  assert.ok(h.campaign.completedSlots.includes('2026-10-16_07:00')); assert.ok(h.campaign.completedSlots.includes('2026-10-16_15:00'));
+  assert.ok(!h.campaign.completedSlots.includes('2026-10-16_21:00'));
+  assert.equal((await h.engine.status({ id: 8, email: 'other@example.test' }, h.db)).available, false);
+  await assert.rejects(h.engine.setEnabled({ id: 8, email: 'other@example.test' }, h.db, true));
+});
+test('real invitation accepted and membership rechecked before counting or selecting', async () => {
+  const h = harness(); h.catalog = [h.candidate(2)]; await h.engine.tick();
+  assert.equal(h.state().groups.length, 2);
+  assert.deepEqual(h.campaign.selectedGroupJids, ['1@g.us', '2@g.us']);
+  assert.equal(h.state().attempts[code(2)].status, 'participando');
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+});
+test('confirmed removal replaces with another group and does not rejoin same JID via a new link', async () => {
+  const h = harness(); await h.engine.tick();
+  h.advance(); h.live = []; h.catalog = [h.candidate(2)]; await h.engine.tick();
+  assert.deepEqual(h.state().groups.map((g: any) => g.jid), ['2@g.us']); assert.ok(h.state().excludedJids.includes('1@g.us'));
+  h.advance(); h.catalog = [{ ...h.candidate(1), whatsappLink: `https://chat.whatsapp.com/${code(44)}` }]; await h.engine.tick();
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+});
+test('unavailable snapshot preserves membership and makes no join attempt', async () => {
+  const h = harness(); await h.engine.tick(); const before = h.state();
+  h.advance(); h.syncError = true; h.catalog = [h.candidate(2)]; await h.engine.tick();
+  assert.deepEqual(h.state().groups, before.groups); assert.deepEqual(h.state().excludedJids, []);
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+  assert.equal(h.state().status, 'aguardando_nova_tentativa');
+});
+test('backoff persists across engine restarts and prevents repeated rate-limited calls', async () => {
+  const h = harness(); h.rateLimited = true; await h.engine.tick(); const count = h.calls.length;
+  h.engine = new GroupAutomationEngine(h.deps);
+  await h.engine.tick(); assert.equal(h.calls.length, count); assert.ok(h.state().nextRunAt > h.state().updatedAt);
+});
+test('unknown join outcome is durable and not counted or retried', async () => {
+  const h = harness(); h.catalog = [h.candidate(2)]; h.joinError = true; await h.engine.tick();
+  assert.equal(h.state().groups.length, 1); assert.equal(h.state().attempts[code(2)].status, 'confirmando');
+  h.advance(); await h.engine.tick();
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+});
+test('closed, undersized, prohibited, invalid and approval-required invitations are not joined', async () => {
+  for (const extra of [{ announce: true }, { size: 99 }, { desc: 'Proibido vendas' }, { joinApprovalMode: true }, { announce: undefined }]) {
+    const h = harness(); h.catalog = [h.candidate(2, extra)]; await h.engine.tick();
+    assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+  }
+});
+test('100 eligible memberships stop joins, and target list never exceeds 100', async () => {
+  const h = harness(); h.live = Array.from({ length: 105 }, (_, i) => group(i + 1)); h.catalog = [h.candidate(200)]; await h.engine.tick();
+  assert.equal(h.state().groups.length, 100); assert.equal(h.campaign.selectedGroupJids.length, 100); assert.equal(h.state().status, 'meta_atingida');
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+});
+test('worker lock, different phone, inactive plan and running campaign prevent mutations', async () => {
+  for (const mode of ['locked', 'phone', 'plan', 'busy']) {
+    const h = harness(); h.catalog = [h.candidate(2)];
+    if (mode === 'locked') h.locked = true;
+    if (mode === 'phone') h.record.owner_phone = '5511999999999';
+    if (mode === 'plan') h.sub.status = 'inactive';
+    if (mode === 'busy') h.busy = true;
+    await h.engine.tick(); assert.equal(h.calls.length, 0);
+    assert.equal(h.campaign.managedGroupAutomation, undefined);
+  }
+});
+test('pause disables campaign and maintenance; resume requests a new verification', async () => {
+  const h = harness(); await h.engine.tick(); await h.engine.setEnabled(h.user, h.db, false);
+  const count = h.calls.length; h.advance(); await h.engine.tick(); assert.equal(h.calls.length, count);
+  assert.equal(h.campaign.active, false); assert.equal(h.state().enabled, false);
+  await h.engine.setEnabled(h.user, h.db, true); assert.equal(h.state().nextRunAt, 0);
+});
+test('delivery check refuses closed groups, removals, number changes and paused state', async () => {
+  const h = harness(); await h.engine.tick();
+  assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), true);
+  h.live[0].announce = true; assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+  h.live = []; assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+  assert.equal(await h.engine.canSend(7, 'other-tenant', '1@g.us', h.db), false);
+  h.record.owner_phone = '5511000000000'; assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+});
