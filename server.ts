@@ -4034,7 +4034,11 @@ function lookupGroupName(jid: string, instance: string): string {
 // Real Dispatch Function with robust base64 / URL media support and fail-safe text fallback
 const activeCampaignsRunning = new Set<string>();
 
-async function groupAutomationDatabase() { return { ...(await getDatabase()), ...groupAutomationQueries }; }
+async function groupAutomationDatabase() {
+  const db = await getDatabase();
+  groupAutomationQueries.configureGroupAutomationDatabase(db.mysql);
+  return { ...db, ...groupAutomationQueries };
+}
 const groupAutomation = new GroupAutomationEngine({
   database: groupAutomationDatabase,
   evolution: endpoint => callEvolution(endpoint, {}, 15000, 0),

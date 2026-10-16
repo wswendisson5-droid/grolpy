@@ -1,8 +1,11 @@
-import { createPool } from 'mysql2/promise';
+import type { Pool } from 'mysql2/promise';
+let pool: Pool;
 
 // Only ownership lookup and the cross-worker lease use this small pool. Existing
 // campaign/state persistence stays in the established database implementation.
-const pool = createPool({
+export function configureGroupAutomationDatabase(mysql: { createPool: (options: any) => Pool }) {
+  if (pool) return;
+  pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER,
@@ -13,7 +16,8 @@ const pool = createPool({
   connectTimeout: 8000,
   enableKeepAlive: true,
   charset: 'utf8mb4',
-});
+  });
+}
 
 export async function findGroupAutomationUser(campaignKey: string) {
   const [rows]: any = await pool.execute(
