@@ -76,7 +76,10 @@ export class GroupAutomationEngine {
     const state = await this.state(db, user.id);
     if (!state) return { available: true, status: 'preparando', target: 100, count: 0, times: GROUP_AUTOMATION_TIMES };
     const { attempts, candidates, observedJids, excludedJids, ...visible } = state;
+    const reasons: Record<string, number> = {};
+    for (const a of Object.values(attempts)) reasons[a.status] = (reasons[a.status] || 0) + 1;
     return { available: true, ...visible, count: state.groups.length, excluded: excludedJids.length,
+      diagnostics: { catalogOffset: state.offset, queuedCandidates: candidates.length, attempts: Object.keys(attempts).length, reasons },
       awaitingConfirmation: Object.values(attempts).filter(a => a.status === 'confirmando').length };
   }
   async setEnabled(user: any, db: any, enabled: boolean) {
