@@ -52,6 +52,7 @@ export interface GroupAutomationState {
   candidates: any[]; offset: number; catalogNextAt: number; syncAt: number; nextRunAt: number;
   failures: number; status: string; lastError?: string; updatedAt: number;
   lastOperation?: string;
+  membershipSnapshot?: any[];
   events: { at: number; text: string }[];
 }
 type EvolutionResult = { ok: boolean; status: number; data: any };
@@ -76,7 +77,7 @@ export class GroupAutomationEngine {
     if ((await db.findGroupAutomationUser(GROUP_AUTOMATION_CAMPAIGN))?.id !== user.id) return { available: false };
     const state = await this.state(db, user.id);
     if (!state) return { available: true, status: 'preparando', target: 100, count: 0, times: GROUP_AUTOMATION_TIMES };
-    const { attempts, candidates, observedJids, excludedJids, ...visible } = state;
+    const { attempts, candidates, observedJids, excludedJids, membershipSnapshot, ...visible } = state;
     const reasons: Record<string, number> = {};
     for (const a of Object.values(attempts)) reasons[a.status] = (reasons[a.status] || 0) + 1;
     return { available: true, ...visible, count: state.groups.length, excluded: excludedJids.length,
@@ -90,7 +91,7 @@ export class GroupAutomationEngine {
     try {
       const state = await this.state(db, user.id);
       if (!state) throw new Error('Aguarde a preparação inicial da automação.');
-      state.enabled = enabled; state.nextRunAt = 0; state.updatedAt = this.now();
+      state.enabled = enabled; state.nextRunAt = Math.max(state.nextRunAt, this.now()); state.updatedAt = this.now();
       state.status = enabled ? 'aguardando_verificacao' : 'pausada';
       const camp = (await db.listCampaignsForUser(user.id)).find((c: any) => c.id === state.campaignId);
       if (camp?.status === 'enviando' || this.deps.busy(state.campaignId)) throw new Error('Aguarde a rodada de envio terminar para alterar a automação.');
@@ -148,13 +149,17 @@ export class GroupAutomationEngine {
         state.status = 'plano_inativo'; return;
       }
       if (!campaign.managedGroupAutomation) await this.updateCampaign(db, user.id, state, campaign);
+      state.lastOperation = 'verificando conexão';
       const connected = await this.request(`/instance/connectionState/${encodeURIComponent(state.instance)}`);
       if (!connected.ok || (connected.data?.instance?.state || connected.data?.state) !== 'open') {
         state.status = 'desconectada'; state.lastError = 'Aguardando reconexão do WhatsApp.'; return;
       }
-      // A failed/limited snapshot must throw. Never infer removals from an unavailable list.
+      // A complete inventory is expensive. Reuse its last successful snapshot for
+      // 30 minutes; individual entries and every delivery still require live metadata.
+      // Failed snapshots never replace it or establish a removal.
       state.lastOperation = 'consultando participações';
-      const live = await this.deps.joined(state.instance, user.id, db);
+      const freshInventory = !state.membershipSnapshot || this.now() - state.syncAt >= 30 * 60_000;
+      const live = freshInventory ? await this.deps.joined(state.instance, user.id, db) : state.membershipSnapshot!;
       const observed = new Set<string>(live.map(g => String(g.jid || g.id)));
       for (const jid of state.observedJids) if (!observed.has(jid) && !state.excludedJids.includes(jid)) {
         state.excludedJids.push(jid); this.note(state, `Grupo indisponível: ${jid}. Será procurado outro grupo.`);
@@ -162,12 +167,12 @@ export class GroupAutomationEngine {
       state.observedJids = [...observed];
       state.groups = live.filter(g => !state!.excludedJids.includes(g.jid || g.id) && !groupEligibility(g, true, state!.ownerPhone))
         .slice(0, state.target).map(g => ({ jid: g.jid || g.id, name: g.name || g.subject,
-          membersCount: Number(g.membersCount ?? g.size), checkedAt: this.now() }));
-      state.syncAt = this.now();
+          membersCount: Number(g.membersCount ?? g.size), checkedAt: freshInventory ? this.now() : state!.syncAt }));
+      if (freshInventory) { state.syncAt = this.now(); state.membershipSnapshot = live; }
       for (const a of Object.values(state.attempts)) {
         const existing = live.find(g => String(g.jid || g.id) === a.jid);
         if (existing) a.status = groupEligibility(existing, true, state.ownerPhone) ? 'Participação existente, mas grupo não elegível' : 'participando';
-        else if (a.status === 'confirmando' && this.now() - a.at > 10 * 60_000) {
+        else if (freshInventory && a.status === 'confirmando' && this.now() - a.at > 10 * 60_000) {
           a.status = 'Entrada não localizada na lista atual de participações';
           a.retryAt = this.now() + 24 * 60 * 60_000;
         }
@@ -227,6 +232,11 @@ export class GroupAutomationEngine {
         if (!state.groups.some(g => g.jid === jid)) state.groups.push({ jid, name: metadata.subject || metadata.name,
           membersCount: Number(metadata.size ?? metadata.participants?.length), checkedAt: this.now() });
         if (!state.observedJids.includes(jid)) state.observedJids.push(jid);
+        if (!state.membershipSnapshot!.some(g => (g.jid || g.id) === jid)) state.membershipSnapshot!.push({
+          id: jid, jid, name: metadata.subject || metadata.name, description: metadata.desc || metadata.description,
+          announce: metadata.announce, membersCount: Number(metadata.size ?? metadata.participants?.length),
+          membershipConfirmed: true,
+        });
         this.note(state, `Entrada confirmada: ${metadata.subject || jid} (${state.groups.length}/100).`);
         await this.updateCampaign(db, user.id, state, campaign);
       } else {
@@ -252,7 +262,8 @@ export class GroupAutomationEngine {
         state.status = 'aguardando_nova_tentativa';
         // Never persist upstream response bodies, invite codes, keys, or credentials in logs/UI.
         const limited = e?.rateLimited || /limitou|rate.overlimit|rate limit/.test(normalize(e?.message));
-        state.lastError = limited ? 'WhatsApp limitou as consultas. Aguardando nova tentativa.' : `Falha ao ${state.lastOperation || 'verificar grupos'}. Os envios exigem nova confirmação ao vivo.`;
+        if (limited) state.nextRunAt = Math.max(state.nextRunAt, Number(e?.retryAt) || this.now() + 30 * 60_000);
+        state.lastError = limited ? `WhatsApp limitou a operação: ${state.lastOperation || 'verificar grupos'}. Aguardando o intervalo de consulta.` : `Falha ao ${state.lastOperation || 'verificar grupos'}. Os envios exigem nova confirmação ao vivo.`;
       }
     } finally {
       try { if (db && user && state && release) await db.setAdminState(this.key(user.id), state); }

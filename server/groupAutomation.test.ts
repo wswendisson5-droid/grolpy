@@ -144,7 +144,7 @@ test('pause disables campaign and maintenance; resume requests a new verificatio
   const h = harness(); await h.engine.tick(); await h.engine.setEnabled(h.user, h.db, false);
   const count = h.calls.length; h.advance(); await h.engine.tick(); assert.equal(h.calls.length, count);
   assert.equal(h.campaign.active, false); assert.equal(h.state().enabled, false);
-  await h.engine.setEnabled(h.user, h.db, true); assert.equal(h.state().nextRunAt, 0);
+  await h.engine.setEnabled(h.user, h.db, true); assert.equal(h.state().nextRunAt, h.deps.now());
 });
 test('delivery check refuses closed groups, removals, number changes and paused state', async () => {
   const h = harness(); await h.engine.tick();
@@ -184,4 +184,50 @@ test('legacy pending closed membership is classified without claiming an eligibl
   assert.equal(h.state().groups.length, 1);
   assert.equal(h.state().attempts[code(2)].status, 'Participação existente, mas grupo não elegível');
   assert.equal(h.calls.filter((s: string) => s.includes('leaveGroup')).length, 0);
+});
+
+test('successful inventory survives restarts without repeating the bulk query on every pass', async () => {
+  const h = harness(); let inventories = 0;
+  const original = h.deps.joined;
+  h.deps.joined = async (...args: any[]) => { inventories++; return original(...args); };
+  await h.engine.tick();
+  const state = h.state(); state.nextRunAt = 0; h.seed(state);
+  h.engine = new GroupAutomationEngine(h.deps);
+  h.catalog = [h.candidate(2)];
+  // Make a new catalog page available without changing the inventory age.
+  state.catalogNextAt = 0; h.seed(state);
+  await h.engine.tick();
+  assert.equal(inventories, 1);
+  assert.equal(h.state().groups.length, 2);
+  assert.equal((await h.engine.status(h.user, h.db)).membershipSnapshot, undefined);
+  h.advance(); await h.engine.tick(); assert.equal(inventories, 2);
+});
+
+test('pending entries are never declared absent using a cached inventory', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  state.attempts[code(2)] = { jid: '2@g.us', status: 'confirmando', at: 1 };
+  state.nextRunAt = 0; h.seed(state); await h.engine.tick();
+  assert.equal(h.state().attempts[code(2)].status, 'confirmando');
+});
+
+test('upstream cooldown and failed operation are preserved without an early retry', async () => {
+  const h = harness();
+  const retryAt = h.deps.now() + 45 * 60_000;
+  h.deps.joined = async () => { throw Object.assign(new Error('limited'), { rateLimited: true, retryAt }); };
+  await h.engine.tick();
+  assert.equal(h.state().nextRunAt, retryAt);
+  assert.match(h.state().lastError, /consultando participações/);
+  assert.equal(h.state().syncAt, 0);
+  assert.equal(h.state().membershipSnapshot, undefined);
+});
+
+
+test('pause and resume cannot clear a rate-limit cooldown', async () => {
+  const h = harness(); h.rateLimited = true; await h.engine.tick();
+  const due = h.state().nextRunAt;
+  await h.engine.setEnabled(h.user, h.db, false);
+  await h.engine.setEnabled(h.user, h.db, true);
+  assert.equal(h.state().nextRunAt, due);
+  const count = h.calls.length;
+  await h.engine.tick(); assert.equal(h.calls.length, count);
 });

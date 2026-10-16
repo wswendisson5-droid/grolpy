@@ -2909,6 +2909,13 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
   const now = Date.now();
   if (!targetInstance) return [];
 
+  // Share upstream cooldown across UI imports, campaign checks and workers,
+  // including Passenger restarts. A refresh must not restart a limited query.
+  const cooldownKey = `group-sync-cooldown:${targetInstance}`;
+  const persistedCooldown = dbUser ? await dbUser.db.getAdminState(cooldownKey) : null;
+  const retryAt = Math.max(groupSyncBlockedUntil.get(targetInstance) || 0, Number(persistedCooldown?.until) || 0);
+  if (now < retryAt) throw Object.assign(new Error('WhatsApp limitou a consulta de grupos; aguardando o intervalo de consulta.'), { rateLimited: true, retryAt });
+
   // Keep cache tenant-scoped, but never trust it before checking the live session.
   const cachedForInstance = cachedGroupsByInstance.get(targetInstance);
 
@@ -3046,10 +3053,12 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
     if (rateLimited) {
-      syncFailure = "O WhatsApp limitou a consulta de grupos. A sincronização será tentada novamente em um minuto.";
+      syncFailure = "O WhatsApp limitou a consulta de grupos. Aguardando o intervalo de consulta.";
       groupSyncFailures.set(instName, syncFailure);
-      groupSyncBlockedUntil.set(instName, Date.now() + 60_000);
-      console.warn(`[GroupsSync] Evolution limitou consultas para ${instName}; aguardando 60s e preservando snapshot.`);
+      const until = Date.now() + 30 * 60_000;
+      groupSyncBlockedUntil.set(instName, until);
+      if (dbUser) await dbUser.db.setAdminState(cooldownKey, { until });
+      console.warn('[GroupsSync] Consulta limitada; cooldown compartilhado e snapshot preservado.');
     } else if (groupsResponse.ok) {
       groupList(groupsResponse.data); // Reject malformed success bodies rather than recording zero groups.
       evolutionQuerySucceeded = true;
@@ -3086,7 +3095,10 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
 
   console.warn(`[GroupsSync] Não foi possível confirmar grupos abertos para ${instName}.`);
   groupSyncFailures.set(instName, syncFailure);
-  throw new Error(syncFailure);
+  throw Object.assign(new Error(syncFailure), {
+    rateLimited: /limitou/.test(syncFailure),
+    retryAt: groupSyncBlockedUntil.get(instName),
+  });
 
 }
 
