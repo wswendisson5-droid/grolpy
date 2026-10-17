@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ClientSidebar } from './ClientSidebar';
 import { ClientHeader } from './ClientHeader';
 import { ClientHomeView } from './views/ClientHomeView';
@@ -61,6 +61,8 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   });
 
   const [dashboardStats, setDashboardStats] = useState<any>(null);
+  const whatsappStatusGenerationRef = useRef(0);
+  const whatsappStatusInFlightRef = useRef(false);
 
   // Fetch real data from backend
   const refreshGroups = async (force: boolean = false) => {
@@ -179,8 +181,12 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
   };
 
   const refreshWhatsAppStatus = async () => {
+    if (whatsappStatusInFlightRef.current) return;
+    whatsappStatusInFlightRef.current = true;
+    const generation = whatsappStatusGenerationRef.current;
     try {
       const statusData = await clientService.getWhatsAppStatus();
+      if (generation !== whatsappStatusGenerationRef.current) return;
       setWhatsappProfile({
         name: statusData.profile?.name && statusData.profile.name !== 'WhatsApp Conectado' ? statusData.profile.name : undefined,
         number: statusData.profile?.number || undefined,
@@ -195,12 +201,11 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
         setGroups([]);
       }
     } catch {
-      setGroups([]);
-      setWhatsappProfile({
-        isConnected: false,
-        isLoading: false,
-      });
-    }
+      if (generation !== whatsappStatusGenerationRef.current) return;
+      // A failed read cannot erase the last confirmed phone, profile or groups.
+      setWhatsappProfile(prev => ({ ...prev, isLoading: true }));
+      setGroupsError('A conexão com a integração ainda não foi verificada. O último estado conhecido foi preservado.');
+    } finally { whatsappStatusInFlightRef.current = false; }
   };
 
   useEffect(() => {
@@ -209,6 +214,7 @@ export const ClientPanel: React.FC<ClientPanelProps> = ({ onSwitchPanel }) => {
     refreshWhatsAppStatus();
 
     const handleStatusChanged = (e: any) => {
+      whatsappStatusGenerationRef.current++;
       if (e?.detail?.isConnected === false) {
         // Disconnect is authoritative immediately. Do not let a stale Evolution
         // response resurrect the old session in the header while deletion settles.

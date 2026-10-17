@@ -1,4 +1,4 @@
-import { pairingCodeFrom, preserveChallengeTime } from "./src/utils/connectionChallenge";
+import { pairingCodeFrom, preserveChallengeTime, evolutionSessionState, connectionCheckIndeterminate } from "./src/utils/connectionChallenge";
 import { UNLIMITED, isConfirmedGroupMember, isOpenJoinedGroup, nextRecurringSlot, isScheduledDue } from "./server/campaignRules";
 import { GroupAutomationEngine, groupList, GROUP_AUTOMATION_CAMPAIGN } from './server/groupAutomation';
 import * as groupAutomationQueries from './server/groupAutomationDatabase';
@@ -906,17 +906,7 @@ app.post("/api/evolution/select-instance", async (req, res) => {
 
 // Helper: robust check for connected state across all Evolution API v2 payload schemas
 function isEvolutionStateConnected(data: any): boolean {
-  if (!data) return false;
-  const val = String(
-    data?.instance?.state ||
-    data?.state ||
-    data?.instance?.connectionStatus ||
-    data?.connectionStatus ||
-    data?.instance?.status ||
-    data?.status ||
-    ""
-  ).toLowerCase().trim();
-  return val === "open" || val === "connected";
+  return evolutionSessionState(data) === 'connected';
 }
 
 // Helper: fetch instance WhatsApp profile with profilePictureUrl and fallback endpoint
@@ -1042,7 +1032,10 @@ async function resolveActiveInstance(instance: string, userId?: number, db?: any
         return name === instance;
       });
 
-      if (target && (isEvolutionStateConnected(target) || isEvolutionStateConnected(target.instance))) {
+      if (target && fetchRes.ok && evolutionSessionState(target) !== 'unknown') {
+        stateRes = { ok: true, status: 200, data: target };
+      }
+      if (target && fetchRes.ok && (isEvolutionStateConnected(target) || isEvolutionStateConnected(target.instance))) {
         isConnected = true;
         activeInstance = target.name || target.instanceName || instance;
         instanceData = target;
@@ -1172,6 +1165,10 @@ app.get("/api/evolution/status", async (req, res) => {
   const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
   const currentInst = getInstanceCache(activeInstance);
 
+  if (!isConnected && connectionCheckIndeterminate(stateRes)) {
+    return res.status(503).json({ configured: true, state: 'unknown', error: `Não foi possível verificar a conexão na integração (HTTP ${stateRes.status}). A sessão não foi desconectada por esta consulta.` });
+  }
+
   try {
     let appState: EvolutionLocalCache["state"] = isConnected
       ? "connected"
@@ -1274,7 +1271,7 @@ async function challengeRequestGuard(req: Request, res: Response, next: NextFunc
   const own: any = await ownedInstance(req, true, true);
   if (own.error) return res.status(own.error === "UNAUTHORIZED" ? 401 : 402).json({ error: own.error });
   const key = String(own.user.id);
-  if (challengeRequests.has(key)) return res.status(409).json({ error: "Uma solicitação já está em andamento. Aguarde antes de gerar outro código." });
+  if (challengeRequests.has(key)) return res.status(202).json({ success: true, pending: true, state: 'waiting_qr', retryAfterMs: 5000, message: 'Uma solicitação está em andamento. Verificando a conexão existente.' });
   challengeRequests.add(key);
   // An aborted browser request must not unlock upstream work that is still running.
   const lease = setTimeout(() => challengeRequests.delete(key), 60000);
@@ -1294,6 +1291,7 @@ app.get("/api/evolution/qrcode", challengeRequestGuard, async (req, res) => {
   const { isConnected, activeInstance, stateRes } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
   const instance = activeInstance;
   const currentInst = getInstanceCache(instance);
+  if (!isConnected && connectionCheckIndeterminate(stateRes)) return res.status(503).json({ state: 'unknown', error: `Não foi possível verificar a conexão na integração (HTTP ${stateRes.status}). Verifique o estado antes de gerar outro código.` });
   const force = req.query.force === "true" || req.query.force === "1";
 
   // If already connected, return connected profile immediately (0ms)
@@ -1470,6 +1468,7 @@ app.post("/api/evolution/pairing-code", challengeRequestGuard, async (req: Reque
   const { isConnected, activeInstance, stateRes } = await resolveActiveInstance(own.instance, own.user?.id, own.db);
   const instance = activeInstance;
   const currentInst = getInstanceCache(instance);
+  if (!isConnected && connectionCheckIndeterminate(stateRes)) return res.status(503).json({ state: 'unknown', error: `Não foi possível verificar a conexão na integração (HTTP ${stateRes.status}). Verifique o estado antes de gerar outro código.` });
 
   const { phone, number } = req.body || {};
   const rawPhone = String(phone || number || "").trim();
@@ -3041,16 +3040,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
     // into a misleading successful empty snapshot.
     // Participants are required to distinguish real joined groups from stale/left
     // groups and community containers before they enter campaign selection.
-    let groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true&skipPicture=true`, {}, 45000, 0);
-    // A stale Evolution socket can report open. Recreate only this tenant's socket,
-    // then verify real metadata; never substitute an empty/stale successful result.
-    if (!groupsResponse.ok && JSON.stringify(groupsResponse.data).toLowerCase().includes('connection closed')) {
-      const restart = await callEvolution(`/instance/restart/${instName}`, {method:'POST'}, 15000, 0);
-      if (restart.ok && !restart.data?.error) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true&skipPicture=true`, {}, 45000, 0);
-      }
-    }
+    // A read failure must not restart a WhatsApp session that may be pairing
+    // or actively in use in another tab. Preserve it and report uncertainty.
+    const groupsResponse = await callEvolution(`/group/fetchAllGroups/${instName}?getParticipants=true&skipPicture=true`, {}, 45000, 0);
     const responseText = JSON.stringify(groupsResponse.data || "").toLowerCase();
     const rateLimited = groupsResponse.status === 429 || responseText.includes("rate-overlimit") || responseText.includes("rate limit");
 
@@ -3142,6 +3134,9 @@ app.get("/api/client/whatsapp/status", async (req, res) => {
 
   try {
     const { isConnected, activeInstance, stateRes, instanceData } = await resolveActiveInstance(instance, own.user?.id, own.db);
+    if (!isConnected && connectionCheckIndeterminate(stateRes)) {
+      return res.status(503).json({ success: false, isConnected: null, state: 'unknown', error: `Não foi possível verificar a conexão na integração (HTTP ${stateRes.status}). Não é necessário gerar outro código antes de confirmar o estado.` });
+    }
     const challenge = getInstanceCache(activeInstance).qrCode;
     if (!isConnected && challenge && Date.now() < (challenge.refreshAt || challenge.updatedAt + 40000)) {
       return res.json({ success: true, configured: true, isConnected: false, state: "waiting_qr", qrCode: challenge });

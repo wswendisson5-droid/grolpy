@@ -1,5 +1,6 @@
 import { ClientGroup, DivulgacaoCard } from '../components/client-panel/types';
 import { safeEncodeURIComponent } from '../utils/safeUri';
+import { connectionFetch } from '../utils/connectionChallenge';
 
 export interface ClientHistoryItem {
   id: string;
@@ -60,7 +61,7 @@ class ClientService {
   getCachedProfile(): any { return this.cachedProfile; }
 
   async getWhatsAppStatus(instance: string = this.defaultInstance): Promise<any> {
-    const res = await fetch('/api/client/whatsapp/status', { headers: this.authHeaders() });
+    const res = await connectionFetch('/api/client/whatsapp/status', { headers: this.authHeaders() });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Não foi possível consultar o WhatsApp.');
     if (data.instanceName) this.defaultInstance = data.instanceName;

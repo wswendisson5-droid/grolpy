@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
-import { CHALLENGE_REFRESH_MS, connectionFetch, pairingCodeFrom } from '../../../utils/connectionChallenge';
+import { CHALLENGE_REFRESH_MS, connectionFetch, pairingCodeFrom, challengeRequestPending } from '../../../utils/connectionChallenge';
 import {
   Loader2,
   CheckCircle2,
@@ -24,7 +24,7 @@ export interface ClientConexaoViewProps {
 }
 
 export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnected: propConnected, initialProfile }) => {
-  const cachedConnected = propConnected === true;
+  const cachedConnected = propConnected === true && !initialProfile?.isLoading;
   const cachedProfile = cachedConnected ? initialProfile : null;
 
   const [status, setStatus] = useState<'loading' | 'disconnected' | 'waiting_qr' | 'connected' | 'error'>(() => {
@@ -41,6 +41,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [statusCheckFailed, setStatusCheckFailed] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const isWaitingQrRef = useRef(false);
   const generationRef = useRef(false);
@@ -52,6 +53,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   const lastRequestAtRef = useRef(0);
   const renewalCountRef = useRef(0);
   const mountedRef = useRef(true);
+  const statusRequestInFlightRef = useRef(false);
   const [secondsLeft, setSecondsLeft] = useState(0);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; requestIdRef.current++; isWaitingQrRef.current = false; }; }, []);
   const cancelAttempt = () => {
@@ -127,17 +129,26 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   }, [activeMethod]);
 
   const fetchStatus = useCallback(async () => {
+    if (generationRef.current || statusRequestInFlightRef.current) return;
+    statusRequestInFlightRef.current = true;
+    const requestId = requestIdRef.current;
     try {
-      if (generationRef.current) return;
-      const requestId = requestIdRef.current;
       const res = await connectionFetch('/api/client/whatsapp/status', { headers: authHeaders() });
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       if (!res.ok) {
-        if (status === 'loading') setStatus('disconnected');
+        const failure = await res.json().catch(() => ({}));
+        if (!mountedRef.current || requestId !== requestIdRef.current) return;
+        if (!isWaitingQrRef.current) {
+          setStatusCheckFailed(true);
+          setErrorMessage(failure.error || 'Não foi possível verificar a conexão. Isso não confirma uma desconexão do WhatsApp.');
+          setStatus('error');
+        }
         return;
       }
       const data = await res.json();
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const appState = data.state;
+      setStatusCheckFailed(false);
 
       if (data.isConnected === true && (appState === 'connected' || appState === 'open')) {
         isWaitingQrRef.current = false;
@@ -148,11 +159,11 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
         setQrCode(null);
         setPairingCode(null);
         setErrorMessage('');
-        window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: data.connectedProfile } }));
+        window.dispatchEvent(new CustomEvent('whatsapp-status-changed', { detail: { isConnected: true, profile: confirmedProfile } }));
       } else if (isWaitingQrRef.current && data.qrCode) {
         setStatus('waiting_qr');
         await handleSetQrCode(data.qrCode, activeMethod);
-      } else if (!isWaitingQrRef.current && status !== 'error') {
+      } else if (!isWaitingQrRef.current) {
         setStatus('disconnected');
         setProfile(null);
         setQrCode(null);
@@ -160,10 +171,12 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       }
     } catch (e) {
       console.error('[ClientConexao] status fetch:', e);
-      if (status === 'loading') {
-        setStatus('disconnected');
+      if (mountedRef.current && requestId === requestIdRef.current && !isWaitingQrRef.current) {
+        setStatusCheckFailed(true);
+        setErrorMessage('A consulta da integração falhou. O estado do WhatsApp ainda não foi confirmado.');
+        setStatus('error');
       }
-    }
+    } finally { statusRequestInFlightRef.current = false; }
   }, [authHeaders, handleSetQrCode, status]);
 
   const generateQrCode = async (forceRefresh = false, automatic = false) => {
@@ -176,6 +189,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     setQrCode(null);
     setIsGenerating(true);
     setErrorMessage('');
+    setStatusCheckFailed(false);
     if (!forceRefresh) {
       setStatus('waiting_qr');
     }
@@ -185,6 +199,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const res = await connectionFetch(url, { headers: authHeaders() });
       const data = await res.json().catch(() => ({}));
       if (!mountedRef.current || requestId !== requestIdRef.current || methodRef.current !== 'qr') return;
+      if (challengeRequestPending(res.status, data)) { lastRequestAtRef.current = Date.now() + 2500; setStatus('waiting_qr'); return; }
+      if (data.state === 'unknown') setStatusCheckFailed(true);
       if (!res.ok) throw new Error(data.error || 'Não foi possível gerar o QR Code.');
 
       if (data.state === 'connected') {
@@ -231,6 +247,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
     setPhoneError('');
     setIsGenerating(true);
     setErrorMessage('');
+    setStatusCheckFailed(false);
     isWaitingQrRef.current = true;
 
     try {
@@ -243,6 +260,8 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const data = await res.json().catch(() => ({}));
 
       if (!mountedRef.current || requestId !== requestIdRef.current || methodRef.current !== 'number') return;
+      if (challengeRequestPending(res.status, data)) { lastRequestAtRef.current = Date.now() + 2500; setStatus('waiting_qr'); return; }
+      if (data.state === 'unknown') setStatusCheckFailed(true);
       if (!res.ok) {
         isWaitingQrRef.current = false;
         setErrorMessage(data.error || 'Não foi possível gerar o código. Verifique o número digitado.');
@@ -319,7 +338,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   // Prop / Cache synchronization
   useEffect(() => {
     if (propConnected !== undefined) {
-      if (propConnected) {
+      if (propConnected && !initialProfile?.isLoading) {
         setStatus('connected');
         if (initialProfile) setProfile(initialProfile);
       }
@@ -329,12 +348,15 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
   // Initial load
   useEffect(() => {
     let mounted = true;
+    const requestId = requestIdRef.current;
+    statusRequestInFlightRef.current = true;
     (async () => {
       try {
-        const res = await fetch('/api/evolution/status', { headers: authHeaders() });
-        if (!mounted) return;
+        const res = await connectionFetch('/api/evolution/status', { headers: authHeaders() });
+        if (!mounted || requestId !== requestIdRef.current) return;
         if (res.ok) {
           const data = await res.json();
+          if (!mounted || requestId !== requestIdRef.current) return;
           if (data.state === 'connected' || data.state === 'open') {
             isWaitingQrRef.current = false;
             setStatus('connected');
@@ -353,14 +375,21 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             return;
           }
         }
-        if (mounted && !cachedConnected) {
-          setStatus('disconnected');
+        if (mounted && requestId === requestIdRef.current && !isWaitingQrRef.current) {
+          if (res.ok) setStatus('disconnected');
+          else {
+            setStatusCheckFailed(true);
+            setErrorMessage('Não foi possível verificar a conexão na integração. A sessão não foi confirmada como desconectada.');
+            setStatus('error');
+          }
         }
       } catch {
-        if (mounted && !cachedConnected) {
-          setStatus('disconnected');
+        if (mounted && requestId === requestIdRef.current && !isWaitingQrRef.current) {
+          setStatusCheckFailed(true);
+          setErrorMessage('A consulta da integração falhou. O estado do WhatsApp ainda não foi confirmado.');
+          setStatus('error');
         }
-      }
+      } finally { statusRequestInFlightRef.current = false; }
     })();
     return () => { mounted = false; };
   }, []);
@@ -380,7 +409,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
       const remaining = challenge ? Math.max(0, Math.ceil((challenge.refreshAt - Date.now()) / 1000)) : 0;
       setSecondsLeft(remaining);
       if (remaining > 0) return;
-      if (Date.now() - attemptStartedRef.current > (challenge ? 180_000 : 35000) || renewalCountRef.current >= 4) {
+      if (Date.now() - attemptStartedRef.current > (challenge ? 180_000 : 90000) || renewalCountRef.current >= 4) {
         isWaitingQrRef.current = false;
         challengeRef.current = null;
         setQrCode(null); setPairingCode(null);
@@ -460,7 +489,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
           {(status === 'disconnected' || status === 'loading') && (
             <span className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#f1f5f3] text-[#5b6e63] border border-[#dde5e1]">
               <span className="w-2 h-2 rounded-full bg-[#8c9e94]" />
-              Desconectado
+              {status === 'loading' ? 'Verificando conexão' : 'Desconectado'}
             </span>
           )}
         </div>
@@ -927,6 +956,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
             <div className="flex items-center gap-3">
               <button
                 onClick={() => {
+                  if (statusCheckFailed) { setStatus('loading'); void fetchStatus(); return; }
                   setStatus('disconnected');
                   setErrorMessage('');
                   if (activeMethod === 'qr') {
@@ -937,7 +967,7 @@ export const ClientConexaoView: React.FC<ClientConexaoViewProps> = ({ isConnecte
                 }}
                 className="px-6 py-3 bg-[#109353] hover:bg-[#0c7a44] text-white font-bold rounded-xl shadow-xs transition-all cursor-pointer"
               >
-                Tentar Novamente
+                {statusCheckFailed ? 'Verificar conexão' : 'Tentar Novamente'}
               </button>
               <button
                 onClick={() => {

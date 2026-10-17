@@ -3,6 +3,26 @@
 export const CHALLENGE_REFRESH_MS = 40_000;
 export const CONNECTION_REQUEST_MS = 35_000;
 
+export function evolutionSessionState(data: any): 'connected' | 'disconnected' | 'connecting' | 'unknown' {
+  const value = String(data?.instance?.state || data?.state || data?.instance?.connectionStatus ||
+    data?.connectionStatus || data?.instance?.status || data?.status || '').trim().toLowerCase();
+  if (['open', 'connected'].includes(value)) return 'connected';
+  if (['close', 'closed', 'disconnected'].includes(value)) return 'disconnected';
+  if (['connecting', 'connection', 'waiting_qr'].includes(value)) return 'connecting';
+  return 'unknown';
+}
+
+export function connectionCheckIndeterminate(result: { ok: boolean; status: number; data: any }): boolean {
+  return result.ok ? evolutionSessionState(result.data) === 'unknown' : result.status !== 404;
+}
+
+export function challengeRequestPending(status: number, data: any): boolean {
+  if (status === 409) return true;
+  const challenge = data?.qrCode || data?.qrcode || data;
+  const hasChallenge = challenge?.base64 || challenge?.code || challenge?.pairingCode || challenge?.PairingCode;
+  return status >= 200 && status < 300 && data?.pending === true && !hasChallenge;
+}
+
 export function pairingCodeFrom(data: any): string | undefined {
   const q = data?.qrcode || data?.qrCode || data?.data || data;
   const candidate = q?.pairingCode || q?.PairingCode || q?.code;
