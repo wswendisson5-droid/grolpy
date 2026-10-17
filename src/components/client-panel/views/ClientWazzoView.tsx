@@ -38,6 +38,16 @@ export const ClientWazzoView: React.FC = () => {
     } catch (e: any) { setError(e.message); }
     finally { setSaving(false); }
   };
+  const requestTwenty = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch('/api/client/group-automation/batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 20 }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Não foi possível solicitar novos grupos.');
+      setAutomation(data); setError('');
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
   const time = (at: number) => new Date(at).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   return <main className="flex-1 overflow-y-auto bg-[#f7faf8] px-4 py-6 pb-24 sm:px-7 sm:py-8"><div className="mx-auto max-w-5xl">
     <section className="overflow-hidden rounded-[28px] bg-[#123f31] p-6 text-white shadow-[0_18px_55px_rgba(18,63,49,.18)] sm:p-9">
@@ -58,11 +68,13 @@ export const ClientWazzoView: React.FC = () => {
       <div className="mt-5 flex flex-wrap gap-2">{(automation.times || ['07:00', '15:00', '21:00']).map((slot: string) => <span key={slot} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800"><Clock size={14}/>{slot}</span>)}<span className="self-center text-xs text-[#74857c]">Todos os dias · Horário de Brasília</span></div>
       <p className="mt-4 text-sm leading-6 text-[#74857c]">Grupos com pelo menos 100 participantes, conversa aberta e divulgação permitida. Quando um grupo fica indisponível, a automação procura outro na WAZZO e atualiza os destinos da campanha Oferta Grolpy (Cópia).</p>
       {automation.lastError && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{automation.lastError}</p>}
+      {automation.requestedBatch && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Solicitação de mais {automation.requestedBatch.requested} grupos independentes: {automation.requestedBatch.confirmedJids.length}/{automation.requestedBatch.requested} entradas confirmadas. Comunidades e grupos vinculados a comunidades são excluídos.</p>}
       {automation.diagnostics && <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><p className="font-semibold">{automation.diagnostics.attempts} convites verificados</p>{Object.entries(automation.diagnostics.reasons || {}).map(([reason, count]) => <p key={reason} className="mt-1 text-xs">{String(count)} · {reason}</p>)}</div>}
       {automation.lastOperation && <p className="mt-3 text-xs text-[#74857c]">Última etapa: {automation.lastOperation}</p>}
       {automation.syncAt > 0 && <p className="mt-2 text-xs text-[#74857c]">Participações consultadas com sucesso: {time(automation.syncAt)}</p>}
       {automation.updatedAt && <p className="mt-3 text-xs text-[#74857c]">Última tentativa: {time(automation.updatedAt)}{automation.nextRunAt > Date.now() ? ` · Próxima tentativa: ${time(automation.nextRunAt)}` : ''}</p>}
       {automation.version && <button disabled={saving} onClick={toggle} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#123f31] px-4 py-3 text-sm font-bold text-white disabled:opacity-50">{automation.enabled ? <Pause size={16}/> : <Play size={16}/>}{saving ? 'Salvando…' : automation.enabled ? 'Pausar automação e envios' : 'Retomar automação'}</button>}
+      {automation.version && <button disabled={saving || !automation.enabled || (automation.requestedBatch && automation.requestedBatch.confirmedJids.length < automation.requestedBatch.requested)} onClick={requestTwenty} className="ml-2 mt-5 rounded-xl border border-emerald-200 px-4 py-3 text-sm font-bold text-emerald-900 disabled:opacity-50">Solicitar mais 20 grupos</button>}
       {!!automation.events?.length && <div className="mt-6 border-t border-emerald-50 pt-4"><h3 className="text-sm font-bold text-[#203b30]">Atividade recente</h3><ul className="mt-3 space-y-3">{automation.events.slice(0, 5).map((event: any, i: number) => <li key={`${event.at}-${i}`} className="text-xs leading-5 text-[#74857c]"><span className="font-semibold">{time(event.at)}</span> · {event.text}</li>)}</ul></div>}
     </section>}
     <div className="mt-5 grid gap-3 sm:grid-cols-3">{[[Users, 'Explore grupos', 'Descubra grupos por interesse e categoria.'], [ShieldCheck, 'Selo de verificação', 'Sua conta WAZZO recebe o benefício de verificação Groply.'], [Sparkles, 'Benefícios incluídos', 'Com sua assinatura Groply ativa, o benefício WAZZO também fica disponível.']].map(([Icon, title, desc]: any) => <article key={title} className="rounded-3xl bg-white p-5"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><Icon size={20}/></span><h2 className="mt-4 font-black text-[#203b30]">{title}</h2><p className="mt-1.5 text-sm leading-5 text-[#74857c]">{desc}</p></article>)}</div>

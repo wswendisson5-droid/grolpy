@@ -1,4 +1,4 @@
-import { isConfirmedGroupMember, isOpenJoinedGroup } from './campaignRules';
+import { isCommunityRelated, isConfirmedGroupMember, isOpenJoinedGroup } from './campaignRules';
 
 // This rollout is explicitly restricted to the account and phone requested by its owner.
 export const GROUP_AUTOMATION_CAMPAIGN = 'div-1791448389589';
@@ -28,7 +28,7 @@ export function permitsAdvertising(group: any): boolean {
 
 export function groupEligibility(group: any, joined = false, owner = ''): string | null {
   if (!String(group?.id || group?.jid || '').endsWith('@g.us')) return 'Identificador inválido';
-  if (['isCommunity', 'isCommunityAnnounce', 'isCommunityAnnouncement', 'left', 'isLeft'].some(k => truth(group[k]))) return 'Comunidade ou participação encerrada';
+  if (isCommunityRelated(group) || ['left', 'isLeft'].some(k => truth(group[k]))) return 'Comunidade, grupo vinculado a comunidade ou participação encerrada';
   if (!explicitFalse(group.announce) || truth(group.restrictSend) || group.canSend === false) return 'Conversa fechada ou não confirmada';
   const size = Number(group.size ?? group.membersCount ?? group.memberCount ?? group.participants?.length);
   if (!Number.isFinite(size) || size < 100) return 'Menos de 100 participantes ou quantidade desconhecida';
@@ -53,6 +53,8 @@ export interface GroupAutomationState {
   failures: number; status: string; lastError?: string; updatedAt: number;
   lastOperation?: string;
   membershipSnapshot?: any[];
+  membershipSnapshotVersion?: 2;
+  requestedBatch?: { requested: number; requestedAt: number; confirmedJids: string[] };
   events: { at: number; text: string }[];
 }
 type EvolutionResult = { ok: boolean; status: number; data: any };
@@ -102,6 +104,26 @@ export class GroupAutomationEngine {
         else this.skipElapsedSlots(camp, state);
         await db.saveCampaignForUser(user.id, camp);
       }
+    } finally { await release(); }
+  }
+  async requestBatch(user: any, db: any, count: number) {
+    if (!Number.isInteger(count) || count < 1 || count > 20) throw new Error('Solicite entre 1 e 20 grupos por vez.');
+    if ((await db.findGroupAutomationUser(GROUP_AUTOMATION_CAMPAIGN))?.id !== user.id) throw new Error('Automação indisponível para esta conta.');
+    const release = await db.acquireGroupAutomationLock(user.id);
+    if (!release) throw new Error('Uma verificação está em andamento. Tente novamente em instantes.');
+    try {
+      const state = await this.state(db, user.id);
+      if (!state?.enabled) throw new Error('Ative a automação antes de solicitar novos grupos.');
+      const record = await db.getUserInstance(user.id);
+      if (record?.instance_name !== state.instance || digits(record.owner_phone) !== state.ownerPhone) throw new Error('O número da instância não corresponde ao número autorizado.');
+      if (state.requestedBatch && state.requestedBatch.confirmedJids.length < state.requestedBatch.requested) {
+        if (state.requestedBatch.requested === count) return; // Retried POST is idempotent.
+        throw new Error('Já existe uma solicitação de grupos em andamento.');
+      }
+      state.requestedBatch = { requested: count, requestedAt: this.now(), confirmedJids: [] };
+      this.note(state, `Solicitada busca de mais ${count} grupos independentes, sem comunidades. Entradas ainda não confirmadas.`);
+      // Never clear the cooldown, binding or the last known connection state.
+      await db.setAdminState(this.key(user.id), state);
     } finally { await release(); }
   }
   private async request(endpoint: string, options?: { method?: string }) {
@@ -158,7 +180,7 @@ export class GroupAutomationEngine {
       // 30 minutes; individual entries and every delivery still require live metadata.
       // Failed snapshots never replace it or establish a removal.
       state.lastOperation = 'consultando participações';
-      const freshInventory = !state.membershipSnapshot || this.now() - state.syncAt >= 30 * 60_000;
+      const freshInventory = !state.membershipSnapshot || state.membershipSnapshotVersion !== 2 || this.now() - state.syncAt >= 30 * 60_000;
       const live = freshInventory ? await this.deps.joined(state.instance, user.id, db) : state.membershipSnapshot!;
       const observed = new Set<string>(live.map(g => String(g.jid || g.id)));
       for (const jid of state.observedJids) if (!observed.has(jid) && !state.excludedJids.includes(jid)) {
@@ -168,7 +190,7 @@ export class GroupAutomationEngine {
       state.groups = live.filter(g => !state!.excludedJids.includes(g.jid || g.id) && !groupEligibility(g, true, state!.ownerPhone))
         .slice(0, state.target).map(g => ({ jid: g.jid || g.id, name: g.name || g.subject,
           membersCount: Number(g.membersCount ?? g.size), checkedAt: freshInventory ? this.now() : state!.syncAt }));
-      if (freshInventory) { state.syncAt = this.now(); state.membershipSnapshot = live; }
+      if (freshInventory) { state.syncAt = this.now(); state.membershipSnapshot = live; state.membershipSnapshotVersion = 2; }
       for (const a of Object.values(state.attempts)) {
         const existing = live.find(g => String(g.jid || g.id) === a.jid);
         if (existing) a.status = groupEligibility(existing, true, state.ownerPhone) ? 'Participação existente, mas grupo não elegível' : 'participando';
@@ -235,8 +257,16 @@ export class GroupAutomationEngine {
         if (!state.membershipSnapshot!.some(g => (g.jid || g.id) === jid)) state.membershipSnapshot!.push({
           id: jid, jid, name: metadata.subject || metadata.name, description: metadata.desc || metadata.description,
           announce: metadata.announce, membersCount: Number(metadata.size ?? metadata.participants?.length),
+          isCommunity: metadata.isCommunity, community: metadata.community, isCommunityAnnounce: metadata.isCommunityAnnounce,
+          isCommunityAnnouncement: metadata.isCommunityAnnouncement, linkedParent: metadata.linkedParent,
+          communityJid: metadata.communityJid, parentCommunityJid: metadata.parentCommunityJid,
           membershipConfirmed: true,
         });
+        const batch = state.requestedBatch;
+        if (batch && batch.confirmedJids.length < batch.requested && !batch.confirmedJids.includes(jid)) {
+          batch.confirmedJids.push(jid);
+          this.note(state, `Solicitação de novos grupos: ${batch.confirmedJids.length}/${batch.requested} entradas confirmadas.`);
+        }
         this.note(state, `Entrada confirmada: ${metadata.subject || jid} (${state.groups.length}/100).`);
         await this.updateCampaign(db, user.id, state, campaign);
       } else {

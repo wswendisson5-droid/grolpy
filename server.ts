@@ -3003,7 +3003,9 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
         size: Number(g.size ?? g.participants?.length ?? 0),
         membersCount: Number(g.size ?? g.participants?.length ?? 0),
         canSend: g.canSend, restrictSend: g.restrictSend,
-        isCommunity: g.isCommunity, isCommunityAnnounce: g.isCommunityAnnounce,
+        isCommunity: g.isCommunity, community: g.community, isCommunityAnnounce: g.isCommunityAnnounce,
+        isCommunityAnnouncement: g.isCommunityAnnouncement, linkedParent: g.linkedParent,
+        communityJid: g.communityJid, parentCommunityJid: g.parentCommunityJid,
         membershipConfirmed: true,
       });
 
@@ -4106,6 +4108,17 @@ app.post('/api/client/group-automation', async (req, res) => {
     await groupAutomation.setEnabled(user, db, req.body.enabled);
     return res.json({ success: true, ...(await groupAutomation.status(user, db)) });
   } catch (e: any) { return res.status(409).json({ error: e.message || 'Não foi possível atualizar a automação.' }); }
+});
+app.post('/api/client/group-automation/batch', async (req, res) => {
+  try {
+    const user: any = await authenticatedUser(req);
+    if (!user) return res.status(401).json({ error: 'Sessão inválida.' });
+    const db: any = await groupAutomationDatabase();
+    await groupAutomation.requestBatch(user, db, req.body?.count);
+    const status = await groupAutomation.status(user, db);
+    res.json({ success: true, ...status });
+    void groupAutomation.tick().catch(() => console.warn('[GroupAutomation] Solicitação aguarda próxima verificação.'));
+  } catch (e: any) { return res.status(409).json({ error: e.message || 'Não foi possível solicitar novos grupos.' }); }
 });
 
 async function executeGroupDispatch(...args: Parameters<typeof executeGroupDispatchInternal>) {

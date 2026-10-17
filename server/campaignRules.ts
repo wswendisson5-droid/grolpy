@@ -2,6 +2,13 @@
 export const UNLIMITED = Number.MAX_SAFE_INTEGER;
 const truth = (v: any) => v === true || v === 1 || v === 'true' || v === '1';
 const identity = (v: any) => String(v || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+export function isCommunityRelated(group: any): boolean {
+  if (!group) return false;
+  if (['isCommunity', 'community', 'isCommunityAnnounce', 'isCommunityAnnouncement'].some(k => truth(group[k]))) return true;
+  // Ordinary child groups have linkedParent even when isCommunity is false.
+  return [group.linkedParent, group.communityJid, group.parentCommunityJid, group.community]
+    .some(v => typeof v === 'string' && v.trim().endsWith('@g.us'));
+}
 export function isConfirmedGroupMember(group: any, owner: string): boolean {
   if (!String(group?.id || group?.jid || group?.remoteJid || '').endsWith('@g.us')) return false;
   if (truth(group.left) || truth(group.isLeft) || group.leftAt || group.leaveTimestamp || group.membership === 'left' || group.participation === 'left') return false;

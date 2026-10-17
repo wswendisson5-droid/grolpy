@@ -231,3 +231,43 @@ test('pause and resume cannot clear a rate-limit cooldown', async () => {
   const count = h.calls.length;
   await h.engine.tick(); assert.equal(h.calls.length, count);
 });
+
+test('community aliases and child groups are rejected before invitation acceptance', async () => {
+  for (const extra of [{ community: true }, { community: '1' }, { community: '999@g.us' }, { isCommunityAnnouncement: true }, { linkedParent: '999@g.us', isCommunity: false }, { communityJid: '999@g.us' }, { parentCommunityJid: '999@g.us' }]) {
+    assert.ok(groupEligibility(group(2, extra)));
+    const h = harness(); h.catalog = [h.candidate(2, extra)]; await h.engine.tick();
+    assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+    assert.equal(h.campaign.selectedGroupJids.includes('2@g.us'), false);
+  }
+});
+
+test('twenty-group request is scoped, durable, idempotent and preserves cooldown', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  state.nextRunAt = h.deps.now() + 60 * 60_000; h.seed(state);
+  await assert.rejects(h.engine.requestBatch({id:8}, h.db, 20));
+  for (const n of [0, 21, '20']) await assert.rejects(h.engine.requestBatch(h.user, h.db, n));
+  await h.engine.requestBatch(h.user, h.db, 20);
+  assert.equal(h.state().nextRunAt, state.nextRunAt);
+  assert.equal(h.state().requestedBatch.requested, 20);
+  assert.deepEqual(h.state().requestedBatch.confirmedJids, []);
+  const events = h.state().events.length;
+  await h.engine.requestBatch(h.user, h.db, 20); assert.equal(h.state().events.length, events);
+  await assert.rejects(h.engine.requestBatch(h.user, h.db, 10));
+});
+
+test('batch progress counts new live-verified independent groups only', async () => {
+  const h = harness(); await h.engine.tick();
+  await h.engine.requestBatch(h.user, h.db, 20);
+  h.advance(); h.catalog = [h.candidate(2)]; await h.engine.tick();
+  assert.deepEqual(h.state().requestedBatch.confirmedJids, ['2@g.us']);
+  h.advance(); h.catalog = [h.candidate(3)]; h.postJoinClosed = true; await h.engine.tick();
+  assert.deepEqual(h.state().requestedBatch.confirmedJids, ['2@g.us']);
+});
+
+test('old snapshots are refreshed to recover community linkage fields', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  delete state.membershipSnapshotVersion; state.nextRunAt = 0; h.seed(state);
+  h.live = [group(1, { linkedParent: '999@g.us' })];
+  await h.engine.tick(); assert.equal(h.state().groups.length, 0);
+  assert.equal(h.state().membershipSnapshotVersion, 2);
+});
