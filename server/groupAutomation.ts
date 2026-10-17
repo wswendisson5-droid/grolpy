@@ -173,9 +173,18 @@ export class GroupAutomationEngine {
       if (!campaign.managedGroupAutomation) await this.updateCampaign(db, user.id, state, campaign);
       state.lastOperation = 'verificando conexão';
       const connected = await this.request(`/instance/connectionState/${encodeURIComponent(state.instance)}`);
-      if (!connected.ok || (connected.data?.instance?.state || connected.data?.state) !== 'open') {
+      if (!connected.ok) throw Object.assign(new Error('Consulta da integração indisponível.'), {
+        safeMessage: `Não foi possível consultar a conexão na integração (HTTP ${Number(connected.status)}). Isso não confirma que o WhatsApp foi desconectado.`,
+      });
+      const connection = normalize(connected.data?.instance?.state || connected.data?.state ||
+        connected.data?.instance?.connectionStatus || connected.data?.connectionStatus ||
+        connected.data?.instance?.status || connected.data?.status).trim();
+      if (['close', 'closed', 'disconnected', 'connecting', 'connection', 'waiting_qr'].includes(connection)) {
         state.status = 'desconectada'; state.lastError = 'Aguardando reconexão do WhatsApp.'; return;
       }
+      if (!['open', 'connected'].includes(connection)) throw Object.assign(new Error('Estado da conexão não confirmado.'), {
+        safeMessage: 'A integração não retornou um estado de conexão reconhecido. Nenhuma nova entrada foi realizada.',
+      });
       // A complete inventory is expensive. Reuse its last successful snapshot for
       // 30 minutes; individual entries and every delivery still require live metadata.
       // Failed snapshots never replace it or establish a removal.
@@ -293,7 +302,7 @@ export class GroupAutomationEngine {
         // Never persist upstream response bodies, invite codes, keys, or credentials in logs/UI.
         const limited = e?.rateLimited || /limitou|rate.overlimit|rate limit/.test(normalize(e?.message));
         if (limited) state.nextRunAt = Math.max(state.nextRunAt, Number(e?.retryAt) || this.now() + 30 * 60_000);
-        state.lastError = limited ? `WhatsApp limitou a operação: ${state.lastOperation || 'verificar grupos'}. Aguardando o intervalo de consulta.` : `Falha ao ${state.lastOperation || 'verificar grupos'}. Os envios exigem nova confirmação ao vivo.`;
+        state.lastError = limited ? `WhatsApp limitou a operação: ${state.lastOperation || 'verificar grupos'}. Aguardando o intervalo de consulta.` : e?.safeMessage || `Falha ao ${state.lastOperation || 'verificar grupos'}. Os envios exigem nova confirmação ao vivo.`;
       }
     } finally {
       try { if (db && user && state && release) await db.setAdminState(this.key(user.id), state); }

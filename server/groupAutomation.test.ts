@@ -271,3 +271,27 @@ test('old snapshots are refreshed to recover community linkage fields', async ()
   await h.engine.tick(); assert.equal(h.state().groups.length, 0);
   assert.equal(h.state().membershipSnapshotVersion, 2);
 });
+
+test('integration failures do not falsely declare the WhatsApp session disconnected', async () => {
+  for (const status of [401, 404, 408, 500, 502]) {
+    const h = harness(); h.catalog = [h.candidate(2)];
+    h.deps.evolution = async () => ({ ok: false, status, data: { error: 'Private upstream body must not be displayed' } });
+    await h.engine.tick();
+    assert.equal(h.state().status, 'aguardando_nova_tentativa');
+    assert.match(h.state().lastError, new RegExp(`HTTP ${status}`));
+    assert.ok(!h.state().lastError.includes('Private upstream'));
+    assert.equal(h.state().groups.length, 0);
+  }
+});
+
+test('connected aliases are accepted and unknown successful responses stop joins', async () => {
+  for (const data of [{ instance: { connectionStatus: 'open' } }, { state: 'connected' }, { connectionStatus: 'OPEN' }, { instance: { status: 'connected' } }]) {
+    const h = harness(); const original = h.deps.evolution;
+    h.deps.evolution = async (endpoint: string, options?: any) => endpoint.startsWith('/instance/') ? {ok:true,status:200,data} : original(endpoint, options);
+    h.catalog = [h.candidate(2)]; await h.engine.tick(); assert.equal(h.state().groups.length, 2);
+  }
+  const h = harness(); h.catalog = [h.candidate(2)];
+  h.deps.evolution = async () => ({ok:true,status:200,data:{}});
+  await h.engine.tick(); assert.equal(h.state().status, 'aguardando_nova_tentativa');
+  assert.match(h.state().lastError, /estado de conexão reconhecido/);
+});
