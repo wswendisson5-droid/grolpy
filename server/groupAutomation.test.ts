@@ -124,9 +124,9 @@ test('closed, undersized, prohibited, invalid and approval-required invitations 
     assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
   }
 });
-test('100 eligible memberships stop joins, and target list never exceeds 100', async () => {
+test('70 eligible memberships stop joins, and target list never exceeds 70', async () => {
   const h = harness(); h.live = Array.from({ length: 105 }, (_, i) => group(i + 1)); h.catalog = [h.candidate(200)]; await h.engine.tick();
-  assert.equal(h.state().groups.length, 100); assert.equal(h.campaign.selectedGroupJids.length, 100); assert.equal(h.state().status, 'meta_atingida');
+  assert.equal(h.state().groups.length, 70); assert.equal(h.campaign.selectedGroupJids.length, 70); assert.equal(h.state().status, 'meta_atingida');
   assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
 });
 test('worker lock, different phone, inactive plan and running campaign prevent mutations', async () => {
@@ -294,4 +294,122 @@ test('connected aliases are accepted and unknown successful responses stop joins
   h.deps.evolution = async () => ({ok:true,status:200,data:{}});
   await h.engine.tick(); assert.equal(h.state().status, 'aguardando_nova_tentativa');
   assert.match(h.state().lastError, /estado de conexão reconhecido/);
+});
+
+test('channels, message restrictions and chip-warming audiences are never eligible', () => {
+  for (const extra of [
+    { id: '123@newsletter' }, { id: '123@broadcast' },
+    { sendMessages: false }, { sendMessages: 'false' }, { canSend: '0' },
+    { subject: '🔥 AQUECER CHIPS 2🔥' }, { subject: 'Aquecimento de chips' },
+    { subject: 'Troca de mensagens para engajamento' },
+  ]) assert.ok(groupEligibility(group(1, extra), true, GROUP_AUTOMATION_PHONE));
+  assert.equal(permitsAdvertising({ name: 'Negócios locais', desc: 'Anuncie seus produtos.' }), true);
+});
+
+test('a closed destination immediately frees the seventieth slot and another group replaces it', async () => {
+  const h = harness(); h.live = Array.from({ length: 70 }, (_, i) => group(i + 1));
+  await h.engine.tick();
+  assert.equal(h.state().groups.length, 70);
+  h.live[69].announce = true;
+  assert.equal(await h.engine.canSend(7, 'tenant-7', '70@g.us', h.db), false);
+  assert.equal(h.state().groups.length, 69);
+  assert.ok(h.state().excludedJids.includes('70@g.us'));
+  assert.equal(h.campaign.selectedGroupJids.includes('70@g.us'), false);
+  // Preserve the cached inventory age to prove it cannot reintroduce the closed group.
+  const state = h.state(); state.nextRunAt = 0; h.seed(state);
+  h.catalog = [h.candidate(71)]; await h.engine.tick();
+  assert.equal(h.state().groups.length, 70);
+  assert.ok(h.state().groups.some((g: any) => g.jid === '71@g.us'));
+  assert.equal(h.campaign.selectedGroupJids.includes('70@g.us'), false);
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+});
+
+test('live delivery rejects communities, underfilled and incompatible groups and preserves the cooldown', async () => {
+  for (const extra of [{ linkedParent: '999@g.us' }, { size: 99 }, { sendMessages: false }, { subject: 'Aquecer chips' }]) {
+    const h = harness(); await h.engine.tick(); const state = h.state();
+    state.nextRunAt = h.deps.now() + 45 * 60_000; h.seed(state);
+    Object.assign(h.live[0], extra);
+    assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+    assert.equal(h.state().groups.length, 0);
+    assert.equal(h.state().nextRunAt, state.nextRunAt);
+    assert.equal(h.campaign.selectedGroupJids.length, 0);
+  }
+});
+
+test('unavailable or incomplete live metadata never fabricates removals or frees slots', async () => {
+  for (const result of [
+    { ok: false, status: 503, data: {} },
+    { ok: true, status: 200, data: {} },
+    { ok: true, status: 200, data: { id: '1@g.us' } },
+    { ok: true, status: 200, data: { ...group(2), announce: true } },
+  ]) {
+    const h = harness(); await h.engine.tick(); const before = h.state();
+    h.deps.evolution = async () => clone(result);
+    assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+    assert.deepEqual(h.state(), before);
+  }
+});
+
+test('delivery cannot overwrite a concurrently locked maintenance state', async () => {
+  const h = harness(); await h.engine.tick(); const before = h.state();
+  h.live[0].announce = true; h.locked = true;
+  assert.equal(await h.engine.canSend(7, 'tenant-7', '1@g.us', h.db), false);
+  assert.deepEqual(h.state(), before);
+});
+
+
+test('the first scheduled send stays gated until 70 groups are collected and readiness survives a restart', async () => {
+  const h = harness(); h.live = Array.from({ length: 69 }, (_, i) => group(i + 1));
+  await h.engine.tick();
+  assert.equal(h.state().target, 70);
+  assert.equal(h.campaign.groupAutomationReady, false);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), false);
+  await assert.rejects(h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db), /meta inicial/);
+  h.advance(); h.catalog = [h.candidate(70)]; await h.engine.tick();
+  assert.equal(h.state().groups.length, 70);
+  assert.equal(h.campaign.groupAutomationReady, true);
+  assert.ok(h.state().initialTargetReachedAt);
+  h.engine = new GroupAutomationEngine(h.deps);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), true);
+  // Collecting the initial audience must never replay an already elapsed time slot.
+  assert.ok(h.campaign.completedSlots.some((s: string) => s.endsWith('_07:00')));
+  assert.ok(h.campaign.completedSlots.some((s: string) => s.endsWith('_15:00')));
+});
+
+test('each dispatch reconciles missing, closed and community groups before any destination is selected', async () => {
+  const h = harness(); h.live = Array.from({ length: 70 }, (_, i) => group(i + 1));
+  await h.engine.tick(); const reached = h.state().initialTargetReachedAt;
+  h.live = h.live.filter((g: any) => g.id !== '1@g.us');
+  h.live[0].announce = true;
+  h.live[1].linkedParent = '999@g.us';
+  const destinations = await h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db);
+  assert.equal(destinations.length, 67);
+  for (const jid of ['1@g.us', '2@g.us', '3@g.us']) {
+    assert.equal(destinations.includes(jid), false);
+    assert.ok(h.state().excludedJids.includes(jid));
+  }
+  assert.equal(h.state().initialTargetReachedAt, reached);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), true);
+  h.catalog = [h.candidate(71)]; h.advance(); await h.engine.tick();
+  assert.equal(h.state().groups.length, 68);
+  assert.equal(h.campaign.groupAutomationReady, true);
+});
+
+test('a legacy 100-group target migrates to 70 without resetting a persisted cooldown', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  state.target = 100; state.nextRunAt = h.deps.now() + 45 * 60_000; h.seed(state);
+  await h.engine.tick(); assert.equal(h.state().nextRunAt, state.nextRunAt);
+  assert.equal((await h.engine.status(h.user, h.db)).target, 70);
+  h.advance(); await h.engine.tick(); assert.equal(h.state().target, 70);
+});
+
+test('dispatch reconciliation cannot alter another account binding or a locked maintenance state', async () => {
+  const h = harness(); h.live = Array.from({ length: 70 }, (_, i) => group(i + 1));
+  await h.engine.tick(); const state = h.state();
+  h.locked = true;
+  await assert.rejects(h.engine.reconcileForDispatch(7, 'tenant-7', [], h.db));
+  assert.deepEqual(h.state(), state);
+  h.locked = false; h.record.owner_phone = '5511000000000';
+  await assert.rejects(h.engine.reconcileForDispatch(7, 'tenant-7', [], h.db));
+  assert.deepEqual(h.state(), state);
 });

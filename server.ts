@@ -3001,7 +3001,7 @@ async function syncAllWhatsAppGroupsInternal(force: boolean = false, targetInsta
         description: g.desc || g.description || '', announce: g.announce,
         size: Number(g.size ?? g.participants?.length ?? 0),
         membersCount: Number(g.size ?? g.participants?.length ?? 0),
-        canSend: g.canSend, restrictSend: g.restrictSend,
+        canSend: g.canSend, sendMessages: g.sendMessages, restrictSend: g.restrictSend,
         isCommunity: g.isCommunity, community: g.community, isCommunityAnnounce: g.isCommunityAnnounce,
         isCommunityAnnouncement: g.isCommunityAnnouncement, linkedParent: g.linkedParent,
         communityJid: g.communityJid, parentCommunityJid: g.parentCommunityJid,
@@ -4152,6 +4152,13 @@ async function executeGroupDispatchInternal(
   const liveGroups = await syncAllWhatsAppGroups(true, instance, userId && db ? {id:userId, db} : undefined);
   const liveJids = new Set(liveGroups.map((g: any) => g.jid || g.id));
   const sourceCampaign = userId && campaignId && db ? (await db.listCampaignsForUser(userId)).find((c: any) => c.id === campaignId) : null;
+  if (sourceCampaign?.managedGroupAutomation && userId && db) {
+    const memberships = confirmedMembershipsByInstance.get(instance);
+    if (!memberships) throw new Error('Participações não confirmadas; nenhum envio realizado.');
+    const automationDb = { ...db, ...groupAutomationQueries };
+    const eligible = await groupAutomation.reconcileForDispatch(userId, instance, memberships, automationDb);
+    targets = eligible;
+  }
   targets = [...new Set(targets)].filter(jid => liveJids.has(jid));
   if (!targets.length) throw new Error('Nenhum grupo aberto com participação confirmada. Atualize os grupos.');
   const dispatchResults: Array<{ jid: string; success: boolean; error?: string }> = [];
@@ -4196,7 +4203,7 @@ async function executeGroupDispatchInternal(
     if (sourceCampaign?.managedGroupAutomation && userId && db) {
       // Revalidate at delivery time too: a group may close or remove us between scheduled sends.
       let eligible = false;
-      try { eligible = await groupAutomation.canSend(userId, instance, jid, db); }
+      try { eligible = await groupAutomation.canSend(userId, instance, jid, { ...db, ...groupAutomationQueries }); }
       catch (error: any) { if (error?.rateLimited) throw error; /* Fail closed on unknown metadata. */ }
       if (!eligible) {
         dispatchResults.push({ jid, success: false, error: 'Grupo não elegível ou participação não confirmada no momento do envio.' });
@@ -4671,7 +4678,7 @@ setInterval(async () => {
       if (!camp.active && camp.status !== 'enviando') continue;
       if (camp.status === 'concluida' || camp.status === 'falha') continue;
       if (activeCampaignsRunning.has(campId)) continue;
-      if (camp.managedGroupAutomation && !(camp.selectedGroupJids || []).length) continue;
+      if (camp.managedGroupAutomation && (!camp.groupAutomationReady || !(camp.selectedGroupJids || []).length)) continue;
 
       let shouldTrigger = false;
       const slotKey = `${brDateStr}_${brTimeStr}`;

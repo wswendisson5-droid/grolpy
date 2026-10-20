@@ -152,80 +152,38 @@ export const ConnectionView: React.FC<ConnectionViewProps> = ({
     }
   }, [info.instanceName, isDisconnecting, handleRefreshQr]);
 
-  // Initialize exactly once. Client mode must never call the ADM instances endpoint.
-  // The previous duplicate initialization created races: status/QR requests could
-  // overlap and the first QR attempt could be replaced by a second state update.
+  // Reloading the page only observes the existing session. Pairing and session
+  // changes must be initiated explicitly by the user, never by a failed read.
   useEffect(() => {
     let mounted = true;
-
     const init = async () => {
       try {
-        if (!isClientView) {
-          const res = await connectionService.getInstances();
-          if (!mounted) return;
-
-          const instances = res.instances || [];
-          setAvailableInstances(instances);
-
-          // Backend returns only the authenticated account's owned instance.
-          // Never prefer an arbitrary open Evolution session from another tenant.
-          const preferred =
-            instances.find((i: any) => i.name === res.currentInstance) ||
-            instances[0];
-
-          if (preferred) {
-            setInfo(prev => ({
-              ...prev,
-              instanceName: preferred.name,
-              status: preferred.connectionStatus === 'open' ? 'connected' : 'loading',
-              qrCode: undefined,
-            }));
-
-            if (preferred.connectionStatus === 'open') {
-              onStatusChange?.('connected');
-              return;
-            }
-
-            await connectionService.selectInstance(preferred.name);
-            if (!mounted) return;
-            const data = await connectionService.getStatus(preferred.name);
-
-            if (!mounted) return;
-            setInfo(prev => ({
-              ...prev,
-              ...data,
-              instanceName: data.instanceName || preferred.name,
-              qrCode: data.qrCode,
-            }));
-
-            if (data.status !== 'connected' && !data.qrCode) {
-              await handleRefreshQr(preferred.name);
-            }
-            return;
-          }
-        }
-
-        const data = await connectionService.getStatus();
+        const data = await connectionService.getStatus(defaultInstanceName || undefined);
         if (!mounted) return;
-
         setInfo(prev => ({
           ...prev,
           ...data,
           instanceName: data.instanceName || prev.instanceName,
-          qrCode: data.qrCode,
+          qrCode: data.status === 'connected' ? undefined : data.qrCode,
         }));
-
-        if (data.status !== 'connected' && !data.qrCode) {
-          await handleRefreshQr(data.instanceName);
-        }
+        onStatusChange?.(data.status);
       } catch (e) {
-        console.error('Error initializing WhatsApp connection:', e);
-        if (mounted) {
-          setInfo(prev => ({ ...prev, status: 'disconnected' }));
+        if (!mounted) return;
+        setInfo(prev => ({
+          ...prev,
+          status: 'error',
+          error: 'Não foi possível consultar a conexão. A sessão do WhatsApp não foi alterada. Tente consultar novamente.',
+        }));
+      }
+      if (!isClientView && mounted) {
+        try {
+          const result = await connectionService.getInstances();
+          if (mounted) setAvailableInstances(result.instances || []);
+        } catch (e) {
+          console.error('[WhatsApp] instances:', e);
         }
       }
     };
-
     init();
     return () => { mounted = false; };
   }, []);

@@ -2,6 +2,7 @@ import { isCommunityRelated, isConfirmedGroupMember, isOpenJoinedGroup } from '.
 
 // This rollout is explicitly restricted to the account and phone requested by its owner.
 export const GROUP_AUTOMATION_CAMPAIGN = 'div-1791448389589';
+export const GROUP_AUTOMATION_TARGET = 70;
 export const GROUP_AUTOMATION_TIMES = ['07:00', '15:00', '21:00'];
 const normalize = (s: unknown) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const digits = (s: unknown) => String(s || '').split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -18,18 +19,19 @@ export function inviteCode(link: unknown): string | undefined {
 
 export function permitsAdvertising(group: any): boolean {
   const text = normalize(`${group.subject || group.name || ''}\n${group.desc || group.description || ''}`);
+  if (/aqueci(?:mento|[a-z]*)[^\n]{0,30}chips?|aquecer[^\n]{0,30}chips?|troca[^\n]{0,20}(?:mensagens|engajamento)/.test(text)) return false;
   if (/(?:proibid[oa]s?|nao (?:(?:e|sao) )?permitid[oa]s?|nao pode|sem)[\s:*-]+(?:(?:a|o|as|os|qualquer|tipo|de)\s+){0,4}(?:vendas?|anuncios?|divulgac\w*|propagandas?|links?)/.test(text) ||
       /nao\s+(?:divulgu\w*|anunci\w*|publique\w*)/.test(text) ||
       /(?:vendas?|anuncios?|divulgac\w*|propagandas?)\s+(?:sao?\s+)?proibid/.test(text) ||
       /(?:somente|apenas|exclusiv[oa])\s+(?:para\s+)?(?:vagas|empregos|doac)/.test(text) ||
       /(?:uma|1)\s+(?:vez|postagem|publicacao|divulgacao|propaganda|mensagem)\s+(?:por|ao|a cada)|a cada\s+24\s*(?:h|horas)/.test(text)) return false;
-  return /divulgac|anuncie|classificados|comercio|comercial|compra\s*(?:e|&)\s*venda|vendas|olx|feira|empreendedores/.test(text);
+  return /divulg(?:ac|ue|ar)|anuncie|classificados|comercio|comercial|compra\s*(?:e|&)\s*venda|vendas|negocios|olx|feira|empreendedores/.test(text);
 }
 
 export function groupEligibility(group: any, joined = false, owner = ''): string | null {
   if (!String(group?.id || group?.jid || '').endsWith('@g.us')) return 'Identificador inválido';
   if (isCommunityRelated(group) || ['left', 'isLeft'].some(k => truth(group[k]))) return 'Comunidade, grupo vinculado a comunidade ou participação encerrada';
-  if (!explicitFalse(group.announce) || truth(group.restrictSend) || group.canSend === false) return 'Conversa fechada ou não confirmada';
+  if (!explicitFalse(group.announce) || truth(group.restrictSend) || explicitFalse(group.canSend) || explicitFalse(group.sendMessages)) return 'Conversa fechada ou não confirmada';
   const size = Number(group.size ?? group.membersCount ?? group.memberCount ?? group.participants?.length);
   if (!Number.isFinite(size) || size < 100) return 'Menos de 100 participantes ou quantidade desconhecida';
   if (!permitsAdvertising(group)) return 'Divulgação não permitida ou finalidade incompatível';
@@ -46,7 +48,7 @@ export function groupList(data: any): any[] {
 type Entry = { jid: string; name: string; membersCount: number; checkedAt: number };
 export interface GroupAutomationState {
   version: 1; enabled: boolean; instance: string; ownerPhone: string; campaignId: string;
-  target: 100; minMembers: 100; times: string[]; timezone: string;
+  target: number; minMembers: 100; times: string[]; timezone: string;
   groups: Entry[]; observedJids: string[]; excludedJids: string[];
   attempts: Record<string, { jid: string; status: string; at: number; retryAt?: number }>;
   candidates: any[]; offset: number; catalogNextAt: number; syncAt: number; nextRunAt: number;
@@ -54,6 +56,7 @@ export interface GroupAutomationState {
   lastOperation?: string;
   membershipSnapshot?: any[];
   membershipSnapshotVersion?: 2;
+  initialTargetReachedAt?: number;
   requestedBatch?: { requested: number; requestedAt: number; confirmedJids: string[] };
   events: { at: number; text: string }[];
 }
@@ -78,11 +81,11 @@ export class GroupAutomationEngine {
   async status(user: any, db: any) {
     if ((await db.findGroupAutomationUser(GROUP_AUTOMATION_CAMPAIGN))?.id !== user.id) return { available: false };
     const state = await this.state(db, user.id);
-    if (!state) return { available: true, status: 'preparando', target: 100, count: 0, times: GROUP_AUTOMATION_TIMES };
+    if (!state) return { available: true, status: 'preparando', target: GROUP_AUTOMATION_TARGET, count: 0, times: GROUP_AUTOMATION_TIMES };
     const { attempts, candidates, observedJids, excludedJids, membershipSnapshot, ...visible } = state;
     const reasons: Record<string, number> = {};
     for (const a of Object.values(attempts)) reasons[a.status] = (reasons[a.status] || 0) + 1;
-    return { available: true, ...visible, count: state.groups.length, excluded: excludedJids.length,
+    return { available: true, ...visible, target: GROUP_AUTOMATION_TARGET, count: Math.min(GROUP_AUTOMATION_TARGET, state.groups.length), excluded: excludedJids.length,
       diagnostics: { catalogOffset: state.offset, queuedCandidates: candidates.length, attempts: Object.keys(attempts).length, reasons },
       awaitingConfirmation: Object.values(attempts).filter(a => a.status === 'confirmando').length };
   }
@@ -156,7 +159,7 @@ export class GroupAutomationEngine {
       if (this.deps.busy(campaign.id) || campaign.status === 'enviando') return;
       if (!state) {
         state = { version: 1, enabled: true, instance: record.instance_name, ownerPhone: digits(record.owner_phone),
-          campaignId: campaign.id, target: 100, minMembers: 100, times: [...GROUP_AUTOMATION_TIMES], timezone: 'America/Sao_Paulo',
+          campaignId: campaign.id, target: GROUP_AUTOMATION_TARGET, minMembers: 100, times: [...GROUP_AUTOMATION_TIMES], timezone: 'America/Sao_Paulo',
           groups: [], observedJids: [], excludedJids: [], attempts: {}, candidates: [], offset: 0,
           catalogNextAt: 0, syncAt: 0, nextRunAt: 0, failures: 0, status: 'verificando', updatedAt: this.now(), events: [] };
         this.note(state, 'Automação preparada exclusivamente para esta conta e este número.');
@@ -166,6 +169,8 @@ export class GroupAutomationEngine {
       if (state.instance !== record.instance_name || digits(record.owner_phone) !== state.ownerPhone) {
         state.status = 'numero_divergente'; state.lastError = 'O número da instância não corresponde ao número autorizado.'; return;
       }
+      state.target = GROUP_AUTOMATION_TARGET;
+      state.groups = state.groups.slice(0, state.target);
       const sub = await db.getSubscriptionForUser(user.id);
       if (!['admin', 'manager'].includes(user.role) && normalize(sub?.status) !== 'active') {
         state.status = 'plano_inativo'; return;
@@ -276,7 +281,7 @@ export class GroupAutomationEngine {
           batch.confirmedJids.push(jid);
           this.note(state, `Solicitação de novos grupos: ${batch.confirmedJids.length}/${batch.requested} entradas confirmadas.`);
         }
-        this.note(state, `Entrada confirmada: ${metadata.subject || jid} (${state.groups.length}/100).`);
+        this.note(state, `Entrada confirmada: ${metadata.subject || jid} (${state.groups.length}/${state.target}).`);
         await this.updateCampaign(db, user.id, state, campaign);
       } else {
         this.note(state, `Entrada não validada: ${info.subject || jid}. ${postJoinReason}.`);
@@ -316,7 +321,14 @@ export class GroupAutomationEngine {
       this.skipElapsedSlots(campaign, state);
       campaign.managedGroupAutomation = true;
     }
-    Object.assign(campaign, { selectedGroupJids: state.groups.map(g => g.jid), groupsCount: state.groups.length,
+    if (!state.initialTargetReachedAt && state.groups.length >= state.target) {
+      state.initialTargetReachedAt = this.now();
+      // Readiness releases only FUTURE slots; never send missed rounds at night.
+      this.skipElapsedSlots(campaign, state);
+      this.note(state, `Meta inicial de ${state.target} grupos atingida; primeiro envio no próximo horário programado.`);
+    }
+    Object.assign(campaign, { groupAutomationReady: Boolean(state.initialTargetReachedAt), groupAutomationTarget: state.target,
+      selectedGroupJids: state.groups.map(g => g.jid), groupsCount: state.groups.length,
       totalTarget: state.groups.length, scheduleMode: 'recorrente', scheduleDays: 'Todos os dias',
       scheduleTimes: [...state.times], scheduleTime: state.times[0], active: true, status: 'ativa',
       instanceName: state.instance });
@@ -331,12 +343,82 @@ export class GroupAutomationEngine {
     campaign.lastExecutedSlot = undefined;
     campaign.executed = false;
   }
+  async readyForDispatch(userId: number, instance: string, db: any): Promise<boolean> {
+    const state = await this.state(db, userId);
+    if (!state?.enabled || !state.initialTargetReachedAt || state.instance !== instance) return false;
+    const record = await db.getUserInstance(userId);
+    return record?.instance_name === instance && digits(record.owner_phone) === state.ownerPhone;
+  }
+  async reconcileForDispatch(userId: number, instance: string, memberships: any[], db: any): Promise<string[]> {
+    const release = await db.acquireGroupAutomationLock(userId);
+    if (!release) throw new Error('Verificação dos grupos em andamento; envio aguarda nova tentativa.');
+    try {
+      const state = await this.state(db, userId);
+      const record = await db.getUserInstance(userId);
+      if (!state?.enabled || !state.initialTargetReachedAt || state.instance !== instance ||
+          record?.instance_name !== instance || digits(record.owner_phone) !== state.ownerPhone) {
+        throw new Error('Aguardando completar a meta inicial de grupos na instância autorizada.');
+      }
+      const observed = new Set<string>(memberships.map(g => String(g.jid || g.id)));
+      const eligible = memberships.filter(g => !state.excludedJids.includes(g.jid || g.id) && !groupEligibility(g, true, state.ownerPhone));
+      const allowed = new Set<string>(eligible.map(g => String(g.jid || g.id)));
+      for (const previous of state.groups) {
+        if (!allowed.has(previous.jid) && !state.excludedJids.includes(previous.jid)) {
+          state.excludedJids.push(previous.jid);
+          this.note(state, 'Conferência do disparo: grupo indisponível retirado; vaga liberada para reposição.');
+        }
+      }
+      state.target = GROUP_AUTOMATION_TARGET;
+      state.groups = eligible.slice(0, state.target).map(g => ({ jid: g.jid || g.id, name: g.name || g.subject,
+        membersCount: Number(g.membersCount ?? g.size), checkedAt: this.now() }));
+      state.observedJids = [...observed];
+      state.membershipSnapshot = memberships;
+      state.membershipSnapshotVersion = 2;
+      state.syncAt = this.now(); state.updatedAt = this.now();
+      state.status = state.groups.length >= state.target ? 'meta_atingida' : 'completando_grupos';
+      this.note(state, `Conferência do disparo concluída: ${state.groups.length}/${state.target} grupos elegíveis.`);
+      await db.setAdminState(this.key(userId), state);
+      return state.groups.map(g => g.jid);
+    } finally { await release(); }
+  }
   async canSend(userId: number, instance: string, jid: string, db: any): Promise<boolean> {
     const state = await this.state(db, userId);
     if (!state?.enabled || state.instance !== instance || !state.groups.some(g => g.jid === jid) || state.excludedJids.includes(jid)) return false;
     const record = await db.getUserInstance(userId);
     if (record?.instance_name !== instance || digits(record.owner_phone) !== state.ownerPhone) return false;
     const result = await this.request(`/group/findGroupInfos/${encodeURIComponent(instance)}?groupJid=${encodeURIComponent(jid)}`);
-    return result.ok && !groupEligibility(result.data?.data || result.data, true, state.ownerPhone);
+    if (!result.ok) return false;
+    const metadata = result.data?.data || result.data;
+    if (String(metadata?.id || metadata?.jid || '') !== jid) return false;
+    const reason = groupEligibility(metadata, true, state.ownerPhone);
+    if (!reason) return true;
+    // A successful but incomplete payload is not evidence of removal/closure.
+    const size = Number(metadata.size ?? metadata.membersCount ?? metadata.participants?.length);
+    const confirmedIneligible = isCommunityRelated(metadata) || truth(metadata.announce) ||
+      truth(metadata.restrictSend) || explicitFalse(metadata.canSend) || explicitFalse(metadata.sendMessages) ||
+      (Number.isFinite(size) && size < state.minMembers) ||
+      (Array.isArray(metadata.participants) && !isConfirmedGroupMember(metadata, state.ownerPhone)) ||
+      (Boolean(metadata.subject || metadata.name || metadata.desc || metadata.description) && !permitsAdvertising(metadata));
+    if (!confirmedIneligible) return false;
+    const release = await db.acquireGroupAutomationLock(userId);
+    if (!release) return false;
+    try {
+      // Another worker may have updated/paused the binding during the API read.
+      const current = await this.state(db, userId);
+      const binding = await db.getUserInstance(userId);
+      if (!current?.enabled || current.instance !== instance || binding?.instance_name !== instance ||
+          digits(binding.owner_phone) !== current.ownerPhone || !current.groups.some(g => g.jid === jid)) return false;
+      current.groups = current.groups.filter(g => g.jid !== jid);
+      current.membershipSnapshot = current.membershipSnapshot?.filter(g => (g.jid || g.id) !== jid);
+      if (!current.excludedJids.includes(jid)) current.excludedJids.push(jid);
+      current.updatedAt = this.now();
+      current.status = 'completando_grupos';
+      // Keep any upstream cooldown: the normal worker will refill the freed slot.
+      this.note(current, `Grupo retirado dos destinos; será buscado outro. ${reason}.`);
+      await db.setAdminState(this.key(userId), current);
+      const campaign = (await db.listCampaignsForUser(userId)).find((c: any) => c.id === current.campaignId);
+      if (campaign) await this.updateCampaign(db, userId, current, campaign);
+    } finally { await release(); }
+    return false;
   }
 }
