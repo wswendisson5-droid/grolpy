@@ -3,7 +3,7 @@ import { BadgeCheck, ExternalLink, Users, ShieldCheck, Sparkles, RefreshCw, Cloc
 
 const statusLabels: Record<string, string> = {
   preparando: 'Preparando automação', verificando: 'Verificando grupos',
-  completando_grupos: 'Completando os 70 grupos', meta_atingida: 'Meta atingida',
+  completando_grupos: 'Completando os grupos', meta_atingida: 'Meta atingida',
   buscando_candidatos: 'Buscando grupos na WAZZO', aguardando_confirmacoes: 'Aguardando confirmação de entrada',
   aguardando_nova_tentativa: 'Aguardando nova tentativa', pausada: 'Automação pausada',
   aguardando_verificacao: 'Aguardando verificação', numero_divergente: 'Verifique o número conectado',
@@ -60,13 +60,13 @@ export const ClientWazzoView: React.FC = () => {
     {automation?.available && <section className="mt-5 rounded-3xl border border-emerald-100 bg-white p-5 sm:p-7">
       <div className="flex flex-wrap items-start justify-between gap-4"><div>
         <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Exclusivo desta conta</p>
-        <h2 className="mt-1 text-xl font-black text-[#203b30]">{automation.target || 70} grupos para divulgação</h2>
+        <h2 className="mt-1 text-xl font-black text-[#203b30]">{automation.target || 100} grupos para divulgação</h2>
         <p className="mt-2 text-sm text-[#74857c]">{statusLabels[automation.status] || 'Acompanhando grupos'}</p>
       </div><button onClick={() => { void load(); }} aria-label="Atualizar status da automação" className="rounded-xl border border-emerald-100 p-3 text-emerald-800"><RefreshCw size={18}/></button></div>
-      <div className="mt-6 flex items-end gap-2"><strong className="text-5xl font-black tracking-tight text-[#123f31]">{automation.count || 0}</strong><span className="pb-1 text-sm text-[#74857c]">/ {automation.target || 70} grupos validados</span></div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-50"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${Math.min(100, 100 * (automation.count || 0) / (automation.target || 70))}%` }}/></div>
+      <div className="mt-6 flex items-end gap-2"><strong className="text-5xl font-black tracking-tight text-[#123f31]">{automation.count || 0}</strong><span className="pb-1 text-sm text-[#74857c]">/ {automation.target || 100} grupos validados</span></div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-50"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${Math.min(100, 100 * (automation.count || 0) / (automation.target || 100))}%` }}/></div>
       <div className="mt-5 flex flex-wrap gap-2">{(automation.times || ['07:00', '15:00', '21:00']).map((slot: string) => <span key={slot} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800"><Clock size={14}/>{slot}</span>)}<span className="self-center text-xs text-[#74857c]">Todos os dias · Horário de Brasília</span></div>
-      <p className="mt-4 text-sm leading-6 text-[#74857c]">Grupos com pelo menos 100 participantes, conversa aberta e divulgação permitida. O primeiro envio aguarda completar os 70 grupos. A cada disparo, a participação e a permissão de fala são conferidas. Quando um grupo fica indisponível, a automação procura outro na WAZZO e atualiza os destinos da campanha Oferta Grolpy (Cópia).</p>
+      <p className="mt-4 text-sm leading-6 text-[#74857c]">Grupos com pelo menos 100 participantes, conversa aberta e divulgação permitida. O primeiro envio aguarda completar a meta. A busca roda no servidor, com no máximo uma nova entrada por rodada e intervalo mínimo de dois minutos. A cada disparo, a participação e a permissão de fala são conferidas. Quando um grupo fica indisponível, a automação procura outro na WAZZO e atualiza os destinos da campanha Oferta Grolpy (Cópia).</p>
       {automation.lastError && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{automation.lastError}</p>}
       {automation.requestedBatch && <p role="status" className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">Solicitação de mais {automation.requestedBatch.requested} grupos independentes: {automation.requestedBatch.confirmedJids.length}/{automation.requestedBatch.requested} entradas confirmadas. Comunidades e grupos vinculados a comunidades são excluídos.</p>}
       {automation.diagnostics && <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"><p className="font-semibold">{automation.diagnostics.attempts} convites verificados</p>{Object.entries(automation.diagnostics.reasons || {}).map(([reason, count]) => <p key={reason} className="mt-1 text-xs">{String(count)} · {reason}</p>)}</div>}

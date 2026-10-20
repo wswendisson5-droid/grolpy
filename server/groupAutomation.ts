@@ -2,7 +2,7 @@ import { isCommunityRelated, isConfirmedGroupMember, isOpenJoinedGroup } from '.
 
 // This rollout is explicitly restricted to the account and phone requested by its owner.
 export const GROUP_AUTOMATION_CAMPAIGN = 'div-1791448389589';
-export const GROUP_AUTOMATION_TARGET = 70;
+export const GROUP_AUTOMATION_TARGET = 100;
 export const GROUP_AUTOMATION_TIMES = ['07:00', '15:00', '21:00'];
 const normalize = (s: unknown) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 const digits = (s: unknown) => String(s || '').split('@')[0].split(':')[0].replace(/\D/g, '');
