@@ -565,3 +565,16 @@ test('a failed priority listing falls back to the ordinary catalog without chang
   assert.equal(h.state().instance, 'tenant-7');
   assert.ok(h.state().nextRunAt >= h.state().updatedAt + 120_000);
 });
+
+
+test('candidate diagnosis distinguishes a real small group from a missing upstream count without storing invite codes', async () => {
+  for (const extra of [{ size: 12 }, { size: undefined, participants: undefined }]) {
+    const h = harness(); h.catalog = [h.candidate(2, extra)]; await h.engine.tick();
+    const detail = h.state().lastCandidate;
+    assert.equal(detail.name, 'Divulgação 2');
+    assert.equal(detail.members, extra.size);
+    assert.equal(detail.memberSource, extra.size === undefined ? 'unknown' : 'size');
+    assert.ok(!JSON.stringify(detail).includes(code(2)));
+    assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+  }
+});

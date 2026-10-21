@@ -59,6 +59,7 @@ export interface GroupAutomationState {
   initialTargetReachedAt?: number;
   catalogVersion?: 2;
   prioritySeededAt?: number;
+  lastCandidate?: { name: string; members?: number; memberSource: string; reason: string; checkedAt: number; fields: string[] };
   catalogVisited?: number;
   catalogTotal?: number;
   catalogPasses?: number;
@@ -299,6 +300,15 @@ export class GroupAutomationEngine {
       const info = infoResponse.data?.data || infoResponse.data;
       const jid = String(info?.id || info?.jid || info?.groupJid || '');
       const reason = groupEligibility(info);
+      const source = ['size', 'membersCount', 'memberCount'].find(k => info?.[k] !== undefined && info?.[k] !== null);
+      const members = Number(source ? info[source] : info?.participants?.length);
+      state.lastCandidate = {
+        name: String(info?.subject || info?.name || candidate.name || 'Grupo'),
+        members: Number.isFinite(members) ? members : undefined,
+        memberSource: source || (Array.isArray(info?.participants) ? 'participants' : 'unknown'),
+        reason: reason || (truth(info?.joinApprovalMode) ? 'Exige aprovação' : observed.has(jid) ? 'Já participa' : state.excludedJids.includes(jid) ? 'Excluído anteriormente' : 'Elegível; solicitando entrada'),
+        checkedAt: this.now(), fields: Object.keys(info || {}).slice(0, 25),
+      };
       if (reason || truth(info?.joinApprovalMode) || observed.has(jid) || state.excludedJids.includes(jid)) {
         state.attempts[code] = { jid, status: reason || 'Já participa, removido anteriormente ou exige aprovação', at: this.now(), retryAt: this.now() + 24 * 60 * 60_000 }; continue;
       }
