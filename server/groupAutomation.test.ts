@@ -435,3 +435,75 @@ test('the slow worker continues after three joins without bypassing the two-minu
   assert.equal(h.state().enabled, true);
   assert.equal(h.state().status, 'completando_grupos');
 });
+
+test('stale catalog text and counts do not hide groups whose live invitation satisfies every criterion', async () => {
+  for (const catalogFields of [
+    { memberCount: 0, name: 'Grupo local', description: '' },
+    { memberCount: 99, name: 'Grupo local', description: 'Informações antigas' },
+    { memberCount: undefined, description: undefined },
+  ]) {
+    const h = harness(); h.catalog = [{ ...h.candidate(2), ...catalogFields }];
+    await h.engine.tick();
+    assert.deepEqual(h.state().groups.map((g: any) => g.jid), ['1@g.us', '2@g.us']);
+    assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+  }
+});
+
+test('broader discovery still rejects closed, small, unrelated and community live invitations', async () => {
+  for (const metadata of [{ size: 99 }, { announce: true }, { linkedParent: '99@g.us' }, { subject: 'Bate-papo', desc: 'Conversas gerais' }]) {
+    const h = harness(); h.catalog = [{ ...h.candidate(2, metadata), memberCount: 0, name: 'Sem informações', description: '' }];
+    await h.engine.tick();
+    assert.equal(h.calls.filter((s: string) => s.includes('inviteInfo')).length, 1);
+    assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 0);
+  }
+});
+
+test('known invitations are skipped before queuing so pagination can advance to new candidates', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  state.attempts[code(2)] = { jid: '2@g.us', status: 'convite_invalido', at: h.deps.now(), retryAt: h.deps.now() + 24 * 60 * 60_000 };
+  state.offset = 0; state.catalogNextAt = 0; state.candidates = []; state.nextRunAt = 0;
+  h.seed(state); h.catalog = [h.candidate(2), h.candidate(3)];
+  const offsets: number[] = [];
+  h.deps.catalog = async (offset: number) => {
+    offsets.push(offset);
+    return { groups: [h.catalog[offset === 0 ? 0 : 1]], hasMore: offset === 0, limit: 1, totalCount: 2 };
+  };
+  await h.engine.tick();
+  assert.deepEqual(offsets, [0, 1]);
+  assert.equal(h.calls.filter((s: string) => s.includes('inviteInfo')).length, 1);
+  assert.ok(h.state().groups.some((g: any) => g.jid === '3@g.us'));
+  assert.equal(h.state().catalogVisited, 2);
+  assert.equal(h.state().catalogTotal, 2);
+});
+
+test('exhausted catalogs report the real waiting state and do not hammer the same candidates', async () => {
+  const h = harness(); h.catalog = [h.candidate(2, { announce: true })];
+  let pages = 0;
+  h.deps.catalog = async () => { pages++; return { groups: clone(h.catalog), hasMore: false, limit: 25, totalCount: 1 }; };
+  await h.engine.tick();
+  assert.equal(h.state().groups.length, 1);
+  assert.equal(h.state().status, 'catalogo_percorrido');
+  assert.equal(h.state().catalogVisited, 1);
+  assert.equal(h.state().catalogTotal, 1);
+  h.advanceMs(120_000); await h.engine.tick();
+  assert.equal(pages, 1);
+  assert.equal(h.calls.filter((s: string) => s.includes('inviteInfo')).length, 1);
+  assert.equal(h.state().status, 'catalogo_percorrido');
+});
+
+test('catalog migration preserves account binding, verified attempts, exclusions and rate-limit cooldown', async () => {
+  const h = harness(); await h.engine.tick(); const state = h.state();
+  delete state.catalogVersion; state.offset = 400;
+  state.nextRunAt = h.deps.now() + 30 * 60_000;
+  state.excludedJids = ['44@g.us'];
+  state.attempts[code(2)] = { jid: '2@g.us', status: 'confirmando', at: h.deps.now() };
+  h.seed(state); await h.engine.tick();
+  assert.equal(h.state().nextRunAt, state.nextRunAt);
+  assert.equal(h.state().offset, 400);
+  h.advanceMs(30 * 60_000); await h.engine.tick();
+  assert.equal(h.state().catalogVersion, 2);
+  assert.equal(h.state().instance, state.instance);
+  assert.equal(h.state().ownerPhone, state.ownerPhone);
+  assert.deepEqual(h.state().excludedJids, state.excludedJids);
+  assert.ok(h.state().attempts[code(2)]);
+});

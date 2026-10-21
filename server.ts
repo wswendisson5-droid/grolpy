@@ -4075,11 +4075,11 @@ const groupAutomation = new GroupAutomationEngine({
   busy: campaign => activeCampaignsRunning.has(campaign),
   catalog: async offset => {
     const base = String(process.env.WAZZO_API_URL || 'https://wazzo.minhabagg.com.br/api').replace(/\/+$/, '');
-    const response = await fetch(`${base}/groups-list.php?min_members=100&limit=25&offset=${offset}&sort=members&compact=1`, { signal: AbortSignal.timeout(15000) });
+    const response = await fetch(`${base}/groups-list.php?limit=25&offset=${offset}&sort=members&compact=1`, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error('Catálogo WAZZO temporariamente indisponível.');
     const data = await response.json();
     if (data.success !== true || !Array.isArray(data.groups)) throw new Error('Resposta inválida do catálogo WAZZO.');
-    return { groups: data.groups, hasMore: data.hasMore === true, limit: Number(data.limit) || 25 };
+    return { groups: data.groups, hasMore: data.hasMore === true, limit: Number(data.limit) || 25, totalCount: Number.isFinite(Number(data.totalCount)) ? Number(data.totalCount) : undefined };
   },
 });
 // No browser/login is needed for maintenance. MySQL persists progress and arbitrates workers.

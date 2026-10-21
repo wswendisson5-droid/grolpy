@@ -57,6 +57,12 @@ export interface GroupAutomationState {
   membershipSnapshot?: any[];
   membershipSnapshotVersion?: 2;
   initialTargetReachedAt?: number;
+  catalogVersion?: 2;
+  catalogVisited?: number;
+  catalogTotal?: number;
+  catalogPasses?: number;
+  catalogPassComplete?: boolean;
+  catalogLastCompletedAt?: number;
   requestedBatch?: { requested: number; requestedAt: number; confirmedJids: string[] };
   events: { at: number; text: string }[];
 }
@@ -65,7 +71,7 @@ export interface GroupAutomationDeps {
   database(): Promise<any>;
   evolution(endpoint: string, options?: { method?: string }): Promise<EvolutionResult>;
   joined(instance: string, userId: number, db: any): Promise<any[]>;
-  catalog(offset: number): Promise<{ groups: any[]; hasMore: boolean; limit: number }>;
+  catalog(offset: number): Promise<{ groups: any[]; hasMore: boolean; limit: number; totalCount?: number }>;
   busy(campaign: string): boolean;
   now?(): number;
 }
@@ -169,6 +175,14 @@ export class GroupAutomationEngine {
       if (state.instance !== record.instance_name || digits(record.owner_phone) !== state.ownerPhone) {
         state.status = 'numero_divergente'; state.lastError = 'O número da instância não corresponde ao número autorizado.'; return;
       }
+      if (state.catalogVersion !== 2) {
+        // The previous scan trusted stale catalog counts/text and never checked
+        // many valid invitations. Revisit the catalog, preserving verified attempts,
+        // account binding, exclusions and the upstream cooldown.
+        state.catalogVersion = 2; state.offset = 0; state.candidates = [];
+        state.catalogNextAt = 0; state.catalogVisited = 0; state.catalogPassComplete = false;
+        this.note(state, 'Busca ampliada: os critérios serão conferidos no convite atualizado, sem descartar pelos dados antigos do catálogo.');
+      }
       state.target = GROUP_AUTOMATION_TARGET;
       state.groups = state.groups.slice(0, state.target);
       const sub = await db.getSubscriptionForUser(user.id);
@@ -228,13 +242,26 @@ export class GroupAutomationEngine {
         state.lastOperation = 'consultando catálogo WAZZO';
         const page = await this.deps.catalog(state.offset);
         pagesRead++;
-        state.candidates = page.groups.filter(g => inviteCode(g.whatsappLink) && Number(g.memberCount) >= 100 && permitsAdvertising(g))
-          .map(g => ({ name: g.name, description: g.description, whatsappLink: g.whatsappLink }));
+        if (state.offset === 0) { state.catalogVisited = 0; state.catalogPassComplete = false; }
+        state.catalogVisited = state.offset + page.groups.length;
+        if (Number.isFinite(page.totalCount)) state.catalogTotal = page.totalCount;
+        // Discovery is read-only: stored text/counts can be stale or absent.
+        // The unchanged live eligibility checks below authorize every actual join.
+        state.candidates = page.groups.filter(g => {
+          const code = inviteCode(g.whatsappLink);
+          if (!code) return false;
+          const attempt = state!.attempts[code];
+          return !attempt || Boolean(attempt.retryAt && attempt.retryAt <= this.now());
+        }).map(g => ({ name: g.name, description: g.description, whatsappLink: g.whatsappLink }));
+        if (!page.hasMore) {
+          state.catalogPassComplete = true; state.catalogLastCompletedAt = this.now();
+          state.catalogPasses = (state.catalogPasses || 0) + 1;
+        }
         state.offset = page.hasMore ? state.offset + page.limit : 0;
         state.catalogNextAt = page.hasMore ? this.now() : this.now() + 30 * 60_000;
       }
       const candidate = state.candidates.shift();
-      if (!candidate) { state.status = 'buscando_candidatos'; state.failures = 0; continue; }
+      if (!candidate) { state.status = state.catalogPassComplete ? 'catalogo_percorrido' : 'buscando_candidatos'; state.failures = 0; continue; }
       const code = inviteCode(candidate.whatsappLink)!;
       const attempt = state.attempts[code];
       if (attempt && (!attempt.retryAt || attempt.retryAt > this.now())) continue;
@@ -297,6 +324,10 @@ export class GroupAutomationEngine {
         }
       }
       break;
+      }
+      if (!state.candidates.length && state.catalogPassComplete && state.catalogNextAt > this.now() && state.groups.length < state.target) {
+        state.status = 'catalogo_percorrido';
+        state.lastOperation = 'aguardando novos candidatos elegíveis no catálogo';
       }
       state.failures = 0;
     } catch (e: any) {
