@@ -507,3 +507,11 @@ test('catalog migration preserves account binding, verified attempts, exclusions
   assert.deepEqual(h.state().excludedJids, state.excludedJids);
   assert.ok(h.state().attempts[code(2)]);
 });
+
+
+test('status identifies the running catalog engine even before the persisted migration executes', async () => {
+  const h = harness();
+  assert.equal((await h.engine.status(h.user, h.db)).catalogEngineVersion, 2);
+  await h.engine.tick(); const state = h.state(); delete state.catalogVersion; h.seed(state);
+  assert.equal((await h.engine.status(h.user, h.db)).catalogEngineVersion, 2);
+});

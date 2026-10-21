@@ -87,11 +87,11 @@ export class GroupAutomationEngine {
   async status(user: any, db: any) {
     if ((await db.findGroupAutomationUser(GROUP_AUTOMATION_CAMPAIGN))?.id !== user.id) return { available: false };
     const state = await this.state(db, user.id);
-    if (!state) return { available: true, status: 'preparando', target: GROUP_AUTOMATION_TARGET, count: 0, times: GROUP_AUTOMATION_TIMES };
+    if (!state) return { available: true, catalogEngineVersion: 2, status: 'preparando', target: GROUP_AUTOMATION_TARGET, count: 0, times: GROUP_AUTOMATION_TIMES };
     const { attempts, candidates, observedJids, excludedJids, membershipSnapshot, ...visible } = state;
     const reasons: Record<string, number> = {};
     for (const a of Object.values(attempts)) reasons[a.status] = (reasons[a.status] || 0) + 1;
-    return { available: true, ...visible, target: GROUP_AUTOMATION_TARGET, count: Math.min(GROUP_AUTOMATION_TARGET, state.groups.length), excluded: excludedJids.length,
+    return { available: true, catalogEngineVersion: 2, ...visible, target: GROUP_AUTOMATION_TARGET, count: Math.min(GROUP_AUTOMATION_TARGET, state.groups.length), excluded: excludedJids.length,
       diagnostics: { catalogOffset: state.offset, queuedCandidates: candidates.length, attempts: Object.keys(attempts).length, reasons },
       awaitingConfirmation: Object.values(attempts).filter(a => a.status === 'confirmando').length };
   }

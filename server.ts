@@ -340,8 +340,13 @@ function formatChatTime(dateInput?: string | number): string {
 
 // 1. Health check
 app.get("/api/health", (_req, res) => {
+  // Passenger can suspend idle workers before their next interval fires. The
+  // existing cron health request also wakes the enabled maintenance job.
+  // tick preserves its account lease and persisted upstream cooldown.
+  void groupAutomation.tick().catch(() => console.warn('[GroupAutomation] Aguardando próxima verificação.'));
   res.json({
     status: "ok",
+    groupAutomationCatalogVersion: 2,
     release: "groply-20261007-session-v3",
     evolutionConfigured: Boolean(memoryState.apiUrl && memoryState.apiKey),
     instanceName: memoryState.instanceName,
