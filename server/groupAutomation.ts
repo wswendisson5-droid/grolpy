@@ -87,11 +87,11 @@ export class GroupAutomationEngine {
   async status(user: any, db: any) {
     if ((await db.findGroupAutomationUser(GROUP_AUTOMATION_CAMPAIGN))?.id !== user.id) return { available: false };
     const state = await this.state(db, user.id);
-    if (!state) return { available: true, catalogEngineVersion: 2, status: 'preparando', target: GROUP_AUTOMATION_TARGET, count: 0, times: GROUP_AUTOMATION_TIMES };
+    if (!state) return { available: true, catalogEngineVersion: 2, dispatchRequiresFullTarget: true, status: 'preparando', target: GROUP_AUTOMATION_TARGET, count: 0, times: GROUP_AUTOMATION_TIMES };
     const { attempts, candidates, observedJids, excludedJids, membershipSnapshot, ...visible } = state;
     const reasons: Record<string, number> = {};
     for (const a of Object.values(attempts)) reasons[a.status] = (reasons[a.status] || 0) + 1;
-    return { available: true, catalogEngineVersion: 2, ...visible, target: GROUP_AUTOMATION_TARGET, count: Math.min(GROUP_AUTOMATION_TARGET, state.groups.length), excluded: excludedJids.length,
+    return { available: true, catalogEngineVersion: 2, dispatchRequiresFullTarget: true, ...visible, target: GROUP_AUTOMATION_TARGET, count: Math.min(GROUP_AUTOMATION_TARGET, state.groups.length), excluded: excludedJids.length,
       diagnostics: { catalogOffset: state.offset, queuedCandidates: candidates.length, attempts: Object.keys(attempts).length, reasons },
       awaitingConfirmation: Object.values(attempts).filter(a => a.status === 'confirmando').length };
   }
@@ -358,7 +358,7 @@ export class GroupAutomationEngine {
       this.skipElapsedSlots(campaign, state);
       this.note(state, `Meta inicial de ${state.target} grupos atingida; primeiro envio no próximo horário programado.`);
     }
-    Object.assign(campaign, { groupAutomationReady: Boolean(state.initialTargetReachedAt), groupAutomationTarget: state.target,
+    Object.assign(campaign, { groupAutomationReady: Boolean(state.initialTargetReachedAt) && state.groups.length >= state.target, groupAutomationTarget: state.target,
       selectedGroupJids: state.groups.map(g => g.jid), groupsCount: state.groups.length,
       totalTarget: state.groups.length, scheduleMode: 'recorrente', scheduleDays: 'Todos os dias',
       scheduleTimes: [...state.times], scheduleTime: state.times[0], active: true, status: 'ativa',
@@ -376,7 +376,7 @@ export class GroupAutomationEngine {
   }
   async readyForDispatch(userId: number, instance: string, db: any): Promise<boolean> {
     const state = await this.state(db, userId);
-    if (!state?.enabled || !state.initialTargetReachedAt || state.instance !== instance) return false;
+    if (!state?.enabled || !state.initialTargetReachedAt || state.groups.length < GROUP_AUTOMATION_TARGET || state.instance !== instance) return false;
     const record = await db.getUserInstance(userId);
     return record?.instance_name === instance && digits(record.owner_phone) === state.ownerPhone;
   }
@@ -409,6 +409,9 @@ export class GroupAutomationEngine {
       state.status = state.groups.length >= state.target ? 'meta_atingida' : 'completando_grupos';
       this.note(state, `Conferência do disparo concluída: ${state.groups.length}/${state.target} grupos elegíveis.`);
       await db.setAdminState(this.key(userId), state);
+      if (state.groups.length < state.target) {
+        throw Object.assign(new Error(`Envio aguardando reposição: ${state.groups.length}/${state.target} grupos elegíveis.`), { awaitingGroupRefill: true });
+      }
       return state.groups.map(g => g.jid);
     } finally { await release(); }
   }

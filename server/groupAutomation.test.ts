@@ -383,17 +383,18 @@ test('each dispatch reconciles missing, closed and community groups before any d
   h.live = h.live.filter((g: any) => g.id !== '1@g.us');
   h.live[0].announce = true;
   h.live[1].linkedParent = '999@g.us';
-  const destinations = await h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db);
+  await assert.rejects(h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db), /97\/100/);
+  const destinations = h.state().groups.map((g: any) => g.jid);
   assert.equal(destinations.length, 97);
   for (const jid of ['1@g.us', '2@g.us', '3@g.us']) {
     assert.equal(destinations.includes(jid), false);
     assert.ok(h.state().excludedJids.includes(jid));
   }
   assert.equal(h.state().initialTargetReachedAt, reached);
-  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), true);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), false);
   h.catalog = [h.candidate(101)]; h.advance(); await h.engine.tick();
   assert.equal(h.state().groups.length, 98);
-  assert.equal(h.campaign.groupAutomationReady, true);
+  assert.equal(h.campaign.groupAutomationReady, false);
 });
 
 test('a legacy 70-group target migrates to 100 without resetting a persisted cooldown', async () => {
@@ -514,4 +515,27 @@ test('status identifies the running catalog engine even before the persisted mig
   assert.equal((await h.engine.status(h.user, h.db)).catalogEngineVersion, 2);
   await h.engine.tick(); const state = h.state(); delete state.catalogVersion; h.seed(state);
   assert.equal((await h.engine.status(h.user, h.db)).catalogEngineVersion, 2);
+});
+
+
+test('every round waits at 99 and becomes ready again only after the replacement reaches 100', async () => {
+  const h = harness(); h.live = Array.from({ length: 100 }, (_, i) => group(i + 1));
+  await h.engine.tick();
+  const reached = h.state().initialTargetReachedAt;
+  assert.equal(h.campaign.groupAutomationReady, true);
+  const full = await h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db);
+  assert.equal(full.length, 100);
+  h.live = h.live.filter((g: any) => g.id !== '100@g.us');
+  await assert.rejects(h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db), (error: any) => error.awaitingGroupRefill === true);
+  assert.equal(h.state().groups.length, 99);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), false);
+  h.catalog = [h.candidate(101)]; h.advance(); await h.engine.tick();
+  assert.equal(h.state().groups.length, 100);
+  assert.equal(h.campaign.groupAutomationReady, true);
+  assert.equal(h.state().initialTargetReachedAt, reached);
+  assert.equal(await h.engine.readyForDispatch(7, 'tenant-7', h.db), true);
+  const replaced = await h.engine.reconcileForDispatch(7, 'tenant-7', h.live, h.db);
+  assert.equal(replaced.length, 100);
+  assert.ok(replaced.includes('101@g.us'));
+  assert.equal(replaced.includes('100@g.us'), false);
 });
