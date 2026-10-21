@@ -539,3 +539,29 @@ test('every round waits at 99 and becomes ready again only after the replacement
   assert.ok(replaced.includes('101@g.us'));
   assert.equal(replaced.includes('100@g.us'), false);
 });
+
+
+test('recent classifieds are prioritized by relevance while live eligibility still controls the join', async () => {
+  const h = harness();
+  const unrelated = { ...h.candidate(2, { subject: 'Bate papo', desc: 'Conversas gerais' }), name: 'Bate papo', description: '' };
+  const sales = h.candidate(3);
+  h.catalog = [unrelated, sales];
+  let reads = 0;
+  h.deps.priorityCatalog = async () => { reads++; return clone([unrelated, sales]); };
+  await h.engine.tick();
+  assert.equal(h.state().groups.length, 2);
+  assert.ok(h.state().groups.some((g: any) => g.jid === '3@g.us'));
+  assert.equal(h.calls.filter((s: string) => s.includes('inviteInfo')).length, 1);
+  assert.equal(h.calls.filter((s: string) => s.includes('acceptInviteCode')).length, 1);
+  h.advanceMs(120_000); await h.engine.tick();
+  assert.equal(reads, 1);
+});
+
+test('a failed priority listing falls back to the ordinary catalog without changing the cooldown or account', async () => {
+  const h = harness(); h.catalog = [h.candidate(2)];
+  h.deps.priorityCatalog = async () => { throw new Error('unavailable'); };
+  await h.engine.tick();
+  assert.ok(h.state().groups.some((g: any) => g.jid === '2@g.us'));
+  assert.equal(h.state().instance, 'tenant-7');
+  assert.ok(h.state().nextRunAt >= h.state().updatedAt + 120_000);
+});

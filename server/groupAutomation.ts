@@ -58,6 +58,7 @@ export interface GroupAutomationState {
   membershipSnapshotVersion?: 2;
   initialTargetReachedAt?: number;
   catalogVersion?: 2;
+  prioritySeededAt?: number;
   catalogVisited?: number;
   catalogTotal?: number;
   catalogPasses?: number;
@@ -72,6 +73,7 @@ export interface GroupAutomationDeps {
   evolution(endpoint: string, options?: { method?: string }): Promise<EvolutionResult>;
   joined(instance: string, userId: number, db: any): Promise<any[]>;
   catalog(offset: number): Promise<{ groups: any[]; hasMore: boolean; limit: number; totalCount?: number }>;
+  priorityCatalog?(): Promise<any[]>;
   busy(campaign: string): boolean;
   now?(): number;
 }
@@ -234,6 +236,29 @@ export class GroupAutomationEngine {
       const pending = Object.values(state.attempts).filter(a => a.status === 'confirmando' && !observed.has(a.jid) && !state!.excludedJids.includes(a.jid)).length;
       if (state.groups.length + pending >= state.target) { state.status = 'aguardando_confirmacoes'; return; }
 
+      // Prioritize recent classifieds without excluding the rest of the catalog.
+      // This changes discovery order only; live membership/admission rules stay strict.
+      if (this.deps.priorityCatalog && (!state.prioritySeededAt || this.now() - state.prioritySeededAt >= 6 * 60 * 60_000)) {
+        state.lastOperation = 'buscando classificados recentes';
+        try {
+          const priority = await this.deps.priorityCatalog();
+          const queued = new Set(state.candidates.map(g => inviteCode(g.whatsappLink)));
+          const additions = priority.filter(g => {
+            const code = inviteCode(g.whatsappLink);
+            if (!code || queued.has(code)) return false;
+            const attempt = state!.attempts[code];
+            if (attempt && (!attempt.retryAt || attempt.retryAt > this.now())) return false;
+            queued.add(code); return true;
+          }).sort((a, b) => Number(permitsAdvertising(b)) - Number(permitsAdvertising(a)))
+            .map(g => ({ name: g.name, description: g.description, whatsappLink: g.whatsappLink }));
+          state.candidates = [...additions, ...state.candidates];
+          state.prioritySeededAt = this.now();
+          this.note(state, `Classificados recentes: ${additions.length} candidatos novos priorizados para validação.`);
+        } catch {
+          // A priority listing failure must not block the ordinary paginated scan.
+          state.prioritySeededAt = this.now() - 5 * 60 * 60_000;
+        }
+      }
       // Scan several rejected/known candidates per pass, while accepting at most one new invitation.
       let pagesRead = 0;
       for (let checked = 0; checked < 5; checked++) {

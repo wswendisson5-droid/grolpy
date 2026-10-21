@@ -4078,6 +4078,14 @@ const groupAutomation = new GroupAutomationEngine({
     return memberships;
   },
   busy: campaign => activeCampaignsRunning.has(campaign),
+  priorityCatalog: async () => {
+    const base = String(process.env.WAZZO_API_URL || 'https://wazzo.minhabagg.com.br/api').replace(/\/+$/, '');
+    const response = await fetch(`${base}/groups-list.php?category=Classificados&limit=100&offset=0&sort=recent&compact=1`, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error('Classificados indisponíveis.');
+    const data = await response.json();
+    if (data.success !== true || !Array.isArray(data.groups)) throw new Error('Resposta inválida dos classificados.');
+    return data.groups;
+  },
   catalog: async offset => {
     const base = String(process.env.WAZZO_API_URL || 'https://wazzo.minhabagg.com.br/api').replace(/\/+$/, '');
     const response = await fetch(`${base}/groups-list.php?limit=25&offset=${offset}&sort=members&compact=1`, { signal: AbortSignal.timeout(15000) });
